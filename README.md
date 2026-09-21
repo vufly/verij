@@ -1,15 +1,15 @@
-# Hiên
+# Verij
 
-**Hiên** is a workspace layer for Zellij.
+**Verij** is a workspace layer for Zellij.
 
-The name comes from the Vietnamese word **“hiên”**, meaning a veranda or transitional space between the inside and outside of a house.
+The name comes from a blend of **“very”** and **“zellij”**.
 
 The project explores using Zellij nested sessions to add a workspace layer above Zellij's existing session → tab → pane hierarchy.
 
 The intended architecture is roughly:
 
 ```text
-Hiên
+Verij
 ├── persistent sidebar / workspace navigation
 ├── global status
 └── workspace
