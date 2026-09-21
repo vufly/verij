@@ -1,0 +1,22 @@
+[package]
+name = "verij-plugin"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Verij headless WASM plugin for Zellij — state broadcaster via native pipes"
+
+# WASM cdylib: required for Zellij plugin runtime
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+# Zellij plugin API — must match the running Zellij version
+zellij-tile = "0.45"
+
+# Serialization for the JSON wire format
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# NOTE: WASM-size-optimized release profile is defined in the workspace root Cargo.toml.

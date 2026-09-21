@@ -1,0 +1,23 @@
+[workspace]
+members = [
+    "verij-cli",
+    "verij-plugin",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Verij Contributors"]
+license = "MIT"
+
+# ---------------------------------------------------------------------------
+# Release profile: optimized for WASM binary size.
+# Both crates share this profile; it's also appropriate for the native binary.
+# ---------------------------------------------------------------------------
+[profile.release]
+opt-level = "z"     # minimize binary size (especially important for WASM)
+lto = true
+codegen-units = 1
+panic = "abort"     # no unwinding needed in WASM; also saves space in native
+strip = true

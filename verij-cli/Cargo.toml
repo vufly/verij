@@ -1,0 +1,29 @@
+[package]
+name = "verij-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Verij workspace manager CLI and TUI for Zellij"
+
+[[bin]]
+name = "verij"
+path = "src/main.rs"
+
+[dependencies]
+# TUI framework
+ratatui = "0.30"
+crossterm = "0.28"
+
+# CLI argument parsing
+clap = { version = "4", features = ["derive"] }
+
+# Async runtime for concurrent pipe reading + event loop
+tokio = { version = "1", features = ["full"] }
+
+# Serialization (matches wire format with verij-plugin)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Structured error handling
+anyhow = "1"
