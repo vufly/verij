@@ -57,6 +57,11 @@ Verij is a nested workspace and session manager for the Zellij terminal multiple
 - [x] **4.5** Mouse support: Click to select item, double-click (<400ms) to attach, mouse wheel up/down to scroll list.
 - [x] **4.6** Dynamic resizing: `CEvent::Resize` with terminal clearing and redrawing (from M1).
 - [x] **4.7** Tree collapse/expand: `Space` / `Tab` toggles folding; `h`/`Left` collapses or jumps to parent; `l`/`Right` expands; cursor preserves logical session.
+- [x] **4.8** Active Tab Resolution & 256-Color Palette:
+  - Cursor row: theme-neutral `bg=243, fg=0` (works across dark and light terminal backgrounds).
+  - Workspace active tab: `bg=1, fg=255` (red background, bright white text).
+  - Selected + active tab: row gets `bg=243, fg=0`, tab name badge explicitly gets `bg=1, fg=255`.
+  - Authoritative single active tab resolution: queries `zellij action current-tab-info` for the workspace attached session to resolve ghost active tabs caused by Zellij multi-client attachment. Strictly one active tab across entire sidebar.
 
 ---
 
