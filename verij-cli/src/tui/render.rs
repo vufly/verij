@@ -24,7 +24,6 @@ const COLOR_TITLE: Color = Color::Indexed(6);          // Cyan
 const COLOR_BORDER: Color = Color::Indexed(8);         // Muted Gray / Bright Black
 const COLOR_SESSION: Color = Color::Indexed(4);        // Blue
 const COLOR_CURRENT_MARKER: Color = Color::Indexed(2); // Green
-const COLOR_TAB_ACTIVE: Color = Color::Indexed(2);     // Green
 const COLOR_TAB_NORMAL: Color = Color::Reset;          // Terminal default foreground
 const COLOR_FOLD_ICON: Color = Color::Indexed(8);      // Muted Gray
 const COLOR_MUTED: Color = Color::Indexed(8);          // Muted Gray
@@ -35,6 +34,10 @@ const COLOR_SPINNER: Color = Color::Indexed(6);        // Cyan
 // Selected row pair: neutral medium-gray with black text (dark & light compatible)
 const COLOR_SELECTED_BG: Color = Color::Indexed(243);
 const COLOR_SELECTED_FG: Color = Color::Indexed(0);
+
+// Active tab pair: bright white background with dark gray text
+const COLOR_ACTIVE_TAB_BG: Color = Color::Indexed(15);
+const COLOR_ACTIVE_TAB_FG: Color = Color::Indexed(8);
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -106,11 +109,17 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
 fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
     let mut spans = Vec::new();
 
-    // Invert/standardize colors when row is selected to guarantee high contrast on bg=243
-    let (fold_fg, current_fg, session_fg, active_fg, normal_fg, muted_fg) = if is_selected {
+    let is_active_tab = match node {
+        TreeNode::Tab { is_active, .. } => *is_active,
+        _ => false,
+    };
+
+    // Color resolution:
+    // - If row is selected: normalize to COLOR_SELECTED_FG (0/black) on COLOR_SELECTED_BG (243/gray)
+    // - If row is active tab: use COLOR_ACTIVE_TAB_FG (8/dark gray) on COLOR_ACTIVE_TAB_BG (15/white)
+    // - Otherwise: use theme foreground colors
+    let (fold_fg, current_fg, session_fg, muted_fg) = if is_selected {
         (
-            COLOR_SELECTED_FG,
-            COLOR_SELECTED_FG,
             COLOR_SELECTED_FG,
             COLOR_SELECTED_FG,
             COLOR_SELECTED_FG,
@@ -121,8 +130,6 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
             COLOR_FOLD_ICON,
             COLOR_CURRENT_MARKER,
             COLOR_SESSION,
-            COLOR_TAB_ACTIVE,
-            COLOR_TAB_NORMAL,
             COLOR_MUTED,
         )
     };
@@ -161,10 +168,20 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
             if *is_collapsed {
                 if let Some(tab) = active_tab {
                     spans.push(Span::raw(" "));
-                    spans.push(Span::styled(
-                        format!("[{tab}]"),
-                        Style::default().fg(active_fg).add_modifier(Modifier::BOLD),
-                    ));
+                    if is_selected {
+                        spans.push(Span::styled(
+                            format!("[{tab}]"),
+                            Style::default().fg(COLOR_SELECTED_FG).add_modifier(Modifier::BOLD),
+                        ));
+                    } else {
+                        spans.push(Span::styled(
+                            format!(" [{tab}] "),
+                            Style::default()
+                                .bg(COLOR_ACTIVE_TAB_BG)
+                                .fg(COLOR_ACTIVE_TAB_FG)
+                                .add_modifier(Modifier::BOLD),
+                        ));
+                    }
                 }
                 if *tab_count > 0 {
                     spans.push(Span::raw(" "));
@@ -189,18 +206,38 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
             // Indentation
             spans.push(Span::raw("    "));
 
-            // Tab active dot
             if *is_active {
-                spans.push(Span::styled("● ", Style::default().fg(active_fg)));
-                spans.push(Span::styled(
-                    name.clone(),
-                    Style::default().fg(active_fg).add_modifier(Modifier::BOLD),
-                ));
+                if is_selected {
+                    // Line is selected (bg=243, fg=0), but tab name specifically gets bg=15, fg=8
+                    spans.push(Span::styled(
+                        "● ",
+                        Style::default().fg(COLOR_SELECTED_FG).add_modifier(Modifier::BOLD),
+                    ));
+                    spans.push(Span::styled(
+                        format!(" {name} "),
+                        Style::default()
+                            .bg(COLOR_ACTIVE_TAB_BG)
+                            .fg(COLOR_ACTIVE_TAB_FG)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    // Active tab, not selected: entire line styled with bg=15, fg=8
+                    spans.push(Span::styled(
+                        "● ",
+                        Style::default().fg(COLOR_ACTIVE_TAB_FG).add_modifier(Modifier::BOLD),
+                    ));
+                    spans.push(Span::styled(
+                        name.clone(),
+                        Style::default().fg(COLOR_ACTIVE_TAB_FG).add_modifier(Modifier::BOLD),
+                    ));
+                }
             } else {
-                spans.push(Span::styled("○ ", Style::default().fg(muted_fg)));
+                let dot_fg = if is_selected { COLOR_SELECTED_FG } else { COLOR_MUTED };
+                let text_fg = if is_selected { COLOR_SELECTED_FG } else { COLOR_TAB_NORMAL };
+                spans.push(Span::styled("○ ", Style::default().fg(dot_fg)));
                 spans.push(Span::styled(
                     name.clone(),
-                    Style::default().fg(normal_fg),
+                    Style::default().fg(text_fg),
                 ));
             }
         }
@@ -210,6 +247,8 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
     let mut item = ListItem::new(line);
     if is_selected {
         item = item.style(Style::default().bg(COLOR_SELECTED_BG).fg(COLOR_SELECTED_FG));
+    } else if is_active_tab {
+        item = item.style(Style::default().bg(COLOR_ACTIVE_TAB_BG).fg(COLOR_ACTIVE_TAB_FG));
     }
     item
 }
