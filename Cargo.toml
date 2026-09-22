@@ -2,6 +2,7 @@
 members = [
     "verij-cli",
     "verij-plugin",
+    "verij-types",
 ]
 resolver = "2"
 

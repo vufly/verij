@@ -10,35 +10,9 @@
 ///
 /// This plugin has NO visual output (render() is a no-op). It acts purely as
 /// a bridge between Zellij's internal state and the external Ratatui TUI process.
-use serde::Serialize;
 use std::collections::BTreeMap;
+use verij_types::{SessionSnapshot, TabSnapshot, VERIJ_EVENTS_PIPE};
 use zellij_tile::prelude::*;
-
-// ---------------------------------------------------------------------------
-// Wire-format types (must stay in sync with verij-cli/src/pipe_reader.rs)
-// ---------------------------------------------------------------------------
-
-/// A compact, serializable snapshot of a single Zellij session.
-#[derive(Serialize, PartialEq, Clone, Debug)]
-struct SessionSnapshot {
-    /// Session name (globally unique within a Zellij server).
-    name: String,
-    /// True if this is the session the plugin is currently running inside.
-    is_current: bool,
-    /// Ordered list of tabs in this session.
-    tabs: Vec<TabSnapshot>,
-}
-
-/// A compact, serializable snapshot of a single tab.
-#[derive(Serialize, PartialEq, Clone, Debug)]
-struct TabSnapshot {
-    /// Display name of the tab.
-    name: String,
-    /// Zero-based position index (used for `go-to-tab` actions).
-    position: usize,
-    /// Whether this tab is currently focused in its session.
-    is_active: bool,
-}
 
 // ---------------------------------------------------------------------------
 // Plugin state
@@ -203,7 +177,7 @@ impl ZellijPlugin for State {
     /// Called when a Zellij pipe message arrives for this plugin.
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
         eprintln!("[verij-plugin] pipe() called: name={}, source={:?}", pipe_message.name, pipe_message.source);
-        if pipe_message.name == "verij_events" {
+        if pipe_message.name == VERIJ_EVENTS_PIPE {
             match &pipe_message.source {
                 PipeSource::Cli(pipe_id) => {
                     eprintln!("[verij-plugin] CLI pipe connected, pipe_id={}", pipe_id);

@@ -17,7 +17,7 @@ Verij is a nested workspace and session manager for the Zellij terminal multiple
 - [x] **1.7** Implemented workspace pane detection and seamless session switching (sending `SIGTERM` to existing `zellij attach` process, pre-focusing workspace pane to avoid modal hangs, and attaching new target).
 - [x] **1.8** Implemented responsive TUI resizing handling (`CEvent::Resize`).
 
-### Milestone 2 — `verij start` & `verij attach`
+### Milestone 2 — `verij start` & `verij attach` (`9102666`)
 - [x] **2.1** `verij start` subcommand (`verij-cli`):
   - Validates session state against `zellij list-sessions`. Auto-attaches if already running (unless `--no-attach` passed).
   - Resolves plugin WASM binary and `verij` binary paths automatically.
@@ -36,20 +36,29 @@ Verij is a nested workspace and session manager for the Zellij terminal multiple
 - [x] **2.5** Updated `Makefile`:
   - `make run` executes `target/release/verij start`.
 
+### Milestone 3 — `verij-types` Shared Crate
+- [x] **3.1** Created library crate `verij-types` in workspace (`[lib]`, zero OS/WASM dependencies, serde-only).
+- [x] **3.2** Extracted shared wire & model types:
+  - `SessionSnapshot`, `TabSnapshot`, `active_tab()` helper.
+  - `VERIJ_EVENTS_PIPE` constant ("verij_events").
+  - Serialization roundtrip unit tests.
+- [x] **3.3** Updated `verij-plugin` and `verij-cli`:
+  - Added `verij-types` dependency to both crates.
+  - Removed duplicate struct and constant definitions in `verij-plugin/src/main.rs` and `verij-cli/src/pipe_reader.rs`.
+- [x] **3.4** Verified cross-compilation:
+  - Clean compilation for both `wasm32-wasip1` and native target with 0 warnings.
+  - Workspace test suite passing.
+
 ---
 
-## Active Milestone: Milestone 3 — `verij-types` Shared Crate
+## Active Milestone: Milestone 4 — TUI Polish
 
-**Goal:** Eliminate dual wire-type definitions between `verij-plugin` (WASM) and `verij-cli` (Native).
+**Goal:** Production-quality sidebar UX with robust navigation, tree folding, badges, and animations.
 
 ### Tasks
-- [ ] **3.1** Create new library crate `verij-types` in workspace:
-  - Pure Rust library (`[lib]`) with zero OS or WASM dependencies.
-  - Lightweight serde dependencies (`serde`, `serde_json`).
-- [ ] **3.2** Extract shared snapshots & models into `verij-types`:
-  - `SessionSnapshot`, `TabSnapshot`, and any protocol messages.
-- [ ] **3.3** Update `verij-plugin` and `verij-cli`:
-  - Reference `verij-types` as a workspace dependency.
-  - Remove duplicate struct definitions in `verij-plugin/src/main.rs` and `verij-cli/src/pipe_reader.rs`.
-- [ ] **3.4** Verify cross-compilation:
-  - Ensure cargo resolver cleanly builds for both `wasm32-wasip1` and native targets with zero drift.
+- [ ] **4.1** Scrolling: Virtual viewport when node list exceeds terminal height (`ListState::offset` / scrolling window).
+- [ ] **4.2** Session count badge in title: `Verij (3 sessions)`.
+- [ ] **4.3** Tab activity indicator: Show active-tab name inline on session row when collapsed.
+- [ ] **4.4** Animated empty state: Animated spinner / connecting indicator while waiting for plugin initial snapshot.
+- [ ] **4.5** Mouse support: Click to select, double-click to attach.
+- [ ] **4.6** Tree collapse / expand: `Space` or `Tab` toggles a session's tab list (`collapsed: HashSet<String>`).

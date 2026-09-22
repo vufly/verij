@@ -27,3 +27,6 @@ serde_json = "1"
 
 # Structured error handling
 anyhow = "1"
+
+# Shared types
+verij-types = { path = "../verij-types" }

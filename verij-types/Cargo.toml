@@ -1,0 +1,13 @@
+[package]
+name = "verij-types"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Shared wire and snapshot types for Verij CLI and Plugin"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

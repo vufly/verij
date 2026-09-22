@@ -6,32 +6,13 @@
 /// Each complete line is parsed as `Vec<SessionSnapshot>` and forwarded
 /// to the TUI event loop via an `mpsc::Sender`.
 use anyhow::Result;
-use serde::Deserialize;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 use tokio::sync::mpsc;
 
-// ---------------------------------------------------------------------------
-// Wire-format types (must stay in sync with verij-plugin/src/main.rs)
-// ---------------------------------------------------------------------------
-
-/// A single session as received from the plugin's JSON snapshot.
-#[derive(Debug, Clone, Deserialize)]
-pub struct SessionSnapshot {
-    pub name: String,
-    pub is_current: bool,
-    pub tabs: Vec<TabSnapshot>,
-}
-
-/// A single tab within a session snapshot.
-#[derive(Debug, Clone, Deserialize)]
-pub struct TabSnapshot {
-    pub name: String,
-    pub position: usize,
-    pub is_active: bool,
-}
-
-use std::time::Duration;
+// Re-export shared wire-format types and constants
+pub use verij_types::{SessionSnapshot, VERIJ_EVENTS_PIPE};
 
 /// Spawns `zellij pipe --name verij_events` and forwards snapshots to `tx`.
 ///
@@ -46,7 +27,7 @@ pub fn spawn_pipe_reader(
             if let Ok(session) = std::env::var("ZELLIJ_SESSION_NAME") {
                 cmd.args(["-s", &session]);
             }
-            cmd.args(["pipe", "--name", "verij_events"]);
+            cmd.args(["pipe", "--name", VERIJ_EVENTS_PIPE]);
 
             let mut child = match cmd
                 .stdin(Stdio::piped())

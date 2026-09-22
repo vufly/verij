@@ -3090,6 +3090,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "verij-types",
 ]
 
 [[package]]
@@ -3098,7 +3099,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "verij-types",
  "zellij-tile",
+]
+
+[[package]]
+name = "verij-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
