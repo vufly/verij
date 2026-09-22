@@ -7,22 +7,23 @@
 ///   - ANSI 0-15 palette to honor user terminal themes.
 ///   - Selected cursor row uses theme-neutral pair `bg=243, fg=0`.
 ///   - Active tab of attached Workspace session uses `bg=1, fg=255`.
+
+
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
 
-use super::state::{AppState, TreeNode};
+use super::state::{AppState, InputMode, TreeNode};
 
 // ---------------------------------------------------------------------------
 // Colour palette (ANSI 0-15 & theme-neutral 256 pair)
 // ---------------------------------------------------------------------------
 
 const COLOR_TITLE: Color = Color::Indexed(6); // Cyan
-const COLOR_BORDER: Color = Color::Indexed(8); // Muted Gray / Bright Black
 const COLOR_SESSION: Color = Color::Indexed(4); // Blue
 const COLOR_CURRENT_MARKER: Color = Color::Indexed(2); // Green
 const COLOR_TAB_NORMAL: Color = Color::Reset; // Terminal default foreground
@@ -49,10 +50,25 @@ const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦
 /// Draw the entire TUI frame from the mutable `AppState`.
 pub fn render(frame: &mut Frame, state: &mut AppState) {
     let area = frame.area();
-    let [list_area, status_area] = split_vertical(area, Constraint::Min(0), Constraint::Length(1));
+
+    // Only allocate status bar row if user toggled help with '?' or an error exists
+    let show_bottom_bar = state.show_help || state.error.is_some();
+    let (list_area, status_area) = if show_bottom_bar {
+        let [top, bottom] = split_vertical(area, Constraint::Min(0), Constraint::Length(1));
+        (top, Some(bottom))
+    } else {
+        (area, None)
+    };
 
     render_session_tree(frame, list_area, state);
-    render_status_bar(frame, status_area, state);
+
+    if let Some(status_rect) = status_area {
+        render_status_bar(frame, status_rect, state);
+    }
+
+    if state.input_mode == InputMode::NewSession {
+        render_new_session_dialog(frame, area, state);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -60,31 +76,13 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
 // ---------------------------------------------------------------------------
 
 fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
-    // 4.2 Session count badge in title
-    let session_count = state.sessions.len();
-    let title_text = match session_count {
-        0 => " Verij ".to_string(),
-        1 => " Verij (1 session) ".to_string(),
-        n => format!(" Verij ({n} sessions) "),
-    };
-
-    let block = Block::default()
-        .title(Span::styled(
-            title_text,
-            Style::default()
-                .fg(COLOR_TITLE)
-                .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(COLOR_BORDER));
-
-    // Build list items
+    // Build list items (edge-to-edge compact UI without wasted border space)
     let items: Vec<ListItem> = if state.nodes.is_empty() {
         // 4.4 Animated empty state
         let spinner_char = SPINNER_FRAMES[(state.tick / 2) % SPINNER_FRAMES.len()];
         vec![ListItem::new(Line::from(vec![
             Span::styled(
-                format!("  {spinner_char} "),
+                format!("{spinner_char} "),
                 Style::default().fg(COLOR_SPINNER),
             ),
             Span::styled(
@@ -97,7 +95,17 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
             .nodes
             .iter()
             .enumerate()
-            .map(|(i, node)| node_to_list_item(node, i == state.cursor))
+            .map(|(i, node)| {
+                // Determine if this Tab node is the last sibling within its session
+                let is_last_tab = if let TreeNode::Tab { session_name, .. } = node {
+                    // Look ahead to next node; if next is Tab with same session, not last
+                    let next_is_same_session = state.nodes.get(i + 1).map(|next| matches!(next, TreeNode::Tab { session_name: ns, .. } if ns == session_name)).unwrap_or(false);
+                    !next_is_same_session
+                } else {
+                    false
+                };
+                node_to_list_item(node, i == state.cursor, is_last_tab)
+            })
             .collect()
     };
 
@@ -105,7 +113,6 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
     state.sync_list_state();
 
     let list = List::new(items)
-        .block(block)
         .highlight_style(Style::default().bg(COLOR_SELECTED_BG).fg(COLOR_SELECTED_FG));
 
     // 4.1 Stateful rendering handles viewport scrolling
@@ -113,7 +120,7 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
 }
 
 /// Convert a `TreeNode` into a styled `ListItem`.
-fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
+fn node_to_list_item(node: &TreeNode, is_selected: bool, is_last_tab: bool) -> ListItem<'static> {
     let mut spans = Vec::new();
 
     let is_workspace_active_tab = node.is_workspace_active_tab();
@@ -206,7 +213,9 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
             is_workspace_active,
             ..
         } => {
-            spans.push(Span::raw("    "));
+            // Indent using box drawing characters
+            let indent = if is_last_tab { "└─ " } else { "├─ " };
+            spans.push(Span::raw(indent));
 
             if *is_workspace_active {
                 if is_selected {
@@ -282,15 +291,64 @@ fn render_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
                 .fg(COLOR_ERROR)
                 .add_modifier(Modifier::BOLD),
         )
+    } else if state.input_mode == InputMode::NewSession {
+        Span::styled(
+            format!(" New Session: {}█  (Enter: create, Esc: cancel)", state.input_buffer),
+            Style::default()
+                .fg(COLOR_TITLE)
+                .add_modifier(Modifier::BOLD),
+        )
     } else {
         Span::styled(
-            " j/k: nav  Space: fold  Enter: attach  q: quit",
+            " j/k: nav  Enter: attach  n: new  ?: hide  q: quit",
             Style::default().fg(COLOR_STATUS),
         )
     };
 
     let bar = Paragraph::new(Line::from(content));
     frame.render_widget(bar, area);
+}
+
+/// Renders a centered modal dialog for typing a new inner session name.
+fn render_new_session_dialog(frame: &mut Frame, area: Rect, state: &AppState) {
+    let dialog_width = (area.width.saturating_sub(4)).min(45).max(28);
+    let dialog_height = 5;
+    let x = (area.width.saturating_sub(dialog_width)) / 2;
+    let y = (area.height.saturating_sub(dialog_height)) / 2;
+    let dialog_area = Rect::new(x, y, dialog_width, dialog_height);
+
+    // Clear background beneath dialog
+    frame.render_widget(Clear, dialog_area);
+
+    let block = Block::default()
+        .title(Span::styled(
+            " New Workspace Session ",
+            Style::default()
+                .fg(COLOR_TITLE)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(COLOR_CURRENT_MARKER));
+
+    let cursor_char = if (state.tick / 3) % 2 == 0 { "█" } else { " " };
+    let text = vec![
+        Line::from(vec![
+            Span::styled(" Name: ", Style::default().fg(COLOR_MUTED)),
+            Span::styled(
+                &state.input_buffer,
+                Style::default()
+                    .fg(COLOR_TITLE)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(cursor_char, Style::default().fg(COLOR_CURRENT_MARKER)),
+        ]),
+        Line::from(vec![
+            Span::styled(" Enter: create   Esc: cancel", Style::default().fg(COLOR_MUTED)),
+        ]),
+    ];
+
+    let paragraph = Paragraph::new(text).block(block);
+    frame.render_widget(paragraph, dialog_area);
 }
 
 // ---------------------------------------------------------------------------
