@@ -36,7 +36,7 @@ Verij is a nested workspace and session manager for the Zellij terminal multiple
 - [x] **2.5** Updated `Makefile`:
   - `make run` executes `target/release/verij start`.
 
-### Milestone 3 — `verij-types` Shared Crate
+### Milestone 3 — `verij-types` Shared Crate (`bc09457`)
 - [x] **3.1** Created library crate `verij-types` in workspace (`[lib]`, zero OS/WASM dependencies, serde-only).
 - [x] **3.2** Extracted shared wire & model types:
   - `SessionSnapshot`, `TabSnapshot`, `active_tab()` helper.
@@ -49,16 +49,24 @@ Verij is a nested workspace and session manager for the Zellij terminal multiple
   - Clean compilation for both `wasm32-wasip1` and native target with 0 warnings.
   - Workspace test suite passing.
 
+### Milestone 4 — TUI Polish
+- [x] **4.1** Scrolling: Persistent `ListState` in `AppState` providing virtual viewport scrolling. Extended navigation (`PageUp`, `PageDown`, `Home`/`g`, `End`/`G`, `Ctrl+u`, `Ctrl+d`).
+- [x] **4.2** Session count badge in title: `Verij (N sessions)`.
+- [x] **4.3** Tab activity indicator: Inlined active tab (`[tab-name]`) and tab count on collapsed session rows; active/inactive dots on tab rows.
+- [x] **4.4** Animated empty state: Braille spinner (`⠋ ⠙ ⠹...`) with tick-based loop animation while connecting to plugin.
+- [x] **4.5** Mouse support: Click to select item, double-click (<400ms) to attach, mouse wheel up/down to scroll list.
+- [x] **4.6** Dynamic resizing: `CEvent::Resize` with terminal clearing and redrawing (from M1).
+- [x] **4.7** Tree collapse/expand: `Space` / `Tab` toggles folding; `h`/`Left` collapses or jumps to parent; `l`/`Right` expands; cursor preserves logical session.
+
 ---
 
-## Active Milestone: Milestone 4 — TUI Polish
+## Active Milestone: Milestone 5 — Workspace Persistence
 
-**Goal:** Production-quality sidebar UX with robust navigation, tree folding, badges, and animations.
+**Goal:** Named workspaces with saved session metadata and automatic resurrection.
 
 ### Tasks
-- [ ] **4.1** Scrolling: Virtual viewport when node list exceeds terminal height (`ListState::offset` / scrolling window).
-- [ ] **4.2** Session count badge in title: `Verij (3 sessions)`.
-- [ ] **4.3** Tab activity indicator: Show active-tab name inline on session row when collapsed.
-- [ ] **4.4** Animated empty state: Animated spinner / connecting indicator while waiting for plugin initial snapshot.
-- [ ] **4.5** Mouse support: Click to select, double-click to attach.
-- [ ] **4.6** Tree collapse / expand: `Space` or `Tab` toggles a session's tab list (`collapsed: HashSet<String>`).
+- [ ] **5.1** Config format: `~/.config/verij/workspaces.toml` schema for workspace definitions (`[[workspace]]`).
+- [ ] **5.2** `verij workspace new <name>`: Create workspace entry and initialize host session.
+- [ ] **5.3** `verij workspace list`: List all saved workspaces and their live/offline status.
+- [ ] **5.4** `verij workspace delete <name>`: Kill host session and prune configuration entry.
+- [ ] **5.5** Auto-restore: Re-create offline sessions on `verij start`.

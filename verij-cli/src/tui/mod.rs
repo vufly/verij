@@ -2,17 +2,12 @@
 ///
 /// The Ratatui event loop for `verij ui`.
 ///
-/// Concurrently handles two event sources:
-///   1. Terminal keyboard input (via crossterm).
-///   2. Session snapshot messages from the pipe reader (via mpsc channel).
-///
-/// On every event it mutates `AppState`, then redraws the frame.
-///
-/// # Termination
-///
-/// The loop exits cleanly on `q`, `Escape`, or `Ctrl+C`. The terminal is
-/// always restored to its original state on exit (raw mode + alternate screen
-/// are torn down in a `finally`-style drop via `RestoreTerminal`).
+/// Handles:
+///   1. Keyboard input (navigation, fold/unfold, actions, shortcuts).
+///   2. Mouse input (click to select, double-click to attach, wheel scroll).
+///   3. Session snapshot messages from the pipe reader.
+///   4. Tick-based spinner animation for empty/connecting states.
+///   5. Dynamic terminal resize handling.
 pub mod render;
 pub mod state;
 
@@ -20,7 +15,7 @@ use anyhow::{Context, Result};
 use crossterm::{
     event::{
         self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode, KeyEvent,
-        KeyModifiers,
+        KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     },
     execute,
     terminal::{
@@ -29,7 +24,7 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::actions;
@@ -41,11 +36,7 @@ use state::AppState;
 // ---------------------------------------------------------------------------
 
 /// Launch the Verij TUI.
-///
-/// Sets up the terminal, spawns the pipe reader task, then runs the event loop
-/// until the user quits. Always restores the terminal on exit.
 pub async fn run() -> Result<()> {
-    // Set up the crossterm terminal.
     enable_raw_mode().context("Failed to enable raw mode")?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
@@ -55,8 +46,6 @@ pub async fn run() -> Result<()> {
     let mut terminal = Terminal::new(backend).context("Failed to create terminal")?;
     terminal.clear()?;
 
-    // Run the event loop; capture the result so we can restore the terminal
-    // even if an error occurs.
     let result = event_loop(&mut terminal).await;
 
     // --- Restore terminal (always runs, even on error) ---
@@ -76,79 +65,74 @@ pub async fn run() -> Result<()> {
 // Event loop
 // ---------------------------------------------------------------------------
 
-/// Internal event loop body.
-///
-/// Drives the TUI until the user quits or a fatal error occurs.
 async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
-    // Channel for session snapshot updates from the pipe reader.
-    // Bounded at 16: if the TUI can't keep up, we drop old snapshots rather
-    // than accumulate unbounded memory.
     let (tx, mut rx) = mpsc::channel(16);
-
     let mut state = AppState::default();
 
-    // Spawn the pipe reader background task.
+    // Spawn pipe reader background task
     match pipe_reader::spawn_pipe_reader(tx) {
         Ok(_handle) => {}
         Err(e) => {
-            // Pipe startup failure is non-fatal at this stage: the TUI can run
-            // in a "waiting" mode displaying an error, and retry logic can be
-            // added later. For now we set the error message and continue.
             state.error = Some(format!("Pipe error: {e}"));
         }
     }
 
-    // Initial render.
-    terminal.draw(|frame| render::render(frame, &state))?;
+    // Initial render
+    terminal.draw(|frame| render::render(frame, &mut state))?;
 
-    // Event loop: select on terminal input and pipe channel messages.
+    let mut last_click: Option<(Instant, usize)> = None;
+
     loop {
-        // Poll for terminal events with a 100 ms timeout so the mpsc receiver
-        // is checked at least 10 times per second even with no keyboard input.
+        let mut needs_render = false;
+
+        // Poll for terminal events (100 ms timeout for animation & responsiveness)
         if event::poll(Duration::from_millis(100))
             .context("Failed to poll terminal events")?
         {
             match event::read().context("Failed to read terminal event")? {
                 CEvent::Key(key) => {
                     if handle_key(&mut state, key)? {
-                        // `true` → user requested quit.
                         break;
                     }
-                    terminal.draw(|frame| render::render(frame, &state))?;
+                    needs_render = true;
+                }
+                CEvent::Mouse(mouse) => {
+                    handle_mouse(&mut state, mouse, &mut last_click)?;
+                    needs_render = true;
                 }
                 CEvent::Resize(_cols, _rows) => {
                     terminal.clear()?;
-                    terminal.draw(|frame| render::render(frame, &state))?;
+                    needs_render = true;
                 }
                 _ => {}
             }
         }
 
-        // Drain all pending snapshot messages from the pipe reader.
-        // Using `try_recv` in a loop ensures we process all queued messages
-        // before re-rendering, avoiding one render per message when updates
-        // arrive in bursts.
-        let mut got_update = false;
+        // Drain pending session updates from pipe reader
         loop {
             match rx.try_recv() {
                 Ok(snapshot) => {
-                    state.error = None; // clear any previous pipe error
+                    state.error = None;
                     state.reconcile(snapshot);
-                    got_update = true;
+                    needs_render = true;
                 }
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => {
-                    // Pipe reader task exited — update the error display but
-                    // keep the TUI alive so the user can quit gracefully.
-                    state.error = Some("Pipe disconnected. Is verij-plugin loaded?".into());
-                    got_update = true;
+                    state.error = Some("Pipe disconnected. Is verij-plugin running?".into());
+                    needs_render = true;
                     break;
                 }
             }
         }
 
-        if got_update {
-            terminal.draw(|frame| render::render(frame, &state))?;
+        // Tick counter for animations (e.g. connecting spinner)
+        state.tick = state.tick.wrapping_add(1);
+        if state.nodes.is_empty() {
+            needs_render = true;
+        }
+
+        if needs_render {
+            terminal.draw(|frame| render::render(frame, &mut state))?;
         }
     }
 
@@ -156,23 +140,36 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
 }
 
 // ---------------------------------------------------------------------------
-// Key handler
+// Input handlers
 // ---------------------------------------------------------------------------
 
-/// Process a single key event.
-///
-/// Returns `true` if the event loop should exit.
+/// Process keyboard events. Returns `true` if TUI should quit.
 fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
     match key.code {
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(true),
 
-        // Navigation
+        // Navigation (Vim & Arrow keys)
         KeyCode::Char('j') | KeyCode::Down => state.cursor_down(),
         KeyCode::Char('k') | KeyCode::Up => state.cursor_up(),
 
-        // Action: attach selected session / tab
+        // Page navigation
+        KeyCode::PageDown => state.page_down(10),
+        KeyCode::PageUp => state.page_up(10),
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => state.page_down(10),
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => state.page_up(10),
+
+        // Jump to top / bottom
+        KeyCode::Home | KeyCode::Char('g') => state.cursor_home(),
+        KeyCode::End | KeyCode::Char('G') => state.cursor_end(),
+
+        // 4.7 Tree folding
+        KeyCode::Char(' ') | KeyCode::Tab => state.toggle_collapse(),
+        KeyCode::Left | KeyCode::Char('h') => state.collapse_selected(),
+        KeyCode::Right | KeyCode::Char('l') => state.expand_selected(),
+
+        // Action: attach or jump to selected session/tab
         KeyCode::Enter => {
             dispatch_action(state)?;
         }
@@ -183,27 +180,62 @@ fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
     Ok(false)
 }
 
+/// 4.5 Process mouse events (click, double click, scroll wheel).
+fn handle_mouse(
+    state: &mut AppState,
+    mouse: MouseEvent,
+    last_click: &mut Option<(Instant, usize)>,
+) -> Result<()> {
+    match mouse.kind {
+        MouseEventKind::ScrollDown => {
+            state.cursor_down();
+        }
+        MouseEventKind::ScrollUp => {
+            state.cursor_up();
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            // In render.rs, row 0 is top border, items start on row 1
+            if mouse.row >= 1 {
+                let visual_index = (mouse.row - 1) as usize;
+                let offset = state.list_state.offset();
+                let target_index = offset + visual_index;
+
+                if target_index < state.nodes.len() {
+                    state.select_index(target_index);
+
+                    // Check for double click within 400ms
+                    let now = Instant::now();
+                    if let Some((prev_time, prev_idx)) = *last_click {
+                        if prev_idx == target_index && now.duration_since(prev_time) < Duration::from_millis(400) {
+                            dispatch_action(state)?;
+                            *last_click = None;
+                            return Ok(());
+                        }
+                    }
+
+                    *last_click = Some((now, target_index));
+                }
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Action dispatch
 // ---------------------------------------------------------------------------
 
 /// Translate the currently selected `TreeNode` into a Zellij action.
-///
-/// Errors are displayed in the TUI status bar rather than crashing the loop.
 fn dispatch_action(state: &mut AppState) -> Result<()> {
     let Some(node) = state.selected_node() else {
         return Ok(());
     };
 
     let result = match node.tab_position() {
-        None => {
-            // Session node selected — switch to its first tab.
-            actions::switch_session(node.session_name())
-        }
-        Some(position) => {
-            // Tab node selected — switch session and navigate to the tab.
-            actions::switch_session_tab(node.session_name(), position)
-        }
+        None => actions::switch_session(node.session_name()),
+        Some(position) => actions::switch_session_tab(node.session_name(), position),
     };
 
     if let Err(e) = result {
