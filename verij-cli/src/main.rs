@@ -2,16 +2,18 @@
 ///
 /// Entry point for the `verij` binary.
 ///
-/// Dispatches CLI subcommands via clap. Currently supports:
-///   - `verij ui` — launch the Ratatui TUI sidebar.
-///
-/// More subcommands (e.g. `verij start`, `verij new`) will be added in
-/// future phases.
-use anyhow::Result;
-use clap::{Parser, Subcommand};
+/// Dispatches CLI subcommands via clap:
+///   - `verij start`  — launch a new Verij Host Session with dynamic layout.
+///   - `verij attach` — attach to an existing Verij Host Session.
+///   - `verij ui`     — launch the Ratatui TUI sidebar (used inside host layout).
+use anyhow::{bail, Result};
+use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
 
 mod actions;
+mod layout;
 mod pipe_reader;
+mod session;
 mod tui;
 
 // ---------------------------------------------------------------------------
@@ -31,11 +33,125 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Launch the interactive TUI sidebar.
+    /// Start the Verij Host Session.
+    ///
+    /// Generates a dynamic KDL layout referencing the TUI sidebar and WASM
+    /// plugin, then launches Zellij. If the session already exists, automatically
+    /// attaches to it (unless --no-attach is specified).
+    Start(StartArgs),
+
+    /// Attach to an existing Verij Host Session.
+    Attach(AttachArgs),
+
+    /// Launch the interactive TUI sidebar directly.
     ///
     /// Connects to the verij-plugin via a Zellij native pipe and renders a
     /// live, navigable 2-level tree of sessions and tabs.
     Ui,
+}
+
+#[derive(Args, Debug)]
+pub struct StartArgs {
+    /// Name of the host Zellij session.
+    #[arg(short = 's', long, default_value = "verij")]
+    pub session_name: String,
+
+    /// Path to a custom KDL layout file (overrides automatic generation).
+    #[arg(short = 'l', long)]
+    pub layout: Option<PathBuf>,
+
+    /// Path to verij_plugin.wasm (overrides automatic search).
+    #[arg(short = 'p', long)]
+    pub plugin_path: Option<PathBuf>,
+
+    /// Width of the sidebar pane as a percentage (e.g. "25%").
+    #[arg(long, default_value = "25%")]
+    pub sidebar_width: String,
+
+    /// Fail with an error if the host session already exists instead of attaching.
+    #[arg(long)]
+    pub no_attach: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct AttachArgs {
+    /// Name of the host session to attach to.
+    #[arg(default_value = "verij")]
+    pub session_name: String,
+
+    /// Create and start the session if it does not exist.
+    #[arg(short = 'c', long)]
+    pub create: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Subcommand handlers
+// ---------------------------------------------------------------------------
+
+fn handle_start(args: StartArgs) -> Result<()> {
+    if session::is_session_running(&args.session_name)? {
+        if args.no_attach {
+            bail!(
+                "Session '{}' is already running. Specify a different name with --session-name or attach with 'verij attach'.",
+                args.session_name
+            );
+        } else {
+            eprintln!("Session '{}' is already running. Attaching to it...", args.session_name);
+            return session::attach_session(&args.session_name);
+        }
+    }
+
+    let layout_path = if let Some(custom) = args.layout {
+        if !custom.exists() {
+            bail!("Specified layout file does not exist: {}", custom.display());
+        }
+        custom
+    } else {
+        let plugin_wasm_path = layout::resolve_plugin_path(args.plugin_path.as_deref())?;
+        let verij_bin = layout::resolve_verij_bin();
+
+        let config = layout::LayoutConfig {
+            verij_bin,
+            plugin_wasm_path,
+            sidebar_size: args.sidebar_width,
+            ..Default::default()
+        };
+
+        layout::write_layout_file(&config)?
+    };
+
+    session::start_host_session(&args.session_name, &layout_path, args.no_attach)
+}
+
+fn handle_attach(args: AttachArgs) -> Result<()> {
+    let running = session::is_session_running(&args.session_name)?;
+
+    if running {
+        session::attach_session(&args.session_name)
+    } else if args.create {
+        handle_start(StartArgs {
+            session_name: args.session_name,
+            layout: None,
+            plugin_path: None,
+            sidebar_width: "25%".to_string(),
+            no_attach: false,
+        })
+    } else {
+        let active_sessions = session::list_sessions()?;
+        let active_str = if active_sessions.is_empty() {
+            "none".to_string()
+        } else {
+            active_sessions.join(", ")
+        };
+
+        bail!(
+            "Session '{}' is not running.\nActive sessions: {}\nRun 'verij start --session-name {}' or 'verij attach -c {}' to create it.",
+            args.session_name,
+            active_str,
+            args.session_name,
+            args.session_name
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -47,6 +163,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Start(args) => handle_start(args),
+        Commands::Attach(args) => handle_attach(args),
         Commands::Ui => tui::run().await,
     }
 }

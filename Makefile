@@ -34,7 +34,7 @@ check:
 	cargo check -p verij-plugin --target $(TARGET_WASM)
 
 run: dev
-	zellij --layout layouts/verij.kdl
+	target/release/verij start
 
 clean:
 	cargo clean
