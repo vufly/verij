@@ -1,33 +1,35 @@
 /// verij-plugin/src/main.rs
 ///
-/// Headless Zellij WASM plugin for Verij.
+/// Distributed WASM Agent for Verij ("The Inside Man").
+///
+/// Runs headless inside EVERY inner Zellij session.
 ///
 /// Responsibilities:
-///   1. Subscribe to `SessionUpdate` events from Zellij Core.
-///   2. Listen for the CLI pipe named "verij_events" connecting via `pipe()`.
-///   3. On every `SessionUpdate`, serialize the full session snapshot to JSON
-///      and stream it to the connected CLI pipe via `cli_pipe_output`.
-///
-/// This plugin has NO visual output (render() is a no-op). It acts purely as
-/// a bridge between Zellij's internal state and the external Ratatui TUI process.
+///   1. State Export: On `SessionUpdate` or `TabUpdate`, serializes the session's
+///      own tabs into a `SessionSnapshot` and writes it to
+///      `/tmp/verij/states/<session_name>.json`.
+///   2. Action Listener: Listens for the `verij_control` pipe. When a payload
+///      `switch:<target>` arrives, executes Zellij's native `switch_session(Some(target))`
+///      from within the inner session to achieve in-place client switching
+///      ("The Inception Switch").
 use std::collections::BTreeMap;
-use verij_types::{SessionSnapshot, TabSnapshot, VERIJ_EVENTS_PIPE};
+use std::path::Path;
+use verij_types::{
+    SessionSnapshot, TabSnapshot, HOST_SESSION_PREFIX, VERIJ_CONTROL_PIPE, VERIJ_STATES_DIR,
+};
 use zellij_tile::prelude::*;
 
 // ---------------------------------------------------------------------------
 // Plugin state
 // ---------------------------------------------------------------------------
 
-/// The plugin's persistent state across event invocations.
 #[derive(Default)]
 struct State {
-    /// The ID of the active CLI pipe, if one has connected.
-    /// Set by `pipe()`, consumed by `update()` to fan out snapshots.
-    active_pipe_id: Option<String>,
+    /// The name of this session (discovered from `SessionUpdate` where `is_current_session` is true).
+    session_name: Option<String>,
 
-    /// Cached snapshot of all known sessions. Replaced atomically on each
-    /// `SessionUpdate` — no delta tracking required.
-    sessions: Vec<SessionSnapshot>,
+    /// Cached list of tabs for this session.
+    tabs: Vec<TabSnapshot>,
 }
 
 // ---------------------------------------------------------------------------
@@ -62,21 +64,18 @@ fn load() {
         }
     });
 
-    // Perform subscriptions and permission requests with NO active borrow on STATE
-    eprintln!("[verij-plugin] subscribing and requesting permissions");
+    eprintln!("[verij-plugin] load: subscribing to SessionUpdate, TabUpdate");
     subscribe(&[
         EventType::SessionUpdate,
         EventType::TabUpdate,
-        EventType::Timer,
         EventType::PermissionRequestResult,
     ]);
 
     request_permission(&[
         PermissionType::ReadApplicationState,
+        PermissionType::ChangeApplicationState,
         PermissionType::ReadCliPipes,
     ]);
-
-    set_timeout(1.0);
 }
 
 #[no_mangle]
@@ -150,12 +149,8 @@ pub fn pipe() -> bool {
 }
 
 #[no_mangle]
-pub fn render(rows: i32, cols: i32) {
-    STATE.with(|state| {
-        if let Ok(mut s) = state.try_borrow_mut() {
-            s.render(rows as usize, cols as usize);
-        }
-    });
+pub fn render(_rows: i32, _cols: i32) {
+    // Headless agent: no UI render
 }
 
 #[no_mangle]
@@ -165,55 +160,61 @@ pub fn plugin_version() {
 
 impl ZellijPlugin for State {
     fn load(&mut self, _configuration: BTreeMap<String, String>) {
-        eprintln!("[verij-plugin] State::load called");
+        eprintln!("[verij-plugin] State::load initialized");
     }
 
-    /// Called when a Zellij pipe message arrives for this plugin.
+    /// Action Listener: receives injected pipe messages.
+    ///
+    /// Listens for `verij_control`. If the payload is `switch:<target>`,
+    /// executes native `switch_session(Some(target))` to switch the attached client.
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
         eprintln!(
-            "[verij-plugin] pipe() called: name={}, source={:?}",
-            pipe_message.name, pipe_message.source
+            "[verij-plugin] pipe received: name='{}', payload={:?}, source={:?}",
+            pipe_message.name, pipe_message.payload, pipe_message.source
         );
-        if pipe_message.name == VERIJ_EVENTS_PIPE {
-            match &pipe_message.source {
-                PipeSource::Cli(pipe_id) => {
-                    eprintln!("[verij-plugin] CLI pipe connected, pipe_id={}", pipe_id);
-                    self.active_pipe_id = Some(pipe_id.clone());
-                    block_cli_pipe_input(pipe_id);
 
-                    // If we already have a cached snapshot (e.g. the TUI reconnected),
-                    // immediately push the current state so the TUI doesn't wait for
-                    // the next SessionUpdate.
-                    self.broadcast_snapshot();
+        if pipe_message.name == VERIJ_CONTROL_PIPE {
+            let payload = pipe_message
+                .payload
+                .as_deref()
+                .or_else(|| pipe_message.args.get("payload").map(|s| s.as_str()));
+
+            if let Some(payload_str) = payload {
+                let trimmed = payload_str.trim();
+                if let Some(target) = trimmed.strip_prefix("switch:") {
+                    let target_session = target.trim();
+                    eprintln!(
+                        "[verij-plugin] executing Inception Switch to session: '{}'",
+                        target_session
+                    );
+                    switch_session(Some(target_session));
+                } else {
+                    eprintln!("[verij-plugin] unknown verij_control command: '{}'", trimmed);
                 }
-                _ => {
-                    // Other pipe sources (Plugin, Keybind, etc.) ignored.
-                }
+            } else {
+                eprintln!("[verij-plugin] verij_control pipe received with no payload");
+            }
+
+            // If invocation originated from CLI pipe, unblock it so calling process exits cleanly.
+            if let PipeSource::Cli(ref pipe_id) = pipe_message.source {
+                unblock_cli_pipe_input(pipe_id);
             }
         }
+
         false // headless: never request a render
     }
 
-    /// Called when a subscribed event arrives from Zellij Core.
+    /// State Export: triggered on `SessionUpdate` or `TabUpdate`.
     fn update(&mut self, event: Event) -> bool {
         match event {
-            // SessionUpdate carries the full list of live sessions plus their tabs.
             Event::SessionUpdate(session_infos, _resurrectable) => {
-                self.update_sessions(session_infos);
-            }
+                // Find our own session from the list of all sessions
+                if let Some(current) = session_infos.into_iter().find(|s| s.is_current_session) {
+                    let name_changed = self.session_name.as_deref() != Some(&current.name);
+                    self.session_name = Some(current.name);
 
-            // Periodic timer: polls all sessions and tabs across the machine via get_session_list()
-            Event::Timer(_) => {
-                set_timeout(1.0);
-                if let Ok(snapshot) = get_session_list() {
-                    self.update_sessions(snapshot.live_sessions);
-                }
-            }
-
-            Event::TabUpdate(tabs) => {
-                // When tabs are updated within the active session, update our cache and broadcast
-                if let Some(current) = self.sessions.iter_mut().find(|s| s.is_current) {
-                    let new_tabs: Vec<TabSnapshot> = tabs
+                    let new_tabs: Vec<TabSnapshot> = current
+                        .tabs
                         .into_iter()
                         .map(|t| TabSnapshot {
                             name: if t.name.is_empty() {
@@ -225,15 +226,40 @@ impl ZellijPlugin for State {
                             is_active: t.active,
                         })
                         .collect();
-                    if current.tabs != new_tabs {
-                        current.tabs = new_tabs;
-                        self.broadcast_snapshot();
+
+                    if name_changed || self.tabs != new_tabs {
+                        self.tabs = new_tabs;
+                        self.export_state();
                     }
                 }
             }
 
+            Event::TabUpdate(tabs) => {
+                if self.session_name.is_none() {
+                    self.resolve_session_from_snapshot();
+                }
+
+                let new_tabs: Vec<TabSnapshot> = tabs
+                    .into_iter()
+                    .map(|t| TabSnapshot {
+                        name: if t.name.is_empty() {
+                            format!("Tab {}", t.position + 1)
+                        } else {
+                            t.name
+                        },
+                        position: t.position,
+                        is_active: t.active,
+                    })
+                    .collect();
+
+                if self.tabs != new_tabs {
+                    self.tabs = new_tabs;
+                    self.export_state();
+                }
+            }
+
             Event::PermissionRequestResult(_) => {
-                set_timeout(1.0);
+                self.resolve_session_from_snapshot();
             }
 
             _ => {}
@@ -242,23 +268,22 @@ impl ZellijPlugin for State {
         false // headless: never request a render
     }
 
-    /// No-op: this plugin has no visual output.
     fn render(&mut self, _rows: usize, _cols: usize) {}
 }
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// State Export helper
 // ---------------------------------------------------------------------------
 
 impl State {
-    /// Update internal session cache and broadcast if anything changed.
-    fn update_sessions(&mut self, session_infos: Vec<SessionInfo>) {
-        let new_sessions: Vec<SessionSnapshot> = session_infos
-            .into_iter()
-            .map(|s| SessionSnapshot {
-                name: s.name.clone(),
-                is_current: s.is_current_session,
-                tabs: s
+    /// Attempts to populate session name and initial tabs using `get_session_list()`.
+    fn resolve_session_from_snapshot(&mut self) {
+        if let Ok(snapshot) = get_session_list() {
+            if let Some(current) = snapshot.live_sessions.into_iter().find(|s| s.is_current_session) {
+                let name_changed = self.session_name.as_deref() != Some(&current.name);
+                self.session_name = Some(current.name);
+
+                let new_tabs: Vec<TabSnapshot> = current
                     .tabs
                     .into_iter()
                     .map(|t| TabSnapshot {
@@ -270,38 +295,62 @@ impl State {
                         position: t.position,
                         is_active: t.active,
                     })
-                    .collect(),
-            })
-            .collect();
+                    .collect();
 
-        if new_sessions != self.sessions {
-            self.sessions = new_sessions;
-            self.broadcast_snapshot();
+                if name_changed || self.tabs != new_tabs {
+                    self.tabs = new_tabs;
+                    self.export_state();
+                }
+            }
         }
     }
 
-    /// Serialize the current `sessions` cache to a single-line JSON string and
-    /// write it to the active CLI pipe, if one is connected.
-    ///
-    /// Single-line JSON is used so that the CLI-side `BufReader::read_line()`
-    /// can treat each newline as a complete, self-contained snapshot message.
-    fn broadcast_snapshot(&self) {
-        let Some(pipe_id) = &self.active_pipe_id else {
-            // No CLI pipe connected yet; nothing to do.
+    /// Serializes session tabs to `/tmp/verij/states/<session_name>.json`.
+    /// Uses atomic write (temp file + rename) to prevent torn reads by the file watcher.
+    fn export_state(&self) {
+        let Some(ref session_name) = self.session_name else {
             return;
         };
 
-        match serde_json::to_string(&self.sessions) {
-            Ok(json) => {
-                // Append a newline so the CLI BufReader sees a complete line.
-                let line = format!("{}\n", json);
-                cli_pipe_output(pipe_id, &line);
-            }
+        if session_name.starts_with(HOST_SESSION_PREFIX) {
+            return;
+        }
+
+        let dir = Path::new(VERIJ_STATES_DIR);
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            eprintln!("[verij-plugin] failed to create states dir {}: {}", dir.display(), e);
+            return;
+        }
+
+        let snapshot = SessionSnapshot {
+            name: session_name.clone(),
+            is_current: true,
+            tabs: self.tabs.clone(),
+        };
+
+        let json = match serde_json::to_string_pretty(&snapshot) {
+            Ok(j) => j,
             Err(e) => {
-                // Serialization should never fail for these simple types,
-                // but we log to stderr defensively (visible in Zellij logs).
-                eprintln!("[verij-plugin] Failed to serialize snapshot: {e}");
+                eprintln!("[verij-plugin] failed to serialize snapshot: {}", e);
+                return;
             }
+        };
+
+        let target_path = dir.join(format!("{}.json", session_name));
+        let tmp_path = dir.join(format!("{}.json.tmp", session_name));
+
+        // Atomic write: write to .tmp then rename
+        if let Err(e) = std::fs::write(&tmp_path, &json) {
+            eprintln!("[verij-plugin] failed to write tmp state file {}: {}", tmp_path.display(), e);
+            // Fallback to direct write
+            let _ = std::fs::write(&target_path, &json);
+            return;
+        }
+
+        if let Err(_rename_err) = std::fs::rename(&tmp_path, &target_path) {
+            // If rename fails across wasi/fs boundaries, fallback to direct write
+            let _ = std::fs::write(&target_path, &json);
+            let _ = std::fs::remove_file(&tmp_path);
         }
     }
 }

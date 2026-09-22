@@ -9,8 +9,19 @@
 use serde::{Deserialize, Serialize};
 
 /// The Zellij named pipe used to stream session snapshots from `verij-plugin`
-/// to `verij-cli`.
+/// to `verij-cli` (legacy, deprecated by filesystem watcher).
 pub const VERIJ_EVENTS_PIPE: &str = "verij_events";
+
+/// The Zellij named pipe used to inject control commands to `verij-plugin`.
+pub const VERIJ_CONTROL_PIPE: &str = "verij_control";
+
+/// Directory where distributed agents export their session JSON states.
+pub const VERIJ_STATES_DIR: &str = "/tmp/verij/states";
+
+/// Prefix for Verij host wrapper sessions. Sessions with this prefix must be
+/// filtered out of workspace management and navigation.
+pub const HOST_SESSION_PREFIX: &str = "__verij_host_";
+
 
 /// A compact, serializable snapshot of a single Zellij session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

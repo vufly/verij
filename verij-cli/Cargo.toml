@@ -28,5 +28,8 @@ serde_json = "1"
 # Structured error handling
 anyhow = "1"
 
+# Filesystem watcher for distributed agent state synchronization
+notify = "8"
+
 # Shared types
 verij-types = { path = "../verij-types" }

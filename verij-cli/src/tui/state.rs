@@ -2,12 +2,12 @@
 ///
 /// Application state for the Ratatui TUI.
 ///
-/// The state holds the current session snapshot, flattened navigable tree,
-/// selection cursor, collapsed set, attached workspace session, active tab position,
+/// The state holds the current session snapshots (ingested from `/tmp/verij/states/`),
+/// flattened navigable tree, selection cursor, collapsed set, active session tracking,
 /// and ListState.
 use ratatui::widgets::ListState;
 use std::collections::HashSet;
-use verij_types::SessionSnapshot;
+use verij_types::{SessionSnapshot, HOST_SESSION_PREFIX};
 
 // ---------------------------------------------------------------------------
 // Tree node model
@@ -53,7 +53,7 @@ impl TreeNode {
         }
     }
 
-    /// True if this node is the single active tab of the session attached in the Workspace pane.
+    /// True if this node is the active tab of the currently attached workspace session.
     pub fn is_workspace_active_tab(&self) -> bool {
         match self {
             TreeNode::Tab {
@@ -65,18 +65,22 @@ impl TreeNode {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Application state
-// ---------------------------------------------------------------------------
+/// TUI input mode: Normal tree navigation vs typing a new session name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InputMode {
+    #[default]
+    Normal,
+    NewSession,
+}
 
 /// The complete mutable state of the Verij TUI.
 #[derive(Default)]
 pub struct AppState {
-    /// Current snapshot of all sessions, as received from the plugin.
+    /// Current snapshot of all non-host sessions, as received from the FS watcher.
     pub sessions: Vec<SessionSnapshot>,
 
     /// Flattened, ordered list of navigable tree nodes.
-    /// Rebuilt whenever `sessions`, `collapsed`, `attached_session`, or `active_tab_position` changes.
+    /// Rebuilt whenever `sessions`, `collapsed`, or `active_session` changes.
     pub nodes: Vec<TreeNode>,
 
     /// Cursor position: index into `nodes`. Clamped to `nodes.len() - 1`.
@@ -85,11 +89,17 @@ pub struct AppState {
     /// Set of session names whose tab lists are collapsed.
     pub collapsed: HashSet<String>,
 
-    /// Name of the session currently attached inside the Workspace pane (if detected).
-    pub attached_session: Option<String>,
+    /// Name of the session currently focused / attached in the right pane.
+    pub active_session: Option<String>,
 
-    /// Position of the active tab within the attached Workspace session (0-indexed).
-    pub active_tab_position: Option<usize>,
+    /// Current input mode (Normal vs NewSession prompt).
+    pub input_mode: InputMode,
+
+    /// Text buffer when typing a new session name in `InputMode::NewSession`.
+    pub input_buffer: String,
+
+    /// Path to `verij_plugin.wasm` for injecting into newly created inner sessions.
+    pub plugin_path: Option<std::path::PathBuf>,
 
     /// Ratatui list state managing scroll offset and selected item.
     pub list_state: ListState,
@@ -99,11 +109,43 @@ pub struct AppState {
 
     /// Non-fatal error message to display in the status bar, if any.
     pub error: Option<String>,
+
+    /// Whether the keyboard shortcut help bar is displayed at the bottom (toggled by '?').
+    pub show_help: bool,
 }
 
 impl AppState {
-    /// Replace `sessions` with the new snapshot and rebuild the node tree.
+    /// Toggles the keyboard shortcut help bar.
+    pub fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
+    }
+    /// Opens the new session creation prompt.
+    pub fn start_new_session_prompt(&mut self) {
+        self.input_mode = InputMode::NewSession;
+        self.input_buffer.clear();
+        self.error = None;
+    }
+
+    /// Closes the new session creation prompt and returns to Normal mode.
+    pub fn cancel_new_session_prompt(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.input_buffer.clear();
+    }
+
+    /// Appends an allowed character to the session name input buffer.
+    pub fn handle_input_char(&mut self, c: char) {
+        if self.input_buffer.len() < 32 && (c.is_alphanumeric() || c == '-' || c == '_') {
+            self.input_buffer.push(c);
+        }
+    }
+
+    /// Removes the last character from the session name input buffer.
+    pub fn handle_input_backspace(&mut self) {
+        self.input_buffer.pop();
+    }
+    /// Replace `sessions` with new snapshots and rebuild the node tree.
     ///
+    /// Filters out any session starting with `__verij_host_`.
     /// Preserves cursor position on the same logical node when possible.
     pub fn reconcile(&mut self, new_sessions: Vec<SessionSnapshot>) {
         let previous_target = self.nodes.get(self.cursor).map(|n| match n {
@@ -115,13 +157,19 @@ impl AppState {
             } => (session_name.clone(), Some(*position)),
         });
 
-        // Detect attached session and active tab in Workspace pane
-        let host_session = std::env::var("ZELLIJ_SESSION_NAME").ok();
-        let ws = crate::actions::detect_workspace_state(host_session.as_deref());
-        self.attached_session = ws.attached_session;
-        self.active_tab_position = ws.active_tab_position;
+        // Strict filtering: filter out any host sessions
+        self.sessions = new_sessions
+            .into_iter()
+            .filter(|s| !s.name.starts_with(HOST_SESSION_PREFIX))
+            .collect();
 
-        self.sessions = new_sessions;
+        // If active_session is not set yet, pick the first session if available
+        if self.active_session.is_none() {
+            if let Some(first) = self.sessions.first() {
+                self.active_session = Some(first.name.clone());
+            }
+        }
+
         self.rebuild_nodes();
 
         // Restore cursor to the same logical node if it still exists.
@@ -153,20 +201,6 @@ impl AppState {
         }
 
         self.sync_list_state();
-    }
-
-    /// Refresh attached session and active tab state from process tree / Zellij action.
-    pub fn update_attached_session(&mut self) {
-        let host_session = std::env::var("ZELLIJ_SESSION_NAME").ok();
-        let ws = crate::actions::detect_workspace_state(host_session.as_deref());
-        if self.attached_session != ws.attached_session
-            || self.active_tab_position != ws.active_tab_position
-        {
-            self.attached_session = ws.attached_session;
-            self.active_tab_position = ws.active_tab_position;
-            self.rebuild_nodes();
-            self.sync_list_state();
-        }
     }
 
     /// Toggles the collapsed state of the session at (or containing) the cursor.
@@ -314,28 +348,21 @@ impl AppState {
     // -----------------------------------------------------------------------
 
     /// Flatten `self.sessions` into `self.nodes` respecting `self.collapsed`.
-    fn rebuild_nodes(&mut self) {
+    pub fn rebuild_nodes(&mut self) {
         self.nodes.clear();
 
         for (session_index, session) in self.sessions.iter().enumerate() {
+            // Defensively skip any host sessions
+            if session.name.starts_with(HOST_SESSION_PREFIX) {
+                continue;
+            }
+
             let is_collapsed = self.collapsed.contains(&session.name);
             let tab_count = session.tabs.len();
-            let is_attached = self.attached_session.as_deref() == Some(&session.name);
+            let is_attached = self.active_session.as_deref() == Some(&session.name);
 
-            // If this is the attached session, resolve active tab name from active_tab_position
-            let active_tab = if is_attached {
-                if let Some(pos) = self.active_tab_position {
-                    session
-                        .tabs
-                        .iter()
-                        .find(|t| t.position == pos)
-                        .map(|t| t.name.clone())
-                } else {
-                    session.active_tab().map(|t| t.name.clone())
-                }
-            } else {
-                session.active_tab().map(|t| t.name.clone())
-            };
+            // Active tab in session
+            let active_tab = session.active_tab().map(|t| t.name.clone());
 
             self.nodes.push(TreeNode::Session {
                 name: session.name.clone(),
@@ -349,17 +376,8 @@ impl AppState {
 
             if !is_collapsed {
                 for tab in &session.tabs {
-                    // Exactly one tab can be active across the manager:
-                    // must be in the attached workspace session AND match active_tab_position
-                    let is_workspace_active = if is_attached {
-                        if let Some(pos) = self.active_tab_position {
-                            tab.position == pos
-                        } else {
-                            tab.is_active
-                        }
-                    } else {
-                        false
-                    };
+                    // Exactly one tab is workspace active: active tab in active_session
+                    let is_workspace_active = is_attached && tab.is_active;
 
                     self.nodes.push(TreeNode::Tab {
                         session_name: session.name.clone(),
@@ -386,31 +404,35 @@ mod tests {
     fn make_test_sessions() -> Vec<SessionSnapshot> {
         vec![
             SessionSnapshot {
-                name: "ss".to_string(),
+                name: "backend".to_string(),
                 is_current: false,
                 tabs: vec![
                     TabSnapshot {
-                        name: "Tab #1".to_string(),
+                        name: "editor".to_string(),
                         position: 0,
-                        is_active: false, // Simulating Zellij stale data
+                        is_active: true,
                     },
                     TabSnapshot {
-                        name: "Portal".to_string(),
+                        name: "logs".to_string(),
                         position: 1,
-                        is_active: true, // Ghost active from Zellij
-                    },
-                    TabSnapshot {
-                        name: "magy".to_string(),
-                        position: 4,
-                        is_active: true, // Ghost active from Zellij
+                        is_active: false,
                     },
                 ],
             },
             SessionSnapshot {
-                name: "other".to_string(),
+                name: "__verij_host_main".to_string(),
+                is_current: true,
+                tabs: vec![TabSnapshot {
+                    name: "host".to_string(),
+                    position: 0,
+                    is_active: true,
+                }],
+            },
+            SessionSnapshot {
+                name: "frontend".to_string(),
                 is_current: false,
                 tabs: vec![TabSnapshot {
-                    name: "runner".to_string(),
+                    name: "ui".to_string(),
                     position: 0,
                     is_active: true,
                 }],
@@ -419,28 +441,41 @@ mod tests {
     }
 
     #[test]
-    fn test_authoritative_single_active_tab() {
+    fn test_host_filtering() {
         let mut state = AppState::default();
-        state.sessions = make_test_sessions();
-        // Attached to "ss", true active tab position is 0 ("Tab #1")
-        state.attached_session = Some("ss".to_string());
-        state.active_tab_position = Some(0);
+        state.reconcile(make_test_sessions());
+
+        // "__verij_host_main" MUST be filtered out
+        assert_eq!(state.sessions.len(), 2);
+        assert_eq!(state.sessions[0].name, "backend");
+        assert_eq!(state.sessions[1].name, "frontend");
+
+        // Verify nodes do not contain host session
+        assert!(state
+            .nodes
+            .iter()
+            .all(|n| !n.session_name().starts_with(HOST_SESSION_PREFIX)));
+    }
+
+    #[test]
+    fn test_active_session_and_tab_tracking() {
+        let mut state = AppState::default();
+        state.reconcile(make_test_sessions());
+        state.active_session = Some("backend".to_string());
         state.rebuild_nodes();
 
-        // Node 0: Session "ss"
-        // Node 1: Tab #1 (position 0) -> MUST be active
-        // Node 2: Portal (position 1) -> MUST NOT be active despite is_active == true
-        // Node 3: magy (position 4) -> MUST NOT be active despite is_active == true
-        // Node 4: Session "other"
-        // Node 5: runner (position 0) -> MUST NOT be active because "other" is not attached
-        assert_eq!(state.nodes.len(), 6);
+        // backend session + 2 tabs, frontend session + 1 tab = 5 nodes
+        assert_eq!(state.nodes.len(), 5);
 
+        // Node 0: Session "backend" (attached)
+        // Node 1: Tab "editor" (active tab of attached session -> is_workspace_active: true)
+        // Node 2: Tab "logs" (inactive -> is_workspace_active: false)
+        // Node 3: Session "frontend" (not attached)
+        // Node 4: Tab "ui" (is_active in its session, but frontend is not active_session -> is_workspace_active: false)
         assert!(state.nodes[1].is_workspace_active_tab());
         assert!(!state.nodes[2].is_workspace_active_tab());
-        assert!(!state.nodes[3].is_workspace_active_tab());
-        assert!(!state.nodes[5].is_workspace_active_tab());
+        assert!(!state.nodes[4].is_workspace_active_tab());
 
-        // Count how many tabs are workspace active in the whole tree: STRICTLY 1
         let active_count = state
             .nodes
             .iter()
@@ -450,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reconcile_and_navigation() {
+    fn test_navigation_and_collapse() {
         let mut state = AppState::default();
         state.reconcile(make_test_sessions());
 
@@ -458,29 +493,17 @@ mod tests {
         state.cursor_down();
         assert_eq!(state.cursor, 1);
         assert!(
-            matches!(state.selected_node(), Some(TreeNode::Tab { name, .. }) if name == "Tab #1")
+            matches!(state.selected_node(), Some(TreeNode::Tab { name, .. }) if name == "editor")
         );
 
-        state.cursor_end();
-        assert_eq!(state.cursor, 5);
-
-        state.cursor_home();
-        assert_eq!(state.cursor, 0);
-    }
-
-    #[test]
-    fn test_collapse_and_expand() {
-        let mut state = AppState::default();
-        state.reconcile(make_test_sessions());
-
         state.toggle_collapse();
-        assert!(state.collapsed.contains("ss"));
-        // ss (0), other (1), runner (2) = 3 nodes
+        assert!(state.collapsed.contains("backend"));
+        // backend collapsed (1) + frontend (1) + ui tab (1) = 3 nodes
         assert_eq!(state.nodes.len(), 3);
         assert_eq!(state.cursor, 0);
 
         state.toggle_collapse();
-        assert!(!state.collapsed.contains("ss"));
-        assert_eq!(state.nodes.len(), 6);
+        assert!(!state.collapsed.contains("backend"));
+        assert_eq!(state.nodes.len(), 5);
     }
 }

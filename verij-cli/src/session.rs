@@ -99,15 +99,10 @@ pub fn start_host_session(session_name: &str, layout_path: &Path, no_attach: boo
 
     let layout_str = layout_path.to_string_lossy();
 
-    // If currently inside an existing Zellij session, use -n to force creating a new session
-    // instead of appending tabs to the current session.
-    let is_inside_zellij = std::env::var("ZELLIJ").is_ok();
-
-    if is_inside_zellij {
-        exec_zellij(["-s", session_name, "-n", &layout_str])
-    } else {
-        exec_zellij(["-s", session_name, "-l", &layout_str])
-    }
+    // Use -n (--new-session-with-layout) with -s to always create and attach to a new named session
+    // with the given layout. In Zellij CLI, passing -l with -s treats it as adding tabs to an
+    // existing session, which fails if the session does not already exist.
+    exec_zellij(["-s", session_name, "-n", &layout_str])
 }
 
 /// Attaches to an existing host session.

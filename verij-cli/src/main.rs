@@ -11,8 +11,8 @@ use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 mod actions;
+mod fs_watcher;
 mod layout;
-mod pipe_reader;
 mod session;
 mod tui;
 
@@ -88,19 +88,29 @@ pub struct AttachArgs {
 // Subcommand handlers
 // ---------------------------------------------------------------------------
 
+fn ensure_host_session_name(name: &str) -> String {
+    if name.starts_with(verij_types::HOST_SESSION_PREFIX) {
+        name.to_string()
+    } else {
+        format!("{}{}", verij_types::HOST_SESSION_PREFIX, name)
+    }
+}
+
 fn handle_start(args: StartArgs) -> Result<()> {
-    if session::is_session_running(&args.session_name)? {
+    let host_name = ensure_host_session_name(&args.session_name);
+
+    if session::is_session_running(&host_name)? {
         if args.no_attach {
             bail!(
                 "Session '{}' is already running. Specify a different name with --session-name or attach with 'verij attach'.",
-                args.session_name
+                host_name
             );
         } else {
             eprintln!(
                 "Session '{}' is already running. Attaching to it...",
-                args.session_name
+                host_name
             );
-            return session::attach_session(&args.session_name);
+            return session::attach_session(&host_name);
         }
     }
 
@@ -123,14 +133,15 @@ fn handle_start(args: StartArgs) -> Result<()> {
         layout::write_layout_file(&config)?
     };
 
-    session::start_host_session(&args.session_name, &layout_path, args.no_attach)
+    session::start_host_session(&host_name, &layout_path, args.no_attach)
 }
 
 fn handle_attach(args: AttachArgs) -> Result<()> {
-    let running = session::is_session_running(&args.session_name)?;
+    let host_name = ensure_host_session_name(&args.session_name);
+    let running = session::is_session_running(&host_name)?;
 
     if running {
-        session::attach_session(&args.session_name)
+        session::attach_session(&host_name)
     } else if args.create {
         handle_start(StartArgs {
             session_name: args.session_name,
@@ -148,8 +159,8 @@ fn handle_attach(args: AttachArgs) -> Result<()> {
         };
 
         bail!(
-            "Session '{}' is not running.\nActive sessions: {}\nRun 'verij start --session-name {}' or 'verij attach -c {}' to create it.",
-            args.session_name,
+            "Host session '{}' is not running.\nActive sessions: {}\nRun 'verij start --session-name {}' or 'verij attach -c {}' to create it.",
+            host_name,
             active_str,
             args.session_name,
             args.session_name

@@ -1,321 +1,249 @@
 /// verij-cli/src/actions.rs
 ///
-/// Action dispatcher: translates TUI navigation selections into Zellij shell
-/// commands executed via `std::process::Command`.
+/// Action dispatcher: handles session and tab switching using "The Inception Switch".
 ///
 /// Design rationale:
-///   - We use `zellij action` CLI subcommands rather than the plugin pipe
-///     because the TUI process is a native binary with direct shell access.
-///   - All commands are fire-and-forget (we don't wait for confirmation).
-///     Zellij applies them asynchronously; the next `SessionUpdate` event from
-///     the plugin will reflect any state changes.
+///   - Session switching: Injects a `switch:<target>` command into the
+///     *currently active inner session* via `zellij -s <old_session> pipe --name verij_control`.
+///     The `verij-plugin` agent running inside that session executes native
+///     `switch_session(Some(target))`, switching the attached client cleanly
+///     from the inside.
+///   - Re-focus: Immediately executes `zellij action move-focus right` so keyboard
+///     focus transfers to the attached inner session.
+///   - Tab navigation: Directly executes `zellij --session <target> action go-to-tab <pos+1>`.
 use anyhow::{Context, Result};
+use std::path::Path;
 use std::process::Command;
+use verij_types::VERIJ_CONTROL_PIPE;
 
-// ---------------------------------------------------------------------------
-// Public action API
-// ---------------------------------------------------------------------------
+/// Creates a new inner session in the background, ensures the WASM agent is running,
+/// and attaches/switches the Workspace pane to it.
+pub fn create_inner_session(
+    old_active_session: Option<&str>,
+    new_session_name: &str,
+    plugin_path: Option<&Path>,
+) -> Result<()> {
+    // 1. Create the session in background detached mode (-b)
+    // Isolate stdio and clear ZELLIJ env vars to avoid inheriting raw-mode TTY / nested state
+    let default_layout = std::env::var("HOME")
+        .map(|h| std::path::PathBuf::from(h).join(".config/zellij/layouts/default.kdl"))
+        .ok()
+        .filter(|p| p.exists());
 
-/// Focus the named Zellij session (attaches it to Workspace pane if needed, goes to first tab).
-pub fn switch_session(session_name: &str) -> Result<()> {
-    switch_session_tab(session_name, 0)
-}
+    let mut cmd = Command::new("zellij");
+    cmd.args(["attach", "-c", "-b", new_session_name]);
+    if let Some(ref layout) = default_layout {
+        cmd.args(["options", "--default-layout", &layout.to_string_lossy()]);
+    }
+    cmd.env_remove("ZELLIJ")
+        .env_remove("ZELLIJ_SESSION_NAME")
+        .env_remove("ZELLIJ_PANE_ID")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
 
-/// Switch focus to a specific tab within the named session.
-///
-/// If the target session is already attached in the Host Session's Workspace pane,
-/// this simply sends `go-to-tab` to the target session.
-///
-/// If a different session is attached (or none), it cleanly detaches the existing session,
-/// attaches the target session into the Workspace pane, and switches to the requested tab.
-///
-/// This does NOT switch the host client connection (no fullscreen takeover);
-/// the host session layout remains intact while the inner session updates in-place.
-pub fn switch_session_tab(target_session: &str, tab_position: usize) -> Result<()> {
-    let host_session = std::env::var("ZELLIJ_SESSION_NAME").ok();
+    let status = cmd
+        .status()
+        .with_context(|| format!("Failed to create background session '{new_session_name}'"))?;
 
-    // If target is host session itself, just navigate tabs in host session
-    if let Some(ref host) = host_session {
-        if target_session == host {
-            let tab_arg = (tab_position + 1).to_string();
-            return run_zellij_action_for_session(Some(target_session), &["go-to-tab", &tab_arg])
-                .with_context(|| {
-                    format!("Failed to go to tab {tab_position} in session `{target_session}`")
-                });
-        }
+    if !status.success() {
+        eprintln!(
+            "[verij-cli] Warning: background attach exited with status: {}",
+            status
+        );
     }
 
-    let ws_state = detect_workspace_state(host_session.as_deref());
+    // Set inner session pane frame style to full
+    let _ = Command::new("zellij")
+        .args(["-s", new_session_name, "action", "set-pane-frame-style", "full"])
+        .stdin(std::process::Stdio::null())
+        .status();
 
-    if ws_state.attached_session.as_deref() == Some(target_session) {
-        // Session is already attached in workspace pane. Just switch its tab!
-        let tab_arg = (tab_position + 1).to_string();
-        run_zellij_action_for_session(Some(target_session), &["go-to-tab", &tab_arg])
-            .with_context(|| {
-                format!("Failed to go to tab {tab_position} in session `{target_session}`")
-            })?;
-    } else {
-        // Different session needs to be attached into the workspace pane!
-        if let Some(pid) = ws_state.attach_pid {
-            // Detach previous session cleanly by sending SIGTERM to zellij attach
-            let _ = Command::new("kill")
-                .args(["-TERM", &pid.to_string()])
+    // 2. Check if agent state file appears (auto-loaded via Zellij load_plugins).
+    // If not after brief delay, explicitly launch plugin with --floating --no-focus fallback.
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    let state_file =
+        std::path::PathBuf::from(format!("/tmp/verij/states/{new_session_name}.json"));
+    if !state_file.exists() {
+        if let Some(path) = plugin_path {
+            let plugin_url = format!("file:{}", path.display());
+            let _ = Command::new("zellij")
+                .args([
+                    "-s",
+                    new_session_name,
+                    "action",
+                    "launch-plugin",
+                    "--floating",
+                    "--no-focus",
+                    &plugin_url,
+                ])
                 .status();
-
-            // Wait briefly for process to exit
-            for _ in 0..10 {
-                std::thread::sleep(std::time::Duration::from_millis(20));
-                if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
-                    break;
-                }
-            }
-        }
-
-        // Focus the Workspace pane BEFORE attaching so the nested session prompt receives input
-        let _ = run_zellij_action_for_session(
-            host_session.as_deref(),
-            &["focus-pane-id", &ws_state.workspace_pane_id],
-        );
-        std::thread::sleep(std::time::Duration::from_millis(50));
-
-        // Attach target session inside Workspace pane
-        let attach_cmd = format!("zellij attach {}\n", target_session);
-        run_zellij_action_for_session(
-            host_session.as_deref(),
-            &[
-                "write-chars",
-                "--pane-id",
-                &ws_state.workspace_pane_id,
-                &attach_cmd,
-            ],
-        )
-        .with_context(|| format!("Failed to attach `{target_session}` in workspace pane"))?;
-
-        // If a specific non-first tab is requested, navigate after attach connects
-        if tab_position > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(150));
-            let tab_arg = (tab_position + 1).to_string();
-            let _ = run_zellij_action_for_session(Some(target_session), &["go-to-tab", &tab_arg]);
         }
     }
+
+    // 3. Switch right pane to this new session
+    switch_session(old_active_session, new_session_name, None)?;
 
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/// Run `zellij [--session <name>] action <args>` and wait for it to exit.
+/// Switch to the target session and optionally navigate to a specific tab.
 ///
-/// Stdout and stderr are captured to prevent corrupting the TUI alternate screen.
-fn run_zellij_action_for_session(session_name: Option<&str>, args: &[&str]) -> Result<()> {
-    let mut cmd_args = Vec::new();
-    if let Some(session) = session_name {
-        cmd_args.push("--session");
-        cmd_args.push(session);
+/// If `old_active_session` is present and differs from `target_session`,
+/// triggers the Inception Switch via pipe injection into `old_active_session`.
+/// If no session was previously active (e.g. initial launch in empty pane),
+/// falls back to attaching directly via `zellij action write-chars`.
+pub fn switch_session(
+    old_active_session: Option<&str>,
+    target_session: &str,
+    tab_position: Option<usize>,
+) -> Result<()> {
+    match old_active_session {
+        Some(old) if old == target_session => {
+            // Target is already attached. Just navigate tab if requested.
+            if let Some(pos) = tab_position {
+                switch_tab(target_session, pos)?;
+            }
+        }
+        Some(old) => {
+            // The Inception Switch: trigger switch from inside the current session
+            inception_switch(old, target_session)?;
+
+            // If a specific tab is requested, navigate after brief delay
+            if let Some(pos) = tab_position {
+                if pos > 0 {
+                    let target = target_session.to_string();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(150));
+                        let _ = switch_tab(&target, pos);
+                    });
+                }
+            }
+        }
+        None => {
+            // First attach fallback: attach into the right pane
+            attach_in_right_pane(target_session)?;
+
+            if let Some(pos) = tab_position {
+                if pos > 0 {
+                    let target = target_session.to_string();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                        let _ = switch_tab(&target, pos);
+                    });
+                }
+            }
+        }
     }
-    cmd_args.push("action");
-    cmd_args.extend_from_slice(args);
 
-    let output = Command::new("zellij")
-        .args(&cmd_args)
-        .output()
-        .context("Failed to spawn `zellij` process")?;
+    // Ensure inner session ready before refocusing
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    // Always re-focus the right pane so keyboard input goes to the attached workspace
+    re_focus_right_pane()?;
 
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let stderr_str = String::from_utf8_lossy(&output.stderr);
+    Ok(())
+}
 
-    if !output.status.success() {
-        anyhow::bail!(
-            "`zellij {}` failed (status {}): {}",
-            cmd_args.join(" "),
-            output.status,
-            stderr_str.trim()
-        );
-    }
+/// Executes "The Inception Switch":
+/// `zellij -s <old_session> pipe --name verij_control -- switch:<new_session>`
+pub fn inception_switch(old_active_session: &str, new_selected_session: &str) -> Result<()> {
+    let payload = format!("switch:{}", new_selected_session);
 
-    if stdout_str.contains("not found") {
-        anyhow::bail!(
-            "{}",
-            stdout_str.lines().next().unwrap_or("Session not found")
+    let status = Command::new("zellij")
+        .args([
+            "-s",
+            old_active_session,
+            "pipe",
+            "--name",
+            VERIJ_CONTROL_PIPE,
+            "--",
+            &payload,
+        ])
+        .status()
+        .with_context(|| {
+            format!(
+                "Failed to dispatch Inception Switch pipe to session '{}'",
+                old_active_session
+            )
+        })?;
+
+    if !status.success() {
+        eprintln!(
+            "[verij-cli] Warning: Inception Switch command exited with status: {}",
+            status
         );
     }
 
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Workspace process inspection
-// ---------------------------------------------------------------------------
+/// Re-focuses the right pane: `zellij action move-focus right`.
+pub fn re_focus_right_pane() -> Result<()> {
+    let status = Command::new("zellij")
+        .args(["action", "move-focus", "right"])
+        .status()
+        .context("Failed to execute `zellij action move-focus right`")?;
 
-#[derive(Debug, Clone, Default)]
-pub struct WorkspaceState {
-    pub attached_session: Option<String>,
-    pub attach_pid: Option<u32>,
-    pub workspace_pane_id: String,
-    pub active_tab_position: Option<usize>,
+    if !status.success() {
+        eprintln!(
+            "[verij-cli] Warning: `zellij action move-focus right` exited with status: {}",
+            status
+        );
+    }
+
+    Ok(())
 }
 
-/// Queries the live Zellij server for the currently active tab position of a session.
-pub fn query_session_active_tab(session_name: &str) -> Option<usize> {
-    let output = Command::new("zellij")
-        .args(["--session", session_name, "action", "current-tab-info"])
-        .output()
-        .ok()?;
+/// Switch to a specific tab within the named session:
+/// `zellij --session <target> action go-to-tab <position + 1>`.
+pub fn switch_tab(session_name: &str, tab_position: usize) -> Result<()> {
+    let tab_arg = (tab_position + 1).to_string();
+    let status = Command::new("zellij")
+        .args(["--session", session_name, "action", "go-to-tab", &tab_arg])
+        .status()
+        .with_context(|| {
+            format!(
+                "Failed to navigate to tab {} in session '{}'",
+                tab_position, session_name
+            )
+        })?;
 
-    if !output.status.success() {
-        return None;
+    if !status.success() {
+        eprintln!(
+            "[verij-cli] Warning: `zellij action go-to-tab` exited with status: {}",
+            status
+        );
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        if let Some(rest) = line.trim().strip_prefix("position:") {
-            if let Ok(pos) = rest.trim().parse::<usize>() {
-                return Some(pos);
-            }
-        }
-    }
-
-    None
+    Ok(())
 }
 
-/// Detect what session (if any) is running in the Host Session's Workspace pane.
-pub fn detect_workspace_state(host_session: Option<&str>) -> WorkspaceState {
-    let mut state = WorkspaceState {
-        attached_session: None,
-        attach_pid: None,
-        workspace_pane_id: "terminal_1".to_string(),
-        active_tab_position: None,
-    };
+/// Initial attach fallback when no session was previously active in the right pane:
+/// sends `stty sane; zellij attach <target>\n` to the active pane.
+fn attach_in_right_pane(target_session: &str) -> Result<()> {
+    let attach_cmd = format!("stty sane; zellij attach {}\n", target_session);
+    let _ = Command::new("zellij")
+        .args(["action", "move-focus", "right"])
+        .stdin(std::process::Stdio::null())
+        .status();
 
-    // Find workspace pane id from `zellij action list-panes`
-    if let Some(host) = host_session {
-        if let Ok(output) = Command::new("zellij")
-            .args(["--session", host, "action", "list-panes"])
-            .output()
-        {
-            let text = String::from_utf8_lossy(&output.stdout);
-            for line in text.lines() {
-                if line.contains("Workspace") {
-                    if let Some(pane_id) = line.split_whitespace().next() {
-                        state.workspace_pane_id = pane_id.to_string();
-                        break;
-                    }
-                }
-            }
-        }
+    let status = Command::new("zellij")
+        .args(["action", "write-chars", &attach_cmd])
+        .stdin(std::process::Stdio::null())
+        .status()
+        .with_context(|| {
+            format!(
+                "Failed to send initial attach command for session '{}'",
+                target_session
+            )
+        })?;
+
+    if !status.success() {
+        eprintln!(
+            "[verij-cli] Warning: initial attach write-chars exited with status: {}",
+            status
+        );
     }
 
-    // Inspect Linux /proc to find child running inside Workspace pane
-    #[cfg(target_os = "linux")]
-    {
-        if let Some((session, pid)) = inspect_linux_workspace_process() {
-            state.active_tab_position = query_session_active_tab(&session);
-            state.attached_session = Some(session);
-            state.attach_pid = Some(pid);
-        }
-    }
-
-    state
-}
-
-#[cfg(target_os = "linux")]
-fn inspect_linux_workspace_process() -> Option<(String, u32)> {
-    let my_pid = std::process::id();
-    let my_stat = std::fs::read_to_string(format!("/proc/{my_pid}/stat")).ok()?;
-    let host_ppid = parse_ppid_from_stat(&my_stat)?;
-
-    let mut sibling_pids = Vec::new();
-    let proc_dir = std::fs::read_dir("/proc").ok()?;
-
-    for entry in proc_dir.flatten() {
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        if let Ok(pid) = name_str.parse::<u32>() {
-            if pid == my_pid {
-                continue;
-            }
-            if let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) {
-                if let Some(ppid) = parse_ppid_from_stat(&stat) {
-                    if ppid == host_ppid {
-                        sibling_pids.push(pid);
-                    }
-                }
-            }
-        }
-    }
-
-    if sibling_pids.is_empty() {
-        return None;
-    }
-
-    // Scan for children of sibling panes
-    let proc_dir = std::fs::read_dir("/proc").ok()?;
-    for entry in proc_dir.flatten() {
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        if let Ok(pid) = name_str.parse::<u32>() {
-            if let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) {
-                if let Some(ppid) = parse_ppid_from_stat(&stat) {
-                    if sibling_pids.contains(&ppid) {
-                        // Direct child of sibling pane
-                        if let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) {
-                            if let Some(session) = parse_session_from_cmdline(&cmdline) {
-                                return Some((session, pid));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}
-
-#[cfg(target_os = "linux")]
-fn parse_ppid_from_stat(stat: &str) -> Option<u32> {
-    let last_paren = stat.rfind(')')?;
-    let after_paren = stat.get(last_paren + 1..)?;
-    let mut parts = after_paren.split_whitespace();
-    let _state = parts.next()?;
-    let ppid_str = parts.next()?;
-    ppid_str.parse::<u32>().ok()
-}
-
-#[cfg(target_os = "linux")]
-fn parse_session_from_cmdline(cmdline: &[u8]) -> Option<String> {
-    let args: Vec<String> = cmdline
-        .split(|&b| b == 0)
-        .filter(|chunk| !chunk.is_empty())
-        .map(|chunk| String::from_utf8_lossy(chunk).to_string())
-        .collect();
-
-    if args.is_empty() {
-        return None;
-    }
-
-    let first = args.first()?;
-    if !first.contains("zellij") {
-        return None;
-    }
-
-    // Check for -s or --session
-    for i in 0..args.len() {
-        if (args[i] == "-s" || args[i] == "--session") && i + 1 < args.len() {
-            return Some(args[i + 1].clone());
-        }
-    }
-
-    // Check for attach / a
-    if let Some(pos) = args.iter().position(|arg| arg == "attach" || arg == "a") {
-        for arg in args.iter().skip(pos + 1).rev() {
-            if !arg.starts_with('-') {
-                return Some(arg.clone());
-            }
-        }
-    }
-
-    None
+    Ok(())
 }

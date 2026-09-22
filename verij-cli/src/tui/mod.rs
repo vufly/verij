@@ -5,7 +5,7 @@
 /// Handles:
 ///   1. Keyboard input (navigation, fold/unfold, actions, shortcuts).
 ///   2. Mouse input (click to select, double-click to attach, wheel scroll).
-///   3. Session snapshot messages from the pipe reader.
+///   3. Session snapshot messages from the filesystem watcher (`/tmp/verij/states/`).
 ///   4. Tick-based spinner animation for empty/connecting states.
 ///   5. Dynamic terminal resize handling.
 pub mod render;
@@ -26,8 +26,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::actions;
-use crate::pipe_reader;
-use state::AppState;
+use crate::fs_watcher;
+use state::{AppState, InputMode};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -35,6 +35,12 @@ use state::AppState;
 
 /// Launch the Verij TUI.
 pub async fn run() -> Result<()> {
+    // Ensure host session pane frame style is titles
+    let _ = std::process::Command::new("zellij")
+        .args(["action", "set-pane-frame-style", "titles"])
+        .stdin(std::process::Stdio::null())
+        .status();
+
     enable_raw_mode().context("Failed to enable raw mode")?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
@@ -66,12 +72,13 @@ pub async fn run() -> Result<()> {
 async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     let (tx, mut rx) = mpsc::channel(16);
     let mut state = AppState::default();
+    state.plugin_path = crate::layout::resolve_plugin_path(None).ok();
 
-    // Spawn pipe reader background task
-    match pipe_reader::spawn_pipe_reader(tx) {
+    // Spawn filesystem watcher background task targeting /tmp/verij/states/
+    match fs_watcher::spawn_fs_watcher(tx) {
         Ok(_handle) => {}
         Err(e) => {
-            state.error = Some(format!("Pipe error: {e}"));
+            state.error = Some(format!("FS watcher error: {e}"));
         }
     }
 
@@ -104,7 +111,7 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
             }
         }
 
-        // Drain pending session updates from pipe reader
+        // Drain pending session updates from the filesystem watcher
         loop {
             match rx.try_recv() {
                 Ok(snapshot) => {
@@ -114,7 +121,7 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
                 }
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => {
-                    state.error = Some("Pipe disconnected. Is verij-plugin running?".into());
+                    state.error = Some("Filesystem watcher disconnected.".into());
                     needs_render = true;
                     break;
                 }
@@ -123,14 +130,6 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
 
         // Tick counter for animations (e.g. connecting spinner)
         state.tick = state.tick.wrapping_add(1);
-        if state.tick % 5 == 0 {
-            let prev_tab = state.active_tab_position;
-            let prev_attached = state.attached_session.clone();
-            state.update_attached_session();
-            if state.active_tab_position != prev_tab || state.attached_session != prev_attached {
-                needs_render = true;
-            }
-        }
         if state.nodes.is_empty() {
             needs_render = true;
         }
@@ -149,10 +148,60 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
 
 /// Process keyboard events. Returns `true` if TUI should quit.
 fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
+    if state.input_mode == InputMode::NewSession {
+        match key.code {
+            KeyCode::Esc => {
+                state.cancel_new_session_prompt();
+            }
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                state.cancel_new_session_prompt();
+            }
+            KeyCode::Backspace => {
+                state.handle_input_backspace();
+            }
+            KeyCode::Enter => {
+                let name = state.input_buffer.trim().to_string();
+                if !name.is_empty() {
+                    let old_active = state.active_session.clone();
+                    let res = actions::create_inner_session(
+                        old_active.as_deref(),
+                        &name,
+                        state.plugin_path.as_deref(),
+                    );
+                    match res {
+                        Ok(()) => {
+                            state.active_session = Some(name);
+                            state.error = None;
+                        }
+                        Err(e) => {
+                            state.error = Some(format!("Create error: {e}"));
+                        }
+                    }
+                }
+                state.cancel_new_session_prompt();
+            }
+            KeyCode::Char(c) => {
+                state.handle_input_char(c);
+            }
+            _ => {}
+        }
+        return Ok(false);
+    }
+
     match key.code {
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(true),
+
+        // New inner session prompt
+        KeyCode::Char('n') | KeyCode::Char('c') | KeyCode::Char('+') => {
+            state.start_new_session_prompt();
+        }
+
+        // Help bar toggle
+        KeyCode::Char('?') => {
+            state.toggle_help();
+        }
 
         // Navigation (Vim & Arrow keys)
         KeyCode::Char('j') | KeyCode::Down => state.cursor_down(),
@@ -168,12 +217,12 @@ fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
         KeyCode::Home | KeyCode::Char('g') => state.cursor_home(),
         KeyCode::End | KeyCode::Char('G') => state.cursor_end(),
 
-        // 4.7 Tree folding
+        // Tree folding
         KeyCode::Char(' ') | KeyCode::Tab => state.toggle_collapse(),
         KeyCode::Left | KeyCode::Char('h') => state.collapse_selected(),
         KeyCode::Right | KeyCode::Char('l') => state.expand_selected(),
 
-        // Action: attach or jump to selected session/tab
+        // Action: The Inception Switch
         KeyCode::Enter => {
             dispatch_action(state)?;
         }
@@ -184,7 +233,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
     Ok(false)
 }
 
-/// 4.5 Process mouse events (click, double click, scroll wheel).
+/// Process mouse events (click, double click, scroll wheel).
 fn handle_mouse(
     state: &mut AppState,
     mouse: MouseEvent,
@@ -197,9 +246,9 @@ fn handle_mouse(
         MouseEventKind::ScrollUp => {
             state.cursor_up();
         }
-        // In render.rs, row 0 is top border, items start on row 1
-        MouseEventKind::Down(MouseButton::Left) if mouse.row >= 1 => {
-            let visual_index = (mouse.row - 1) as usize;
+        // With borders removed, items start directly on row 0
+        MouseEventKind::Down(MouseButton::Left) => {
+            let visual_index = mouse.row as usize;
             let offset = state.list_state.offset();
             let target_index = offset + visual_index;
 
@@ -228,26 +277,31 @@ fn handle_mouse(
 }
 
 // ---------------------------------------------------------------------------
-// Action dispatch
+// Action dispatch: The Inception Switch
 // ---------------------------------------------------------------------------
 
-/// Translate the currently selected `TreeNode` into a Zellij action.
+/// Translate the currently selected `TreeNode` into session/tab switch action.
 fn dispatch_action(state: &mut AppState) -> Result<()> {
     let Some(node) = state.selected_node() else {
         return Ok(());
     };
 
-    let result = match node.tab_position() {
-        None => actions::switch_session(node.session_name()),
-        Some(position) => actions::switch_session_tab(node.session_name(), position),
-    };
+    let target_session = node.session_name().to_string();
+    let tab_position = node.tab_position();
+
+    let old_active = state.active_session.clone();
+    state.active_session = Some(target_session.clone());
+
+    let result = actions::switch_session(old_active.as_deref(), &target_session, tab_position);
 
     if let Err(e) = result {
         state.error = Some(e.to_string());
     } else {
         state.error = None;
-        state.update_attached_session();
     }
+
+    state.rebuild_nodes();
+    state.sync_list_state();
 
     Ok(())
 }

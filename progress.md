@@ -61,17 +61,37 @@ Verij is a nested workspace and session manager for the Zellij terminal multiple
   - Cursor row: theme-neutral `bg=243, fg=0` (works across dark and light terminal backgrounds).
   - Workspace active tab: `bg=1, fg=255` (red background, bright white text).
   - Selected + active tab: row gets `bg=243, fg=0`, tab name badge explicitly gets `bg=1, fg=255`.
-  - Authoritative single active tab resolution: queries `zellij action current-tab-info` for the workspace attached session to resolve ghost active tabs caused by Zellij multi-client attachment. Strictly one active tab across entire sidebar.
+- [x] **4.8** Active Tab Resolution & 256-Color Palette.
+
+### Milestone 5 — Nested Session & Distributed Agent Pivot (`Inception Switch`)
+- [x] **5.1** Architectural Pivot Documentation (`docs/ARCHITECTURE.md`):
+  - Documented Distributed Agent model, `/tmp/verij/states/` filesystem watcher sync, and `__verij_host_` isolation naming.
+  - Documented The Inception Switch native control flow via `verij_control` pipe.
+- [x] **5.2** Distributed WASM Agent Refactor (`verij-plugin`):
+  - Removed cross-session pipe broadcaster, timer polling loop (`get_session_list()`), and deadlocks.
+  - Implemented session state export: writes `/tmp/verij/states/<session_name>.json` atomically on `SessionUpdate` and `TabUpdate`.
+  - Implemented `verij_control` pipe listener: extracts `switch:<target>` and executes native `zellij_tile::prelude::switch_session(Some(target))`.
+  - Requested `ReadApplicationState`, `ChangeApplicationState`, and `ReadCliPipes` permissions.
+- [x] **5.3** Orchestrator TUI State Ingestion (`verij-cli`):
+  - Replaced legacy `pipe_reader.rs` with `fs_watcher.rs` using `notify` crate to watch `/tmp/verij/states/`.
+  - Aggregates individual JSON session states into unified sorted state tree.
+  - Strict host session filtering: excludes any sessions prefixed with `__verij_host_`.
+  - Local state tracking: tracks `active_session` directly in `AppState`.
+- [x] **5.4** The Inception Switch Action Dispatch (`verij-cli/src/actions.rs`):
+  - Removed `/proc` process scraping, `SIGTERM` kills, and PTY `write-chars` hacks.
+  - `Enter` triggers non-blocking pipe injection `zellij -s <old_active_session> pipe --name verij_control -- switch:<new_selected_session>`.
+  - Re-focuses right pane via `zellij action move-focus right`.
+  - Seamless first-attach fallback if no prior active session.
 
 ---
 
-## Active Milestone: Milestone 5 — Workspace Persistence
+## Active Milestone: Milestone 6 — Workspace Persistence
 
 **Goal:** Named workspaces with saved session metadata and automatic resurrection.
 
 ### Tasks
-- [ ] **5.1** Config format: `~/.config/verij/workspaces.toml` schema for workspace definitions (`[[workspace]]`).
-- [ ] **5.2** `verij workspace new <name>`: Create workspace entry and initialize host session.
-- [ ] **5.3** `verij workspace list`: List all saved workspaces and their live/offline status.
-- [ ] **5.4** `verij workspace delete <name>`: Kill host session and prune configuration entry.
-- [ ] **5.5** Auto-restore: Re-create offline sessions on `verij start`.
+- [ ] **6.1** Config format: `~/.config/verij/workspaces.toml` schema for workspace definitions (`[[workspace]]`).
+- [ ] **6.2** `verij workspace new <name>`: Create workspace entry and initialize host session.
+- [ ] **6.3** `verij workspace list`: List all saved workspaces and their live/offline status.
+- [ ] **6.4** `verij workspace delete <name>`: Kill host session and prune configuration entry.
+- [ ] **6.5** Auto-restore: Re-create offline sessions on `verij start`.
