@@ -242,6 +242,7 @@ fn dispatch_action(state: &mut AppState) -> Result<()> {
         state.error = Some(e.to_string());
     } else {
         state.error = None;
+        state.update_attached_session();
     }
 
     Ok(())

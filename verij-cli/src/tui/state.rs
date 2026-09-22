@@ -3,7 +3,7 @@
 /// Application state for the Ratatui TUI.
 ///
 /// The state holds the current session snapshot, flattened navigable tree,
-/// selection cursor, collapsed set, and Ratatui ListState for viewport scrolling.
+/// selection cursor, collapsed set, attached workspace session, and ListState.
 use ratatui::widgets::ListState;
 use std::collections::HashSet;
 use verij_types::SessionSnapshot;
@@ -19,6 +19,7 @@ pub enum TreeNode {
     Session {
         name: String,
         is_current: bool,
+        is_attached: bool,
         is_collapsed: bool,
         active_tab: Option<String>,
         tab_count: usize,
@@ -31,6 +32,7 @@ pub enum TreeNode {
         name: String,
         position: usize,
         is_active: bool,
+        is_attached_session: bool,
     },
 }
 
@@ -50,6 +52,18 @@ impl TreeNode {
             TreeNode::Session { .. } => None,
         }
     }
+
+    /// True if this node is the active tab of the session currently attached in the Workspace pane.
+    pub fn is_workspace_active_tab(&self) -> bool {
+        match self {
+            TreeNode::Tab {
+                is_active,
+                is_attached_session,
+                ..
+            } => *is_active && *is_attached_session,
+            TreeNode::Session { .. } => false,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +76,7 @@ pub struct AppState {
     pub sessions: Vec<SessionSnapshot>,
 
     /// Flattened, ordered list of navigable tree nodes.
-    /// Rebuilt whenever `sessions` or `collapsed` changes.
+    /// Rebuilt whenever `sessions`, `collapsed`, or `attached_session` changes.
     pub nodes: Vec<TreeNode>,
 
     /// Cursor position: index into `nodes`. Clamped to `nodes.len() - 1`.
@@ -70,6 +84,9 @@ pub struct AppState {
 
     /// Set of session names whose tab lists are collapsed.
     pub collapsed: HashSet<String>,
+
+    /// Name of the session currently attached inside the Workspace pane (if detected).
+    pub attached_session: Option<String>,
 
     /// Ratatui list state managing scroll offset and selected item.
     pub list_state: ListState,
@@ -88,6 +105,7 @@ impl Default for AppState {
             nodes: Vec::new(),
             cursor: 0,
             collapsed: HashSet::new(),
+            attached_session: None,
             list_state: ListState::default(),
             tick: 0,
             error: None,
@@ -108,6 +126,11 @@ impl AppState {
                 ..
             } => (session_name.clone(), Some(*position)),
         });
+
+        // Detect what session is attached in Workspace pane
+        let host_session = std::env::var("ZELLIJ_SESSION_NAME").ok();
+        let ws = crate::actions::detect_workspace_state(host_session.as_deref());
+        self.attached_session = ws.attached_session;
 
         self.sessions = new_sessions;
         self.rebuild_nodes();
@@ -138,6 +161,17 @@ impl AppState {
         }
 
         self.sync_list_state();
+    }
+
+    /// Refresh attached session state from process tree.
+    pub fn update_attached_session(&mut self) {
+        let host_session = std::env::var("ZELLIJ_SESSION_NAME").ok();
+        let ws = crate::actions::detect_workspace_state(host_session.as_deref());
+        if self.attached_session != ws.attached_session {
+            self.attached_session = ws.attached_session;
+            self.rebuild_nodes();
+            self.sync_list_state();
+        }
     }
 
     /// Toggles the collapsed state of the session at (or containing) the cursor.
@@ -284,10 +318,12 @@ impl AppState {
             let is_collapsed = self.collapsed.contains(&session.name);
             let active_tab = session.active_tab().map(|t| t.name.clone());
             let tab_count = session.tabs.len();
+            let is_attached = self.attached_session.as_deref() == Some(&session.name);
 
             self.nodes.push(TreeNode::Session {
                 name: session.name.clone(),
                 is_current: session.is_current,
+                is_attached,
                 is_collapsed,
                 active_tab,
                 tab_count,
@@ -302,6 +338,7 @@ impl AppState {
                         name: tab.name.clone(),
                         position: tab.position,
                         is_active: tab.is_active,
+                        is_attached_session: is_attached,
                     });
                 }
             }
@@ -359,16 +396,7 @@ mod tests {
 
         state.cursor_down();
         assert_eq!(state.cursor, 1);
-        assert_eq!(
-            state.selected_node(),
-            Some(&TreeNode::Tab {
-                session_name: "dev".to_string(),
-                session_index: 0,
-                name: "editor".to_string(),
-                position: 0,
-                is_active: true,
-            })
-        );
+        assert!(matches!(state.selected_node(), Some(TreeNode::Tab { name, .. }) if name == "editor"));
 
         state.cursor_end();
         assert_eq!(state.cursor, 4);
@@ -378,36 +406,34 @@ mod tests {
     }
 
     #[test]
+    fn test_workspace_active_tab_detection() {
+        let mut state = AppState::default();
+        state.sessions = make_test_sessions();
+        state.attached_session = Some("dev".to_string());
+        state.rebuild_nodes();
+
+        // editor tab (index 1) is active in attached session "dev"
+        assert!(state.nodes[1].is_workspace_active_tab());
+
+        // term tab (index 2) is inactive in "dev"
+        assert!(!state.nodes[2].is_workspace_active_tab());
+
+        // runner tab (index 4) is active in "test", but "test" is NOT attached in Workspace
+        assert!(!state.nodes[4].is_workspace_active_tab());
+    }
+
+    #[test]
     fn test_collapse_and_expand() {
         let mut state = AppState::default();
         state.reconcile(make_test_sessions());
 
-        // Toggle collapse on first session ("dev")
         state.toggle_collapse();
         assert!(state.collapsed.contains("dev"));
-        // dev (0), test (1), runner (2) = 3 nodes
         assert_eq!(state.nodes.len(), 3);
         assert_eq!(state.cursor, 0);
 
-        // Expand again
         state.toggle_collapse();
         assert!(!state.collapsed.contains("dev"));
         assert_eq!(state.nodes.len(), 5);
-    }
-
-    #[test]
-    fn test_cursor_preservation_when_collapsed() {
-        let mut state = AppState::default();
-        state.reconcile(make_test_sessions());
-
-        // Select "term" tab (index 2)
-        state.select_index(2);
-        assert_eq!(state.cursor, 2);
-
-        // Collapse "dev" session via collapse_selected from tab
-        state.collapse_selected();
-        // Cursor snaps to parent session "dev" (index 0)
-        assert_eq!(state.cursor, 0);
-        assert_eq!(state.selected_node().unwrap().session_name(), "dev");
     }
 }

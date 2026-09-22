@@ -4,8 +4,9 @@
 /// scrolling viewport, animated spinner empty state, and status bar.
 ///
 /// Color design:
-///   - ANSI 0-15 palette to honor user terminal themes (dark & light mode compatible).
-///   - Selected row uses theme-neutral pair `bg=243, fg=0` for crisp contrast across all backgrounds.
+///   - ANSI 0-15 palette to honor user terminal themes.
+///   - Selected cursor row uses theme-neutral pair `bg=243, fg=0`.
+///   - Active tab of attached Workspace session uses `bg=1, fg=255`.
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -35,9 +36,9 @@ const COLOR_SPINNER: Color = Color::Indexed(6);        // Cyan
 const COLOR_SELECTED_BG: Color = Color::Indexed(243);
 const COLOR_SELECTED_FG: Color = Color::Indexed(0);
 
-// Active tab pair: bright white background with dark gray text
-const COLOR_ACTIVE_TAB_BG: Color = Color::Indexed(15);
-const COLOR_ACTIVE_TAB_FG: Color = Color::Indexed(8);
+// Active tab pair: Red background with bright white text (active tab of session attached in Workspace pane)
+const COLOR_ACTIVE_TAB_BG: Color = Color::Indexed(1);
+const COLOR_ACTIVE_TAB_FG: Color = Color::Indexed(255);
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -109,15 +110,8 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
 fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
     let mut spans = Vec::new();
 
-    let is_active_tab = match node {
-        TreeNode::Tab { is_active, .. } => *is_active,
-        _ => false,
-    };
+    let is_workspace_active_tab = node.is_workspace_active_tab();
 
-    // Color resolution:
-    // - If row is selected: normalize to COLOR_SELECTED_FG (0/black) on COLOR_SELECTED_BG (243/gray)
-    // - If row is active tab: use COLOR_ACTIVE_TAB_FG (8/dark gray) on COLOR_ACTIVE_TAB_BG (15/white)
-    // - Otherwise: use theme foreground colors
     let (fold_fg, current_fg, session_fg, muted_fg) = if is_selected {
         (
             COLOR_SELECTED_FG,
@@ -138,6 +132,7 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
         TreeNode::Session {
             name,
             is_current,
+            is_attached,
             is_collapsed,
             active_tab,
             tab_count,
@@ -150,7 +145,7 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
                 Style::default().fg(fold_fg).add_modifier(Modifier::BOLD),
             ));
 
-            // Current session indicator
+            // Current session indicator (* for current host session)
             if *is_current {
                 spans.push(Span::styled(
                     "* ",
@@ -168,18 +163,20 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
             if *is_collapsed {
                 if let Some(tab) = active_tab {
                     spans.push(Span::raw(" "));
-                    if is_selected {
-                        spans.push(Span::styled(
-                            format!("[{tab}]"),
-                            Style::default().fg(COLOR_SELECTED_FG).add_modifier(Modifier::BOLD),
-                        ));
-                    } else {
+                    if *is_attached {
+                        // Attached in workspace pane: highlight active tab badge in bg=1, fg=255
                         spans.push(Span::styled(
                             format!(" [{tab}] "),
                             Style::default()
                                 .bg(COLOR_ACTIVE_TAB_BG)
                                 .fg(COLOR_ACTIVE_TAB_FG)
                                 .add_modifier(Modifier::BOLD),
+                        ));
+                    } else {
+                        // Background session: muted active tab name
+                        spans.push(Span::styled(
+                            format!("[{tab}]"),
+                            Style::default().fg(muted_fg),
                         ));
                     }
                 }
@@ -201,14 +198,16 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
         TreeNode::Tab {
             name,
             is_active,
+            is_attached_session,
             ..
         } => {
-            // Indentation
             spans.push(Span::raw("    "));
 
-            if *is_active {
+            let is_active_in_workspace = *is_active && *is_attached_session;
+
+            if is_active_in_workspace {
                 if is_selected {
-                    // Line is selected (bg=243, fg=0), but tab name specifically gets bg=15, fg=8
+                    // Line is selected (bg=243, fg=0), but tab name specifically gets bg=1, fg=255
                     spans.push(Span::styled(
                         "● ",
                         Style::default().fg(COLOR_SELECTED_FG).add_modifier(Modifier::BOLD),
@@ -221,7 +220,7 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
                             .add_modifier(Modifier::BOLD),
                     ));
                 } else {
-                    // Active tab, not selected: entire line styled with bg=15, fg=8
+                    // Active tab of Workspace session, not selected: entire line styled with bg=1, fg=255
                     spans.push(Span::styled(
                         "● ",
                         Style::default().fg(COLOR_ACTIVE_TAB_FG).add_modifier(Modifier::BOLD),
@@ -234,7 +233,8 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
             } else {
                 let dot_fg = if is_selected { COLOR_SELECTED_FG } else { COLOR_MUTED };
                 let text_fg = if is_selected { COLOR_SELECTED_FG } else { COLOR_TAB_NORMAL };
-                spans.push(Span::styled("○ ", Style::default().fg(dot_fg)));
+                let dot = if *is_active { "● " } else { "○ " };
+                spans.push(Span::styled(dot, Style::default().fg(dot_fg)));
                 spans.push(Span::styled(
                     name.clone(),
                     Style::default().fg(text_fg),
@@ -247,7 +247,7 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
     let mut item = ListItem::new(line);
     if is_selected {
         item = item.style(Style::default().bg(COLOR_SELECTED_BG).fg(COLOR_SELECTED_FG));
-    } else if is_active_tab {
+    } else if is_workspace_active_tab {
         item = item.style(Style::default().bg(COLOR_ACTIVE_TAB_BG).fg(COLOR_ACTIVE_TAB_FG));
     }
     item
