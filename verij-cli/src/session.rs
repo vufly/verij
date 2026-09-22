@@ -17,7 +17,9 @@ pub fn list_sessions() -> Result<Vec<String>> {
     {
         Ok(o) => o,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            bail!("'zellij' command not found in PATH. Please install Zellij (https://zellij.dev).");
+            bail!(
+                "'zellij' command not found in PATH. Please install Zellij (https://zellij.dev)."
+            );
         }
         Err(e) => return Err(e).context("Failed to execute 'zellij list-sessions'"),
     };
@@ -87,7 +89,10 @@ pub fn start_host_session(session_name: &str, layout_path: &Path, no_attach: boo
                 session_name
             );
         } else {
-            eprintln!("Session '{}' is already running. Attaching to it...", session_name);
+            eprintln!(
+                "Session '{}' is already running. Attaching to it...",
+                session_name
+            );
             return attach_session(session_name);
         }
     }
@@ -99,13 +104,13 @@ pub fn start_host_session(session_name: &str, layout_path: &Path, no_attach: boo
     let is_inside_zellij = std::env::var("ZELLIJ").is_ok();
 
     if is_inside_zellij {
-        exec_zellij(&["-s", session_name, "-n", &layout_str])
+        exec_zellij(["-s", session_name, "-n", &layout_str])
     } else {
-        exec_zellij(&["-s", session_name, "-l", &layout_str])
+        exec_zellij(["-s", session_name, "-l", &layout_str])
     }
 }
 
 /// Attaches to an existing host session.
 pub fn attach_session(session_name: &str) -> Result<()> {
-    exec_zellij(&["attach", session_name])
+    exec_zellij(["attach", session_name])
 }

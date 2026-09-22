@@ -39,7 +39,9 @@ pub fn switch_session_tab(target_session: &str, tab_position: usize) -> Result<(
         if target_session == host {
             let tab_arg = (tab_position + 1).to_string();
             return run_zellij_action_for_session(Some(target_session), &["go-to-tab", &tab_arg])
-                .with_context(|| format!("Failed to go to tab {tab_position} in session `{target_session}`"));
+                .with_context(|| {
+                    format!("Failed to go to tab {tab_position} in session `{target_session}`")
+                });
         }
     }
 
@@ -49,7 +51,9 @@ pub fn switch_session_tab(target_session: &str, tab_position: usize) -> Result<(
         // Session is already attached in workspace pane. Just switch its tab!
         let tab_arg = (tab_position + 1).to_string();
         run_zellij_action_for_session(Some(target_session), &["go-to-tab", &tab_arg])
-            .with_context(|| format!("Failed to go to tab {tab_position} in session `{target_session}`"))?;
+            .with_context(|| {
+                format!("Failed to go to tab {tab_position} in session `{target_session}`")
+            })?;
     } else {
         // Different session needs to be attached into the workspace pane!
         if let Some(pid) = ws_state.attach_pid {
@@ -78,8 +82,14 @@ pub fn switch_session_tab(target_session: &str, tab_position: usize) -> Result<(
         let attach_cmd = format!("zellij attach {}\n", target_session);
         run_zellij_action_for_session(
             host_session.as_deref(),
-            &["write-chars", "--pane-id", &ws_state.workspace_pane_id, &attach_cmd],
-        ).with_context(|| format!("Failed to attach `{target_session}` in workspace pane"))?;
+            &[
+                "write-chars",
+                "--pane-id",
+                &ws_state.workspace_pane_id,
+                &attach_cmd,
+            ],
+        )
+        .with_context(|| format!("Failed to attach `{target_session}` in workspace pane"))?;
 
         // If a specific non-first tab is requested, navigate after attach connects
         if tab_position > 0 {
@@ -126,7 +136,10 @@ fn run_zellij_action_for_session(session_name: Option<&str>, args: &[&str]) -> R
     }
 
     if stdout_str.contains("not found") {
-        anyhow::bail!("{}", stdout_str.lines().next().unwrap_or("Session not found"));
+        anyhow::bail!(
+            "{}",
+            stdout_str.lines().next().unwrap_or("Session not found")
+        );
     }
 
     Ok(())
@@ -141,6 +154,30 @@ pub struct WorkspaceState {
     pub attached_session: Option<String>,
     pub attach_pid: Option<u32>,
     pub workspace_pane_id: String,
+    pub active_tab_position: Option<usize>,
+}
+
+/// Queries the live Zellij server for the currently active tab position of a session.
+pub fn query_session_active_tab(session_name: &str) -> Option<usize> {
+    let output = Command::new("zellij")
+        .args(["--session", session_name, "action", "current-tab-info"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if let Some(rest) = line.trim().strip_prefix("position:") {
+            if let Ok(pos) = rest.trim().parse::<usize>() {
+                return Some(pos);
+            }
+        }
+    }
+
+    None
 }
 
 /// Detect what session (if any) is running in the Host Session's Workspace pane.
@@ -149,6 +186,7 @@ pub fn detect_workspace_state(host_session: Option<&str>) -> WorkspaceState {
         attached_session: None,
         attach_pid: None,
         workspace_pane_id: "terminal_1".to_string(),
+        active_tab_position: None,
     };
 
     // Find workspace pane id from `zellij action list-panes`
@@ -173,6 +211,7 @@ pub fn detect_workspace_state(host_session: Option<&str>) -> WorkspaceState {
     #[cfg(target_os = "linux")]
     {
         if let Some((session, pid)) = inspect_linux_workspace_process() {
+            state.active_tab_position = query_session_active_tab(&session);
             state.attached_session = Some(session);
             state.attach_pid = Some(pid);
         }
@@ -280,4 +319,3 @@ fn parse_session_from_cmdline(cmdline: &[u8]) -> Option<String> {
 
     None
 }
-

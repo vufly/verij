@@ -18,11 +18,9 @@ use crossterm::{
         KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     },
     execute,
-    terminal::{
-        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-    },
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -86,9 +84,7 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
         let mut needs_render = false;
 
         // Poll for terminal events (100 ms timeout for animation & responsiveness)
-        if event::poll(Duration::from_millis(100))
-            .context("Failed to poll terminal events")?
-        {
+        if event::poll(Duration::from_millis(100)).context("Failed to poll terminal events")? {
             match event::read().context("Failed to read terminal event")? {
                 CEvent::Key(key) => {
                     if handle_key(&mut state, key)? {
@@ -127,6 +123,14 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
 
         // Tick counter for animations (e.g. connecting spinner)
         state.tick = state.tick.wrapping_add(1);
+        if state.tick % 5 == 0 {
+            let prev_tab = state.active_tab_position;
+            let prev_attached = state.attached_session.clone();
+            state.update_attached_session();
+            if state.active_tab_position != prev_tab || state.attached_session != prev_attached {
+                needs_render = true;
+            }
+        }
         if state.nodes.is_empty() {
             needs_render = true;
         }
@@ -193,28 +197,28 @@ fn handle_mouse(
         MouseEventKind::ScrollUp => {
             state.cursor_up();
         }
-        MouseEventKind::Down(MouseButton::Left) => {
-            // In render.rs, row 0 is top border, items start on row 1
-            if mouse.row >= 1 {
-                let visual_index = (mouse.row - 1) as usize;
-                let offset = state.list_state.offset();
-                let target_index = offset + visual_index;
+        // In render.rs, row 0 is top border, items start on row 1
+        MouseEventKind::Down(MouseButton::Left) if mouse.row >= 1 => {
+            let visual_index = (mouse.row - 1) as usize;
+            let offset = state.list_state.offset();
+            let target_index = offset + visual_index;
 
-                if target_index < state.nodes.len() {
-                    state.select_index(target_index);
+            if target_index < state.nodes.len() {
+                state.select_index(target_index);
 
-                    // Check for double click within 400ms
-                    let now = Instant::now();
-                    if let Some((prev_time, prev_idx)) = *last_click {
-                        if prev_idx == target_index && now.duration_since(prev_time) < Duration::from_millis(400) {
-                            dispatch_action(state)?;
-                            *last_click = None;
-                            return Ok(());
-                        }
+                // Check for double click within 400ms
+                let now = Instant::now();
+                if let Some((prev_time, prev_idx)) = *last_click {
+                    if prev_idx == target_index
+                        && now.duration_since(prev_time) < Duration::from_millis(400)
+                    {
+                        dispatch_action(state)?;
+                        *last_click = None;
+                        return Ok(());
                     }
-
-                    *last_click = Some((now, target_index));
                 }
+
+                *last_click = Some((now, target_index));
             }
         }
         _ => {}

@@ -65,8 +65,7 @@ mod tests {
         }];
 
         let json = serde_json::to_string(&snapshot).expect("serialize");
-        let deserialized: Vec<SessionSnapshot> =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: Vec<SessionSnapshot> = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(snapshot, deserialized);
         assert_eq!(

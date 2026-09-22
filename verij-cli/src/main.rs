@@ -96,7 +96,10 @@ fn handle_start(args: StartArgs) -> Result<()> {
                 args.session_name
             );
         } else {
-            eprintln!("Session '{}' is already running. Attaching to it...", args.session_name);
+            eprintln!(
+                "Session '{}' is already running. Attaching to it...",
+                args.session_name
+            );
             return session::attach_session(&args.session_name);
         }
     }

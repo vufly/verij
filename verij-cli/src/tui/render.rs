@@ -8,11 +8,11 @@
 ///   - Selected cursor row uses theme-neutral pair `bg=243, fg=0`.
 ///   - Active tab of attached Workspace session uses `bg=1, fg=255`.
 use ratatui::{
-    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
+    Frame,
 };
 
 use super::state::{AppState, TreeNode};
@@ -21,16 +21,16 @@ use super::state::{AppState, TreeNode};
 // Colour palette (ANSI 0-15 & theme-neutral 256 pair)
 // ---------------------------------------------------------------------------
 
-const COLOR_TITLE: Color = Color::Indexed(6);          // Cyan
-const COLOR_BORDER: Color = Color::Indexed(8);         // Muted Gray / Bright Black
-const COLOR_SESSION: Color = Color::Indexed(4);        // Blue
+const COLOR_TITLE: Color = Color::Indexed(6); // Cyan
+const COLOR_BORDER: Color = Color::Indexed(8); // Muted Gray / Bright Black
+const COLOR_SESSION: Color = Color::Indexed(4); // Blue
 const COLOR_CURRENT_MARKER: Color = Color::Indexed(2); // Green
-const COLOR_TAB_NORMAL: Color = Color::Reset;          // Terminal default foreground
-const COLOR_FOLD_ICON: Color = Color::Indexed(8);      // Muted Gray
-const COLOR_MUTED: Color = Color::Indexed(8);          // Muted Gray
-const COLOR_STATUS: Color = Color::Indexed(8);         // Muted Gray
-const COLOR_ERROR: Color = Color::Indexed(1);          // Red
-const COLOR_SPINNER: Color = Color::Indexed(6);        // Cyan
+const COLOR_TAB_NORMAL: Color = Color::Reset; // Terminal default foreground
+const COLOR_FOLD_ICON: Color = Color::Indexed(8); // Muted Gray
+const COLOR_MUTED: Color = Color::Indexed(8); // Muted Gray
+const COLOR_STATUS: Color = Color::Indexed(8); // Muted Gray
+const COLOR_ERROR: Color = Color::Indexed(1); // Red
+const COLOR_SPINNER: Color = Color::Indexed(6); // Cyan
 
 // Selected row pair: neutral medium-gray with black text (dark & light compatible)
 const COLOR_SELECTED_BG: Color = Color::Indexed(243);
@@ -83,8 +83,14 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
         // 4.4 Animated empty state
         let spinner_char = SPINNER_FRAMES[(state.tick / 2) % SPINNER_FRAMES.len()];
         vec![ListItem::new(Line::from(vec![
-            Span::styled(format!("  {spinner_char} "), Style::default().fg(COLOR_SPINNER)),
-            Span::styled("Connecting to verij-plugin...", Style::default().fg(COLOR_MUTED)),
+            Span::styled(
+                format!("  {spinner_char} "),
+                Style::default().fg(COLOR_SPINNER),
+            ),
+            Span::styled(
+                "Connecting to verij-plugin...",
+                Style::default().fg(COLOR_MUTED),
+            ),
         ]))]
     } else {
         state
@@ -197,20 +203,19 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
         }
         TreeNode::Tab {
             name,
-            is_active,
-            is_attached_session,
+            is_workspace_active,
             ..
         } => {
             spans.push(Span::raw("    "));
 
-            let is_active_in_workspace = *is_active && *is_attached_session;
-
-            if is_active_in_workspace {
+            if *is_workspace_active {
                 if is_selected {
                     // Line is selected (bg=243, fg=0), but tab name specifically gets bg=1, fg=255
                     spans.push(Span::styled(
                         "● ",
-                        Style::default().fg(COLOR_SELECTED_FG).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(COLOR_SELECTED_FG)
+                            .add_modifier(Modifier::BOLD),
                     ));
                     spans.push(Span::styled(
                         format!(" {name} "),
@@ -223,22 +228,30 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
                     // Active tab of Workspace session, not selected: entire line styled with bg=1, fg=255
                     spans.push(Span::styled(
                         "● ",
-                        Style::default().fg(COLOR_ACTIVE_TAB_FG).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(COLOR_ACTIVE_TAB_FG)
+                            .add_modifier(Modifier::BOLD),
                     ));
                     spans.push(Span::styled(
                         name.clone(),
-                        Style::default().fg(COLOR_ACTIVE_TAB_FG).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(COLOR_ACTIVE_TAB_FG)
+                            .add_modifier(Modifier::BOLD),
                     ));
                 }
             } else {
-                let dot_fg = if is_selected { COLOR_SELECTED_FG } else { COLOR_MUTED };
-                let text_fg = if is_selected { COLOR_SELECTED_FG } else { COLOR_TAB_NORMAL };
-                let dot = if *is_active { "● " } else { "○ " };
-                spans.push(Span::styled(dot, Style::default().fg(dot_fg)));
-                spans.push(Span::styled(
-                    name.clone(),
-                    Style::default().fg(text_fg),
-                ));
+                let dot_fg = if is_selected {
+                    COLOR_SELECTED_FG
+                } else {
+                    COLOR_MUTED
+                };
+                let text_fg = if is_selected {
+                    COLOR_SELECTED_FG
+                } else {
+                    COLOR_TAB_NORMAL
+                };
+                spans.push(Span::styled("○ ", Style::default().fg(dot_fg)));
+                spans.push(Span::styled(name.clone(), Style::default().fg(text_fg)));
             }
         }
     }
@@ -248,7 +261,11 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool) -> ListItem<'static> {
     if is_selected {
         item = item.style(Style::default().bg(COLOR_SELECTED_BG).fg(COLOR_SELECTED_FG));
     } else if is_workspace_active_tab {
-        item = item.style(Style::default().bg(COLOR_ACTIVE_TAB_BG).fg(COLOR_ACTIVE_TAB_FG));
+        item = item.style(
+            Style::default()
+                .bg(COLOR_ACTIVE_TAB_BG)
+                .fg(COLOR_ACTIVE_TAB_FG),
+        );
     }
     item
 }
@@ -261,7 +278,9 @@ fn render_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
     let content = if let Some(err) = &state.error {
         Span::styled(
             format!(" ✗ {err}"),
-            Style::default().fg(COLOR_ERROR).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(COLOR_ERROR)
+                .add_modifier(Modifier::BOLD),
         )
     } else {
         Span::styled(

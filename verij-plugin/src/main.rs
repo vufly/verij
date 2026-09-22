@@ -48,7 +48,9 @@ fn load() {
         use zellij_tile::shim::plugin_api::action::ProtobufPluginConfiguration;
         use zellij_tile::shim::prost::Message;
         if let Ok(protobuf_bytes) = zellij_tile::shim::object_from_stdin::<Vec<u8>>() {
-            if let Ok(protobuf_configuration) = ProtobufPluginConfiguration::decode(protobuf_bytes.as_slice()) {
+            if let Ok(protobuf_configuration) =
+                ProtobufPluginConfiguration::decode(protobuf_bytes.as_slice())
+            {
                 if let Ok(config) = BTreeMap::try_from(&protobuf_configuration) {
                     plugin_configuration = config;
                 }
@@ -82,38 +84,34 @@ pub fn update() -> bool {
     use std::convert::TryInto;
     use zellij_tile::shim::plugin_api::event::ProtobufEvent;
     use zellij_tile::shim::prost::Message;
-    STATE.with(|state| {
-        match zellij_tile::shim::object_from_stdin::<Vec<u8>>() {
-            Ok(protobuf_bytes) => {
-                match ProtobufEvent::decode(protobuf_bytes.as_slice()) {
-                    Ok(protobuf_event) => {
-                        match protobuf_event.try_into() {
-                            Ok(event) => {
-                                if let Ok(mut s) = state.try_borrow_mut() {
-                                    s.update(event)
-                                } else {
-                                    eprintln!("[verij-plugin] State busy during update, skipping");
-                                    false
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("[verij-plugin] ProtobufEvent try_into error: {:?}", e);
-                                false
-                            }
+    STATE.with(
+        |state| match zellij_tile::shim::object_from_stdin::<Vec<u8>>() {
+            Ok(protobuf_bytes) => match ProtobufEvent::decode(protobuf_bytes.as_slice()) {
+                Ok(protobuf_event) => match protobuf_event.try_into() {
+                    Ok(event) => {
+                        if let Ok(mut s) = state.try_borrow_mut() {
+                            s.update(event)
+                        } else {
+                            eprintln!("[verij-plugin] State busy during update, skipping");
+                            false
                         }
                     }
                     Err(e) => {
-                        eprintln!("[verij-plugin] ProtobufEvent decode error: {:?}", e);
+                        eprintln!("[verij-plugin] ProtobufEvent try_into error: {:?}", e);
                         false
                     }
+                },
+                Err(e) => {
+                    eprintln!("[verij-plugin] ProtobufEvent decode error: {:?}", e);
+                    false
                 }
-            }
+            },
             Err(e) => {
                 eprintln!("[verij-plugin] update object_from_stdin error: {:?}", e);
                 false
             }
-        }
-    })
+        },
+    )
 }
 
 #[no_mangle]
@@ -121,38 +119,34 @@ pub fn pipe() -> bool {
     use std::convert::TryInto;
     use zellij_tile::shim::plugin_api::pipe_message::ProtobufPipeMessage;
     use zellij_tile::shim::prost::Message;
-    STATE.with(|state| {
-        match zellij_tile::shim::object_from_stdin::<Vec<u8>>() {
-            Ok(protobuf_bytes) => {
-                match ProtobufPipeMessage::decode(protobuf_bytes.as_slice()) {
-                    Ok(protobuf_pipe_message) => {
-                        match protobuf_pipe_message.try_into() {
-                            Ok(pipe_message) => {
-                                if let Ok(mut s) = state.try_borrow_mut() {
-                                    s.pipe(pipe_message)
-                                } else {
-                                    eprintln!("[verij-plugin] State busy during pipe, skipping");
-                                    false
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("[verij-plugin] ProtobufPipeMessage try_into error: {:?}", e);
-                                false
-                            }
+    STATE.with(
+        |state| match zellij_tile::shim::object_from_stdin::<Vec<u8>>() {
+            Ok(protobuf_bytes) => match ProtobufPipeMessage::decode(protobuf_bytes.as_slice()) {
+                Ok(protobuf_pipe_message) => match protobuf_pipe_message.try_into() {
+                    Ok(pipe_message) => {
+                        if let Ok(mut s) = state.try_borrow_mut() {
+                            s.pipe(pipe_message)
+                        } else {
+                            eprintln!("[verij-plugin] State busy during pipe, skipping");
+                            false
                         }
                     }
                     Err(e) => {
-                        eprintln!("[verij-plugin] ProtobufPipeMessage decode error: {:?}", e);
+                        eprintln!("[verij-plugin] ProtobufPipeMessage try_into error: {:?}", e);
                         false
                     }
+                },
+                Err(e) => {
+                    eprintln!("[verij-plugin] ProtobufPipeMessage decode error: {:?}", e);
+                    false
                 }
-            }
+            },
             Err(e) => {
                 eprintln!("[verij-plugin] pipe object_from_stdin error: {:?}", e);
                 false
             }
-        }
-    })
+        },
+    )
 }
 
 #[no_mangle]
@@ -176,7 +170,10 @@ impl ZellijPlugin for State {
 
     /// Called when a Zellij pipe message arrives for this plugin.
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
-        eprintln!("[verij-plugin] pipe() called: name={}, source={:?}", pipe_message.name, pipe_message.source);
+        eprintln!(
+            "[verij-plugin] pipe() called: name={}, source={:?}",
+            pipe_message.name, pipe_message.source
+        );
         if pipe_message.name == VERIJ_EVENTS_PIPE {
             match &pipe_message.source {
                 PipeSource::Cli(pipe_id) => {

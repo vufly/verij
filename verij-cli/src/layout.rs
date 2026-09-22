@@ -44,9 +44,9 @@ pub fn resolve_plugin_path(custom_path: Option<&Path>) -> Result<PathBuf> {
     // 1. Explicit CLI argument
     if let Some(path) = custom_path {
         if path.exists() {
-            return path
-                .canonicalize()
-                .with_context(|| format!("Failed to canonicalize plugin path: {}", path.display()));
+            return path.canonicalize().with_context(|| {
+                format!("Failed to canonicalize plugin path: {}", path.display())
+            });
         }
         bail!("Specified plugin path does not exist: {}", path.display());
     }
@@ -55,9 +55,9 @@ pub fn resolve_plugin_path(custom_path: Option<&Path>) -> Result<PathBuf> {
     if let Ok(env_path) = std::env::var("VERIJ_PLUGIN_PATH") {
         let p = PathBuf::from(env_path);
         if p.exists() {
-            return p
-                .canonicalize()
-                .with_context(|| format!("Failed to canonicalize VERIJ_PLUGIN_PATH: {}", p.display()));
+            return p.canonicalize().with_context(|| {
+                format!("Failed to canonicalize VERIJ_PLUGIN_PATH: {}", p.display())
+            });
         }
         bail!("VERIJ_PLUGIN_PATH does not exist: {}", p.display());
     }
@@ -154,7 +154,7 @@ pub fn get_cache_dir() -> Result<PathBuf> {
 /// Generates a KDL layout string matching the Host Session structure.
 pub fn generate_kdl(config: &LayoutConfig) -> String {
     format!(
-r#"layout {{
+        r#"layout {{
     tab name="{tab_name}" {{
         pane split_direction="vertical" {{
             pane size="{sidebar_size}" name="{sidebar_name}" {{
