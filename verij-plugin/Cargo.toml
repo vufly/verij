@@ -6,10 +6,6 @@ authors.workspace = true
 license.workspace = true
 description = "Verij headless WASM plugin for Zellij — state broadcaster via native pipes"
 
-# WASM cdylib: required for Zellij plugin runtime
-[lib]
-crate-type = ["cdylib"]
-path = "src/lib.rs"
 
 [dependencies]
 # Zellij plugin API — must match the running Zellij version

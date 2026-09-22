@@ -108,12 +108,19 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
         if event::poll(Duration::from_millis(100))
             .context("Failed to poll terminal events")?
         {
-            if let CEvent::Key(key) = event::read().context("Failed to read terminal event")? {
-                if handle_key(&mut state, key)? {
-                    // `true` → user requested quit.
-                    break;
+            match event::read().context("Failed to read terminal event")? {
+                CEvent::Key(key) => {
+                    if handle_key(&mut state, key)? {
+                        // `true` → user requested quit.
+                        break;
+                    }
+                    terminal.draw(|frame| render::render(frame, &state))?;
                 }
-                terminal.draw(|frame| render::render(frame, &state))?;
+                CEvent::Resize(_cols, _rows) => {
+                    terminal.clear()?;
+                    terminal.draw(|frame| render::render(frame, &state))?;
+                }
+                _ => {}
             }
         }
 

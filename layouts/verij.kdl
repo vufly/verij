@@ -1,0 +1,14 @@
+layout {
+    tab name="Verij Host" {
+        pane split_direction="vertical" {
+            pane size="25%" name="Verij" {
+                command "target/release/verij"
+                args "ui"
+            }
+            pane name="Workspace" borderless=true
+        }
+        pane size=1 borderless=true {
+            plugin location="file:/home/vudinhn/repos/verij/dist/verij_plugin.wasm"
+        }
+    }
+}

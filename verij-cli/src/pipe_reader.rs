@@ -5,7 +5,7 @@
 ///
 /// Each complete line is parsed as `Vec<SessionSnapshot>` and forwarded
 /// to the TUI event loop via an `mpsc::Sender`.
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Deserialize;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
@@ -31,69 +31,89 @@ pub struct TabSnapshot {
     pub is_active: bool,
 }
 
-// ---------------------------------------------------------------------------
-// Pipe reader task
-// ---------------------------------------------------------------------------
+use std::time::Duration;
 
-/// Spawns `zellij pipe --name verij_events` and returns an `mpsc::Receiver`
-/// that yields a new `Vec<SessionSnapshot>` on every snapshot message.
+/// Spawns `zellij pipe --name verij_events` and forwards snapshots to `tx`.
 ///
-/// This function is intended to be called once at TUI startup. It spawns a
-/// dedicated blocking thread (via `tokio::task::spawn_blocking`) to own the
-/// subprocess handle and read lines synchronously, then sends parsed snapshots
-/// across a bounded channel.
-///
-/// # Errors
-///
-/// Returns an error if the subprocess cannot be spawned (e.g. `zellij` not on
-/// `$PATH`, or not running inside a Zellij session).
+/// If the pipe drops (e.g. during plugin startup or reload), it automatically
+/// reconnects with a brief delay until `tx` is closed.
 pub fn spawn_pipe_reader(
     tx: mpsc::Sender<Vec<SessionSnapshot>>,
 ) -> Result<tokio::task::JoinHandle<()>> {
-    // Spawn `zellij pipe --name verij_events`.
-    // stdout is piped so we can read it line-by-line.
-    // stderr is inherited so errors show in the terminal for debugging.
-    let child = Command::new("zellij")
-        .args(["pipe", "--name", "verij_events"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .context("Failed to spawn `zellij pipe --name verij_events`. Is Zellij running?")?;
-
-    let stdout = child
-        .stdout
-        .context("Failed to capture stdout from `zellij pipe`")?;
-
-    // Hand off to a blocking task. `BufReader::read_line` blocks, which is
-    // incompatible with tokio's cooperative scheduler — hence spawn_blocking.
     let handle = tokio::task::spawn_blocking(move || {
-        let reader = BufReader::new(stdout);
+        while !tx.is_closed() {
+            let mut cmd = Command::new("zellij");
+            if let Ok(session) = std::env::var("ZELLIJ_SESSION_NAME") {
+                cmd.args(["-s", &session]);
+            }
+            cmd.args(["pipe", "--name", "verij_events"]);
 
-        for line in reader.lines() {
-            let line = match line {
-                Ok(l) if !l.trim().is_empty() => l,
-                Ok(_) => continue, // skip blank lines
+            let mut child = match cmd
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                Ok(child) => child,
                 Err(e) => {
-                    eprintln!("[verij] pipe read error: {e}");
-                    break;
+                    eprintln!("[verij] Failed to spawn `zellij pipe`: {e}");
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
                 }
             };
 
-            match serde_json::from_str::<Vec<SessionSnapshot>>(&line) {
-                Ok(snapshot) => {
-                    // If the receiver has been dropped (TUI quit), stop.
-                    if tx.blocking_send(snapshot).is_err() {
-                        break;
+            let stdout = match child.stdout.take() {
+                Some(s) => s,
+                None => {
+                    std::thread::sleep(Duration::from_millis(200));
+                    continue;
+                }
+            };
+            let mut _stdin = child.stdin.take();
+            if let Some(s) = &mut _stdin {
+                use std::io::Write;
+                let _ = s.write_all(b"connect\n");
+                let _ = s.flush();
+            }
+
+            let reader = BufReader::new(stdout);
+            let mut read_any = false;
+
+            for line in reader.lines() {
+                if tx.is_closed() {
+                    break;
+                }
+                let line = match line {
+                    Ok(l) if !l.trim().is_empty() => l,
+                    Ok(_) => continue,
+                    Err(_) => break,
+                };
+
+                match serde_json::from_str::<Vec<SessionSnapshot>>(&line) {
+                    Ok(snapshot) => {
+                        if !snapshot.is_empty() {
+                            read_any = true;
+                            if tx.blocking_send(snapshot).is_err() {
+                                let _ = child.kill();
+                                return;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[verij] Failed to parse snapshot JSON: {e}\n  line: {line}");
                     }
                 }
-                Err(e) => {
-                    // Log malformed messages but keep reading.
-                    eprintln!("[verij] Failed to parse snapshot JSON: {e}\n  line: {line}");
-                }
+            }
+
+            let _ = child.kill();
+            let _ = child.wait();
+
+            if !read_any {
+                std::thread::sleep(Duration::from_millis(300));
+            } else {
+                std::thread::sleep(Duration::from_millis(100));
             }
         }
-
-        eprintln!("[verij] Pipe reader task exited.");
     });
 
     Ok(handle)

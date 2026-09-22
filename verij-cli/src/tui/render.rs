@@ -65,12 +65,19 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &AppState) {
     let _inner = block.inner(area);
 
     // Build list items from the flattened node list.
-    let items: Vec<ListItem> = state
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, node)| node_to_list_item(node, i == state.cursor))
-        .collect();
+    let items: Vec<ListItem> = if state.nodes.is_empty() {
+        vec![ListItem::new(Line::from(Span::styled(
+            "  Connecting to verij-plugin...",
+            Style::default().fg(Color::DarkGray),
+        )))]
+    } else {
+        state
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| node_to_list_item(node, i == state.cursor))
+            .collect()
+    };
 
     // ListState tracks the highlighted row for the built-in scroll mechanism.
     let mut list_state = ListState::default();
