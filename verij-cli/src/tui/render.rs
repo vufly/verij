@@ -214,18 +214,12 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool, is_last_tab: bool) -> L
             ..
         } => {
             // Indent using box drawing characters
-            let indent = if is_last_tab { "└─ " } else { "├─ " };
+            let indent = if is_last_tab { "└ " } else { "├ " };
             spans.push(Span::raw(indent));
 
             if *is_workspace_active {
                 if is_selected {
                     // Line is selected (bg=243, fg=0), but tab name specifically gets bg=1, fg=255
-                    spans.push(Span::styled(
-                        "● ",
-                        Style::default()
-                            .fg(COLOR_SELECTED_FG)
-                            .add_modifier(Modifier::BOLD),
-                    ));
                     spans.push(Span::styled(
                         format!(" {name} "),
                         Style::default()
@@ -236,12 +230,6 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool, is_last_tab: bool) -> L
                 } else {
                     // Active tab of Workspace session, not selected: entire line styled with bg=1, fg=255
                     spans.push(Span::styled(
-                        "● ",
-                        Style::default()
-                            .fg(COLOR_ACTIVE_TAB_FG)
-                            .add_modifier(Modifier::BOLD),
-                    ));
-                    spans.push(Span::styled(
                         name.clone(),
                         Style::default()
                             .fg(COLOR_ACTIVE_TAB_FG)
@@ -249,17 +237,11 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool, is_last_tab: bool) -> L
                     ));
                 }
             } else {
-                let dot_fg = if is_selected {
-                    COLOR_SELECTED_FG
-                } else {
-                    COLOR_MUTED
-                };
                 let text_fg = if is_selected {
                     COLOR_SELECTED_FG
                 } else {
                     COLOR_TAB_NORMAL
                 };
-                spans.push(Span::styled("○ ", Style::default().fg(dot_fg)));
                 spans.push(Span::styled(name.clone(), Style::default().fg(text_fg)));
             }
         }
