@@ -104,16 +104,17 @@ pub struct AttachArgs {
 // Subcommand handlers
 // ---------------------------------------------------------------------------
 
-fn ensure_host_session_name(name: &str) -> String {
-    if name.starts_with(verij_types::HOST_SESSION_PREFIX) {
+fn ensure_host_session_name(name: &str, prefix: &str) -> String {
+    if name.starts_with(prefix) {
         name.to_string()
     } else {
-        format!("{}{}", verij_types::HOST_SESSION_PREFIX, name)
+        format!("{}{}", prefix, name)
     }
 }
 
 fn handle_start(args: StartArgs) -> Result<()> {
-    let host_name = ensure_host_session_name(&args.session_name);
+    let cfg = config::Config::load();
+    let host_name = ensure_host_session_name(&args.session_name, cfg.prefix());
 
     if session::is_session_running(&host_name)? {
         if args.no_attach {
@@ -139,21 +140,22 @@ fn handle_start(args: StartArgs) -> Result<()> {
         let plugin_wasm_path = layout::resolve_plugin_path(args.plugin_path.as_deref())?;
         let verij_bin = layout::resolve_verij_bin();
 
-        let config = layout::LayoutConfig {
+        let layout_config = layout::LayoutConfig {
             verij_bin,
             plugin_wasm_path,
             sidebar_size: args.sidebar_width,
             ..Default::default()
         };
 
-        layout::write_layout_file(&config)?
+        layout::write_layout_file(&layout_config)?
     };
 
     session::start_host_session(&host_name, &layout_path, args.no_attach)
 }
 
 fn handle_attach(args: AttachArgs) -> Result<()> {
-    let host_name = ensure_host_session_name(&args.session_name);
+    let cfg = config::Config::load();
+    let host_name = ensure_host_session_name(&args.session_name, cfg.prefix());
     let running = session::is_session_running(&host_name)?;
 
     if running {
@@ -163,7 +165,7 @@ fn handle_attach(args: AttachArgs) -> Result<()> {
             session_name: args.session_name,
             layout: None,
             plugin_path: None,
-            sidebar_width: "25%".to_string(),
+            sidebar_width: cfg.workspace.sidebar_width.clone(),
             no_attach: false,
         })
     } else {

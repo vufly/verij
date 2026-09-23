@@ -76,7 +76,8 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, confi
     state.plugin_path = crate::layout::resolve_plugin_path(None).ok();
 
     // Spawn filesystem watcher background task targeting /tmp/verij/states/
-    match fs_watcher::spawn_fs_watcher(tx) {
+    let prefix = state.config.prefix().to_string();
+    match fs_watcher::spawn_fs_watcher(tx, prefix) {
         Ok(_handle) => {}
         Err(e) => {
             state.error = Some(format!("FS watcher error: {e}"));
