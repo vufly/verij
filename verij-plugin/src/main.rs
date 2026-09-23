@@ -212,6 +212,7 @@ impl ZellijPlugin for State {
                 if let Some(current) = session_infos.into_iter().find(|s| s.is_current_session) {
                     let name_changed = self.session_name.as_deref() != Some(&current.name);
                     self.session_name = Some(current.name);
+                    self.connected_clients = Some(current.connected_clients);
 
                     let new_tabs: Vec<TabSnapshot> = current
                         .tabs
@@ -227,8 +228,9 @@ impl ZellijPlugin for State {
                         })
                         .collect();
 
-                    if name_changed || self.tabs != new_tabs {
+                    if name_changed || self.tabs != new_tabs || self.clients_changed {
                         self.tabs = new_tabs;
+                        self.clients_changed = false;
                         self.export_state();
                     }
                 }

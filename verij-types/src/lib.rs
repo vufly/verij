@@ -32,6 +32,11 @@ pub struct SessionSnapshot {
     pub is_current: bool,
     /// Ordered list of tabs in this session.
     pub tabs: Vec<TabSnapshot>,
+    /// Number of clients currently attached to this session.
+    /// `None` if the exporting plugin predates this field.
+    /// `Some(0)` means all clients have detached.
+    #[serde(default)]
+    pub connected_clients: Option<usize>,
 }
 
 impl SessionSnapshot {
