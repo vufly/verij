@@ -73,12 +73,13 @@ pub enum InputMode {
     #[default]
     Normal,
     NewSession,
+    RenameHost,
 }
 
 /// The complete mutable state of the Verij TUI.
 #[derive(Default)]
 pub struct AppState {
-    /// Loaded user configuration (colors, workspace mode, prefix, …).
+    /// Loaded user configuration (colors and host options).
     pub config: Config,
 
     /// Current snapshot of all non-host sessions, as received from the FS watcher.
@@ -131,12 +132,6 @@ impl AppState {
         }
     }
 
-    /// Return the effective host-session prefix (from config, defaults to `_vj_`).
-    #[allow(dead_code)]
-    pub fn prefix(&self) -> &str {
-        self.config.prefix()
-    }
-
     /// Return the configured default workspace mode.
     #[allow(dead_code)]
     pub fn workspace_mode(&self) -> WorkspaceMode {
@@ -150,6 +145,12 @@ impl AppState {
     /// Opens the new session creation prompt.
     pub fn start_new_session_prompt(&mut self) {
         self.input_mode = InputMode::NewSession;
+        self.input_buffer.clear();
+        self.error = None;
+    }
+
+    pub fn start_rename_host_prompt(&mut self) {
+        self.input_mode = InputMode::RenameHost;
         self.input_buffer.clear();
         self.error = None;
     }
@@ -173,7 +174,7 @@ impl AppState {
     }
     /// Replace `sessions` with new snapshots and rebuild the node tree.
     ///
-    /// Filters out any session starting with `_vj_`.
+    /// Filters registered Verij host sessions.
     /// Preserves cursor position on the same logical node when possible.
     pub fn reconcile(&mut self, new_sessions: Vec<SessionSnapshot>) {
         let previous_target = self.nodes.get(self.cursor).map(|n| match n {
@@ -185,12 +186,7 @@ impl AppState {
             } => (session_name.clone(), Some(*position)),
         });
 
-        // Strict filtering: filter out any host sessions
-        let prefix = self.config.prefix().to_string();
-        self.sessions = new_sessions
-            .into_iter()
-            .filter(|s| !s.name.starts_with(&prefix))
-            .collect();
+        self.sessions = new_sessions;
 
         self.rebuild_nodes();
 
@@ -384,11 +380,6 @@ impl AppState {
         self.nodes.clear();
 
         for (session_index, session) in self.sessions.iter().enumerate() {
-            // Defensively skip any host sessions
-            if session.name.starts_with(self.config.prefix()) {
-                continue;
-            }
-
             let is_collapsed = self.collapsed.contains(&session.name);
             let tab_count = session.tabs.len();
             let is_attached = self.active_session.as_deref() == Some(&session.name);
@@ -454,17 +445,6 @@ mod tests {
                 connected_clients: None,
             },
             SessionSnapshot {
-                name: "_vj_main".to_string(),
-                is_current: true,
-                tabs: vec![TabSnapshot {
-                    name: "host".to_string(),
-                    position: 0,
-                    is_active: true,
-                }],
-                active_pane: None,
-                connected_clients: None,
-            },
-            SessionSnapshot {
                 name: "frontend".to_string(),
                 is_current: false,
                 tabs: vec![TabSnapshot {
@@ -479,20 +459,19 @@ mod tests {
     }
 
     #[test]
-    fn test_host_filtering() {
+    fn test_prefix_shaped_inner_session_is_visible() {
         let mut state = AppState::default();
-        state.reconcile(make_test_sessions());
+        let mut sessions = make_test_sessions();
+        sessions.push(SessionSnapshot {
+            name: "_vj_main".to_string(), is_current: false,
+            tabs: vec![], active_pane: None, connected_clients: None,
+        });
+        state.reconcile(sessions);
 
-        // "_vj_main" MUST be filtered out
-        assert_eq!(state.sessions.len(), 2);
+        assert_eq!(state.sessions.len(), 3);
         assert_eq!(state.sessions[0].name, "backend");
         assert_eq!(state.sessions[1].name, "frontend");
-
-        // Verify nodes do not contain host session
-        assert!(state
-            .nodes
-            .iter()
-            .all(|n| !n.session_name().starts_with("_vj_")));
+        assert_eq!(state.sessions[2].name, "_vj_main");
     }
 
     #[test]

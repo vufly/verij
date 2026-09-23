@@ -7,15 +7,13 @@ Project is functional but experimental. Core navigation, distributed state sync,
 ## Topology
 
 ```text
-Host session: _vj_<name>
+Host session: <name>
 |
 |-- Verij pane
 |   `-- verij ui
 |
-|-- Workspace pane
-|   `-- zellij attach <inner-session>
-|
-`-- hidden host plugin
+`-- Workspace pane
+    `-- zellij attach <inner-session>
 
 Inner session: backend
 |-- tabs
@@ -79,19 +77,23 @@ verij config init
 verij config path
 ```
 
-Host sessions receive the configured workspace prefix. Default prefix is `_vj_`; `verij start --session-name work` therefore creates `_vj_work`.
+Hosts use exact requested names: `verij start --session-name work` creates `work`. Verij registers hosts in `host-registry.toml` rather than identifying them by prefix. Press `R` in sidebar to rename current host. Rename inner sessions freely in Zellij, but rename hosts through Verij, not Zellij session manager.
 
 ## Configuration
 
-Config path is `~/.config/verij/config.toml`, or `$XDG_CONFIG_HOME/verij/config.toml` when `XDG_CONFIG_HOME` is set. Per-host attachment state is stored in the sibling `hosts.toml` file.
+Config path is `~/.config/verij/config.toml`, or `$XDG_CONFIG_HOME/verij/config.toml` when `XDG_CONFIG_HOME` is set. `host-registry.toml` stores registered host names and stable marker keys; `hosts.toml` stores each host's last attached inner session.
 
 ```toml
 [workspace]
-prefix = "_vj_"
 sidebar_width = "25%"
 pane_format = "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}"
 pane_default = "Workspace"
+
+[host]
+pane_frame_style = "titles"
 ```
+
+`[host].pane_frame_style` overrides Zellij's frame style for the Verij host only; it accepts `full`, `titles`, or `none`. All inner sessions (including those created or resurrected by Verij) inherit normal `~/.config/zellij/config.kdl` options and default layout without Verij overrides. To give inner sessions full frames, set `pane_frame_style "full"` in Zellij config; the host remains `titles`. Existing hosts apply the new style when their sidebar restarts.
 
 `pane_format` supports:
 
@@ -119,6 +121,7 @@ Recent `tab_format` and `tab_default` keys remain accepted as compatibility alia
 | Mouse click | Select item |
 | Mouse double-click | Attach or switch |
 | `n`, `c`, `+` | Create inner session |
+| `R` | Rename current host session |
 | `?` | Toggle help |
 | `q`, `Esc`, `Ctrl-c` | Exit sidebar |
 
@@ -146,7 +149,7 @@ Zellij 0.45.1 can retain `start_suspended` in serialized layouts despite `--forc
 
 Host resurrection also replaces stale serialized Workspace-pane attach commands with the host's durable last-session target.
 
-New inner sessions receive a fake-PTY attach while their initial layout is created. Verij waits for a visible layout plugin pane when the default layout is available, then detaches the fake client before attaching the Workspace pane.
+New inner sessions receive a fake-PTY attach while their initial layout is created. Verij waits for the default layout's status plugin in the first tab to remain present alongside a terminal pane, then verifies it survived detaching the fake client before attaching the Workspace pane. If the plugin is still absent, creation reports an error instead of silently switching to a broken layout.
 
 ## Documentation
 

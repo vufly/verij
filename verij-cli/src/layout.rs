@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
 pub struct LayoutConfig {
     pub verij_bin: String,
-    pub plugin_wasm_path: PathBuf,
     pub sidebar_size: String,
     pub sidebar_name: String,
     pub workspace_name: String,
@@ -19,7 +18,6 @@ impl Default for LayoutConfig {
     fn default() -> Self {
         Self {
             verij_bin: "verij".to_string(),
-            plugin_wasm_path: PathBuf::new(),
             sidebar_size: "25%".to_string(),
             sidebar_name: "Verij".to_string(),
             workspace_name: "Workspace".to_string(),
@@ -155,6 +153,9 @@ pub fn get_cache_dir() -> Result<PathBuf> {
 pub fn generate_kdl(config: &LayoutConfig) -> String {
     format!(
         r#"layout {{
+    default_tab_template {{
+        children
+    }}
     tab name="{tab_name}" {{
         pane split_direction="vertical" {{
             pane size="{sidebar_size}" name="{sidebar_name}" {{
@@ -162,9 +163,6 @@ pub fn generate_kdl(config: &LayoutConfig) -> String {
                 args "ui"
             }}
             pane name="{workspace_name}" borderless=true
-        }}
-        pane size=1 borderless=true {{
-            plugin location="file:{plugin_path}"
         }}
     }}
 }}
@@ -174,7 +172,6 @@ pub fn generate_kdl(config: &LayoutConfig) -> String {
         sidebar_name = config.sidebar_name,
         verij_bin = config.verij_bin,
         workspace_name = config.workspace_name,
-        plugin_path = config.plugin_wasm_path.display(),
     )
 }
 
@@ -204,7 +201,6 @@ mod tests {
     fn test_generate_kdl_output() {
         let config = LayoutConfig {
             verij_bin: "/usr/bin/verij".to_string(),
-            plugin_wasm_path: PathBuf::from("/usr/share/verij/verij_plugin.wasm"),
             sidebar_size: "30%".to_string(),
             sidebar_name: "Tree".to_string(),
             workspace_name: "Main".to_string(),
@@ -217,7 +213,8 @@ mod tests {
         assert!(kdl.contains("command \"/usr/bin/verij\""));
         assert!(kdl.contains("args \"ui\""));
         assert!(kdl.contains("pane name=\"Main\" borderless=true"));
-        assert!(kdl.contains("plugin location=\"file:/usr/share/verij/verij_plugin.wasm\""));
+        assert!(!kdl.contains("plugin location="));
+        assert!(kdl.contains("default_tab_template {"));
     }
 
     #[test]
@@ -244,7 +241,6 @@ mod tests {
     fn test_write_layout_file() {
         let config = LayoutConfig {
             verij_bin: "/test/bin/verij".to_string(),
-            plugin_wasm_path: PathBuf::from("/test/dist/verij_plugin.wasm"),
             sidebar_size: "20%".to_string(),
             sidebar_name: "Sidebar".to_string(),
             workspace_name: "Work".to_string(),

@@ -9,7 +9,6 @@
 /// ```toml
 /// [workspace]
 /// default_mode = "descend"   # "ask" | "fullscreen" | "descend"
-/// prefix = "_vj_"            # override with any string/unicode, e.g. "🔷"
 /// sidebar_width = "25%"
 ///
 /// [colors]
@@ -44,6 +43,39 @@ pub enum WorkspaceMode {
     /// Switch and descend into the session's active tab (default).
     #[default]
     Descend,
+}
+
+/// Zellij pane-frame style overridden only for Verij host sessions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PaneFrameStyle {
+    Full,
+    Titles,
+    None,
+}
+
+impl PaneFrameStyle {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Titles => "titles",
+            Self::None => "none",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct HostConfig {
+    pub pane_frame_style: PaneFrameStyle,
+}
+
+impl Default for HostConfig {
+    fn default() -> Self {
+        Self {
+            pane_frame_style: PaneFrameStyle::Titles,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -106,8 +138,6 @@ impl Default for ColorConfig {
 pub struct WorkspaceConfig {
     /// How to behave when Enter is pressed on a session row.
     pub default_mode: WorkspaceMode,
-    /// Prefix used for Verij host sessions (default: `_vj_`).
-    pub prefix: String,
     /// Sidebar pane width passed to the KDL layout (default: `25%`).
     pub sidebar_width: String,
     /// Format string for the Workspace pane name when a session is active.
@@ -125,7 +155,6 @@ impl Default for WorkspaceConfig {
     fn default() -> Self {
         Self {
             default_mode: WorkspaceMode::Descend,
-            prefix: verij_types::HOST_SESSION_PREFIX.to_string(),
             sidebar_width: "25%".to_string(),
             pane_format: "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}"
                 .to_string(),
@@ -205,6 +234,7 @@ fn render_conditionals(template: &str, values: &[(&str, Option<&str>)]) -> Strin
 #[serde(default)]
 pub struct Config {
     pub workspace: WorkspaceConfig,
+    pub host: HostConfig,
     pub colors: ColorConfig,
 }
 
@@ -249,10 +279,6 @@ impl Config {
         }
     }
 
-    /// Effective host session prefix: config value if set, otherwise the compiled-in constant.
-    pub fn prefix(&self) -> &str {
-        &self.workspace.prefix
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +348,22 @@ pub fn set_last_host_session(host: &str, session: &str) -> anyhow::Result<()> {
     write_hosts(&path, &hosts)
 }
 
+pub fn rename_host_attachment(old: &str, new: &str) -> anyhow::Result<()> {
+    let Some(path) = hosts_path() else {
+        anyhow::bail!("Cannot determine host state path");
+    };
+    let mut hosts = load_hosts();
+    if hosts.hosts.contains_key(new) {
+        anyhow::bail!("Attachment state for '{new}' already exists");
+    }
+    if let Some(record) = hosts.hosts.remove(old) {
+        hosts.hosts.insert(new.to_owned(), record);
+        write_hosts(&path, &hosts)?;
+    }
+    Ok(())
+}
+
+
 fn write_hosts(path: &std::path::Path, hosts: &HostsConfig) -> anyhow::Result<()> {
     let parent = path
         .parent()
@@ -369,10 +411,6 @@ const DEFAULT_CONFIG_TOML: &str = r#"# Verij configuration — ~/.config/verij/c
 # Options: "descend" (default) | "fullscreen" | "ask"
 default_mode = "descend"
 
-# Host-session prefix — sessions starting with this string are hidden from the
-# workspace list.  Change to any string or unicode symbol, e.g. "🔷".
-prefix = "_vj_"
-
 # Sidebar pane width as a percentage or fixed cell count, e.g. "25%" or "30".
 sidebar_width = "25%"
 
@@ -384,6 +422,10 @@ pane_format = "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}"
 
 # Workspace pane name when no inner session is attached yet.
 pane_default = "Workspace"
+
+[host]
+# Host sidebar/Workspace pane frames; keeps host compact.
+pane_frame_style = "titles"
 
 [colors]
 # ANSI 256-color indices for every UI element.
@@ -411,28 +453,34 @@ mod tests {
     #[test]
     fn test_defaults() {
         let cfg = Config::default();
-        assert_eq!(cfg.workspace.prefix, "_vj_");
         assert_eq!(cfg.workspace.sidebar_width, "25%");
         assert!(matches!(cfg.workspace.default_mode, WorkspaceMode::Descend));
         assert_eq!(cfg.colors.active_bg, 1);
         assert_eq!(cfg.colors.active_fg, 255);
         assert_eq!(cfg.colors.selected_bg, 15);
         assert_eq!(cfg.colors.selected_fg, 8);
+        assert_eq!(cfg.host.pane_frame_style, PaneFrameStyle::Titles);
     }
 
     #[test]
     fn test_partial_toml() {
         let toml = r#"
 [workspace]
-prefix = "🔷"
 sidebar_width = "30%"
 "#;
         let cfg: Config = toml::from_str(toml).unwrap();
-        assert_eq!(cfg.workspace.prefix, "🔷");
         assert_eq!(cfg.workspace.sidebar_width, "30%");
         // defaults preserved for unset keys
         assert_eq!(cfg.colors.active_bg, 1);
     }
+
+    #[test]
+    fn test_host_frame_style_override() {
+        let cfg: Config = toml::from_str("[host]\npane_frame_style = 'none'\n").unwrap();
+        assert_eq!(cfg.host.pane_frame_style, PaneFrameStyle::None);
+        assert!(toml::from_str::<Config>("[host]\npane_frame_style = 'invalid'\n").is_err());
+    }
+
 
     #[test]
     fn test_pane_format_variables() {
@@ -471,7 +519,6 @@ sidebar_width = "30%"
         let toml = r#"
 [workspace]
 default_mode = "fullscreen"
-prefix = "🔷"
 sidebar_width = "30%"
 
 [colors]

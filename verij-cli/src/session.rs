@@ -1,3 +1,4 @@
+use crate::config::PaneFrameStyle;
 use anyhow::{bail, Context, Result};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -64,6 +65,59 @@ pub fn session_status(name: &str) -> Result<SessionStatus> {
     ))
 }
 
+pub fn is_verij_host(name: &str) -> Result<bool> {
+    if matches!(session_status(name)?, SessionStatus::Live) {
+        let output = Command::new("zellij")
+            .args(["--session", name, "action", "list-panes", "--all", "--json"])
+            .output()?;
+        if output.status.success() {
+            let panes: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)?;
+            return Ok(panes.iter().any(|pane| pane.get("pane_command")
+                .or_else(|| pane.get("terminal_command"))
+                .and_then(|v| v.as_str())
+                .is_some_and(|cmd| cmd.contains("verij ui"))));
+        }
+    }
+    let Some(layout) = resurrection_layout_path(name) else { return Ok(false); };
+    Ok(crate::registry::is_host_layout(&layout))
+}
+
+pub fn rename_host(old: &str, new: &str) -> Result<()> {
+    if old == new { return Ok(()); }
+    crate::registry::validate_name(new)?;
+    if !matches!(session_status(new)?, SessionStatus::Missing) {
+        bail!("Zellij session '{new}' already exists");
+    }
+    if crate::registry::marker_key(old)?.is_none() {
+        bail!("Host '{old}' is not registered");
+    }
+    if crate::registry::marker_key(new)?.is_some() || crate::config::load_hosts().hosts.contains_key(new) {
+        bail!("Host '{new}' already has registered state");
+    }
+    if !matches!(session_status(old)?, SessionStatus::Live) {
+        bail!("Host '{old}' must be live to rename; attach it first");
+    }
+    let status = Command::new("zellij")
+        .args(["--session", old, "action", "rename-session", new])
+        .status().context("Failed to invoke Zellij rename-session")?;
+    if !status.success() { bail!("Zellij could not rename '{old}' to '{new}': {status}"); }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if matches!(session_status(new)?, SessionStatus::Live) { break; }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if !matches!(session_status(new)?, SessionStatus::Live) {
+        bail!("Zellij did not report renamed host '{new}'");
+    }
+    if let Err(error) = crate::registry::rename(old, new) {
+        let _ = Command::new("zellij").args(["--session", new, "action", "rename-session", old]).status();
+        return Err(error);
+    }
+    std::env::set_var("ZELLIJ_SESSION_NAME", new);
+    std::env::set_var("VERIJ_HOST_NAME", new);
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Process execution
 // ---------------------------------------------------------------------------
@@ -101,7 +155,12 @@ where
 /// Launches the Verij host session.
 ///
 /// If the session is already running and `no_attach` is false, automatically attaches.
-pub fn start_host_session(session_name: &str, layout_path: &Path, no_attach: bool) -> Result<()> {
+pub fn start_host_session(
+    session_name: &str,
+    layout_path: &Path,
+    no_attach: bool,
+    frame_style: PaneFrameStyle,
+) -> Result<()> {
     match session_status(session_name)? {
         SessionStatus::Live | SessionStatus::Exited => {
             if no_attach {
@@ -122,7 +181,15 @@ pub fn start_host_session(session_name: &str, layout_path: &Path, no_attach: boo
     // Use -n (--new-session-with-layout) with -s to always create and attach to a new named session
     // with the given layout. In Zellij CLI, passing -l with -s treats it as adding tabs to an
     // existing session, which fails if the session does not already exist.
-    exec_zellij(["-s", session_name, "-n", &layout_str])
+    exec_zellij([
+        "-s",
+        session_name,
+        "-n",
+        &layout_str,
+        "options",
+        "--pane-frame-style",
+        frame_style.as_str(),
+    ])
 }
 
 /// Attaches to an existing host session.

@@ -14,9 +14,7 @@
 ///      ("The Inception Switch").
 use std::collections::BTreeMap;
 use std::path::Path;
-use verij_types::{
-    SessionSnapshot, TabSnapshot, HOST_SESSION_PREFIX, VERIJ_CONTROL_PIPE, VERIJ_STATES_DIR,
-};
+use verij_types::{SessionSnapshot, TabSnapshot, VERIJ_CONTROL_PIPE, VERIJ_STATES_DIR};
 use zellij_tile::prelude::*;
 
 // ---------------------------------------------------------------------------
@@ -366,10 +364,6 @@ impl State {
         let Some(ref session_name) = self.session_name else {
             return;
         };
-
-        if session_name.starts_with(HOST_SESSION_PREFIX) {
-            return;
-        }
 
         let dir = Path::new(VERIJ_STATES_DIR);
         if let Err(e) = std::fs::create_dir_all(dir) {

@@ -8,6 +8,7 @@
 use anyhow::{Context, Result};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use verij_types::{SessionSnapshot, VERIJ_STATES_DIR};
@@ -44,8 +45,8 @@ pub fn resolve_states_dir() -> PathBuf {
 /// Reads and aggregates all session JSON files currently present in the states directory.
 ///
 /// Prunes stale state files for sessions that no longer exist in Zellij, and filters
-/// out any host sessions whose name starts with `prefix`.
-pub fn read_all_states(prefix: &str) -> Vec<SessionSnapshot> {
+/// out registered host sessions.
+pub fn read_all_states(hosts: &HashSet<String>, unknown: &mut HashMap<String, bool>) -> Vec<SessionSnapshot> {
     let dir = resolve_states_dir();
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
@@ -59,8 +60,9 @@ pub fn read_all_states(prefix: &str) -> Vec<SessionSnapshot> {
         if path.extension().and_then(|s| s.to_str()) == Some("json") {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 if let Ok(snapshot) = serde_json::from_str::<SessionSnapshot>(&content) {
-                    // Filter and remove any host session states using the configured prefix
-                    if snapshot.name.starts_with(prefix) {
+                    // Filter and remove any registered host session states.
+                    if hosts.contains(&snapshot.name) || *unknown.entry(snapshot.name.clone())
+                        .or_insert_with(|| crate::session::is_verij_host(&snapshot.name).unwrap_or(false)) {
                         let _ = std::fs::remove_file(&path);
                         continue;
                     }
@@ -88,17 +90,17 @@ pub fn read_all_states(prefix: &str) -> Vec<SessionSnapshot> {
 /// On startup, on file changes (create, modify, remove), and via periodic poll,
 /// aggregates all valid session snapshots, auto-prunes dead files, and forwards updates.
 ///
-/// `prefix` is the configured host-session prefix; sessions starting with it are filtered out.
 pub fn spawn_fs_watcher(
     tx: mpsc::Sender<Vec<SessionSnapshot>>,
-    prefix: String,
 ) -> Result<tokio::task::JoinHandle<()>> {
     let states_dir = resolve_states_dir();
     std::fs::create_dir_all(&states_dir)
         .with_context(|| format!("Failed to create states directory: {}", states_dir.display()))?;
 
     // Send initial state immediately (also prunes stale files on startup)
-    let initial_states = read_all_states(&prefix);
+    let mut registry = crate::registry::Cache::new()?;
+    let mut unknown = HashMap::new();
+    let initial_states = read_all_states(&registry.names, &mut unknown);
     let _ = tx.try_send(initial_states);
 
     let handle = tokio::task::spawn_blocking(move || {
@@ -139,7 +141,8 @@ pub fn spawn_fs_watcher(
                             // Debounce: drain any rapid consecutive events within 30ms
                             while fs_rx.recv_timeout(Duration::from_millis(30)).is_ok() {}
 
-                            let snapshots = read_all_states(&prefix);
+                            let _ = registry.refresh();
+                            let snapshots = read_all_states(&registry.names, &mut unknown);
                             if tx.blocking_send(snapshots).is_err() {
                                 break;
                             }
@@ -152,7 +155,8 @@ pub fn spawn_fs_watcher(
                     poll_ticks += 1;
                     if poll_ticks >= 10 {
                         poll_ticks = 0;
-                        let snapshots = read_all_states(&prefix);
+                        let _ = registry.refresh();
+                        let snapshots = read_all_states(&registry.names, &mut unknown);
                         if tx.blocking_send(snapshots).is_err() {
                             break;
                         }

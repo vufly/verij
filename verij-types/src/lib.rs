@@ -18,9 +18,6 @@ pub const VERIJ_CONTROL_PIPE: &str = "verij_control";
 /// Directory where distributed agents export their session JSON states.
 pub const VERIJ_STATES_DIR: &str = "/tmp/verij/states";
 
-/// Prefix for Verij host wrapper sessions. Sessions with this prefix must be
-/// filtered out of workspace management and navigation.
-pub const HOST_SESSION_PREFIX: &str = "_vj_";
 /// A compact, serializable snapshot of a single Zellij session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionSnapshot {

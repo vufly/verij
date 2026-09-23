@@ -53,7 +53,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
         render_status_bar(frame, status_rect, state);
     }
 
-    if state.input_mode == super::state::InputMode::NewSession {
+    if state.input_mode != super::state::InputMode::Normal {
         render_new_session_dialog(frame, area, state);
     }
 }
@@ -259,16 +259,16 @@ fn render_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
                 .fg(c(colors.error))
                 .add_modifier(Modifier::BOLD),
         )
-    } else if state.input_mode == super::state::InputMode::NewSession {
+    } else if state.input_mode != super::state::InputMode::Normal {
         Span::styled(
-            format!(" New Session: {}█  (Enter: create, Esc: cancel)", state.input_buffer),
+            format!(" {}: {}█  (Enter: confirm, Esc: cancel)", if state.input_mode == super::state::InputMode::RenameHost { "Rename Host" } else { "New Session" }, state.input_buffer),
             Style::default()
                 .fg(c(colors.title))
                 .add_modifier(Modifier::BOLD),
         )
     } else {
         Span::styled(
-            " j/k: nav  Enter: attach  n: new  ?: hide  q: quit",
+            " j/k: nav  Enter: attach  n: new  R: rename host  ?: hide  q: quit",
             Style::default().fg(c(colors.muted)),
         )
     };
@@ -291,7 +291,7 @@ fn render_new_session_dialog(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let block = Block::default()
         .title(Span::styled(
-            " New Workspace Session ",
+            if state.input_mode == super::state::InputMode::RenameHost { " Rename Host " } else { " New Workspace Session " },
             Style::default()
                 .fg(c(colors.title))
                 .add_modifier(Modifier::BOLD),

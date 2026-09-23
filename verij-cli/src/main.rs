@@ -14,6 +14,7 @@ mod actions;
 mod config;
 mod fs_watcher;
 mod layout;
+mod registry;
 mod session;
 mod tui;
 
@@ -104,20 +105,23 @@ pub struct AttachArgs {
 // Subcommand handlers
 // ---------------------------------------------------------------------------
 
-fn ensure_host_session_name(name: &str, prefix: &str) -> String {
-    if name.starts_with(prefix) {
-        name.to_string()
-    } else {
-        format!("{}{}", prefix, name)
+fn verify_host(name: &str) -> Result<()> {
+    if registry::marker_key(name)?.is_some() {
+        if session::is_verij_host(name)? {
+            return Ok(());
+        }
+        bail!("Zellij session '{name}' is registered as a Verij host but its sidebar is missing. Refusing to attach an unrelated session.");
     }
+    bail!("'{name}' is not a registered Verij host. Do not rename hosts with Zellij session manager; use Verij's Rename Host action.")
 }
 
 fn handle_start(args: StartArgs) -> Result<()> {
     let cfg = config::Config::load();
-    let host_name = ensure_host_session_name(&args.session_name, cfg.prefix());
+    let host_name = args.session_name.as_str();
 
     match session::session_status(&host_name)? {
         session::SessionStatus::Live | session::SessionStatus::Exited => {
+            verify_host(host_name)?;
             if args.no_attach {
                 bail!(
                     "Session '{}' already exists. Specify a different name with --session-name or attach with 'verij attach'.",
@@ -141,12 +145,11 @@ fn handle_start(args: StartArgs) -> Result<()> {
         }
         custom
     } else {
-        let plugin_wasm_path = layout::resolve_plugin_path(args.plugin_path.as_deref())?;
+        layout::resolve_plugin_path(args.plugin_path.as_deref())?;
         let verij_bin = layout::resolve_verij_bin();
 
         let layout_config = layout::LayoutConfig {
             verij_bin,
-            plugin_wasm_path,
             sidebar_size: args.sidebar_width,
             ..Default::default()
         };
@@ -154,21 +157,28 @@ fn handle_start(args: StartArgs) -> Result<()> {
         layout::write_layout_file(&layout_config)?
     };
 
-    session::restore_last_inner_session(&host_name)?;
-    session::start_host_session(&host_name, &layout_path, args.no_attach)
+    registry::register(host_name)?;
+    session::restore_last_inner_session(host_name)?;
+    session::start_host_session(
+        host_name,
+        &layout_path,
+        args.no_attach,
+        cfg.host.pane_frame_style,
+    )
 }
 
 fn handle_attach(args: AttachArgs) -> Result<()> {
     let cfg = config::Config::load();
-    let host_name = ensure_host_session_name(&args.session_name, cfg.prefix());
+    let host_name = args.session_name.as_str();
     let status = session::session_status(&host_name)?;
 
     if matches!(
         status,
         session::SessionStatus::Live | session::SessionStatus::Exited
     ) {
-        session::restore_last_inner_session(&host_name)?;
-        session::attach_session(&host_name)
+        verify_host(host_name)?;
+        session::restore_last_inner_session(host_name)?;
+        session::attach_session(host_name)
     } else if args.create {
         handle_start(StartArgs {
             session_name: args.session_name,
@@ -207,6 +217,12 @@ async fn main() -> Result<()> {
         Commands::Start(args) => handle_start(args),
         Commands::Attach(args) => handle_attach(args),
         Commands::Ui => {
+            if let Ok(host) = std::env::var("ZELLIJ_SESSION_NAME") {
+                if let Some(key) = registry::marker_key(&host)? {
+                    std::env::set_var("VERIJ_HOST_MARKER_KEY", key);
+                    std::env::set_var("VERIJ_HOST_NAME", host);
+                }
+            }
             let cfg = config::Config::load();
             tui::run(cfg).await
         }

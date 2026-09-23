@@ -18,7 +18,7 @@ This avoids the former global-polling, cross-session pipe, process-killing, and 
 ## Host Topology
 
 ```text
-┌──────────────────────────── Host Session: "_vj_<name>" ────────────────────────┐
+┌──────────────────────────── Host Session: "<name>" ────────────────────────────┐
 │ Tab: Verij Host                                                                │
 │ ┌───────────────────────┐  ┌─────────────────────────────────────────────────┐ │
 │ │ Verij pane            │  │ Workspace pane                                  │ │
@@ -32,7 +32,6 @@ This avoids the former global-polling, cross-session pipe, process-killing, and 
 │ │                       │  │ └─────────────────────────────────────────────┘ │ │
 │ └───────────────────────┘  └─────────────────────────────────────────────────┘ │
 │                                                                                │
-│ Hidden host plugin pane                                                        │
 └────────────────────────────────────────────────────────────────────────────────┘
                          ▲                         ▲
                          │                         │
@@ -43,14 +42,14 @@ This avoids the former global-polling, cross-session pipe, process-killing, and 
                             /tmp/verij/states/*.json
 ```
 
-The prefix defaults to `_vj_` and is configurable through `[workspace].prefix`. The generated layout uses:
+Verij hosts use exact requested names, tracked in `host-registry.toml`. Generated layout uses:
 
 - Sidebar name: `Verij`
 - Workspace pane name: `Workspace`
 - Host tab name: `Verij Host`
 - Configurable sidebar width, default `25%`
 
-The host plugin is not the source of inner-session state. It exists as part of the host layout, while each inner session has its own distributed agent.
+The host layout needs no state-export plugin. Each inner session runs its own distributed agent.
 
 ## Inner Sessions
 
@@ -70,11 +69,11 @@ The native CLI starts `fs_watcher` for `/tmp/verij/states/`.
 
 1. The watcher reads existing JSON files at startup.
 2. Create, modify, and remove events trigger an aggregate read.
-3. Invalid, stale, and host-prefixed files are ignored or pruned.
+3. Invalid, stale, and registered host snapshots are ignored or pruned.
 4. Snapshots are sorted by session name and sent to the TUI event loop.
 5. The TUI reconciles snapshots, preserves logical cursor position, and rebuilds the flattened session/tab tree.
 
-Host sessions are filtered using the configured prefix, not a hard-coded historical prefix.
+Host names are filtered through cached `host-registry.toml` membership rather than prefixes. Watcher reloads registry only after its file changes; attachment writes to `hosts.toml` do not trigger registry reloads.
 
 ### Snapshot Schema
 
@@ -103,16 +102,18 @@ Host sessions are filtered using the configured prefix, not a hard-coded histori
 
 ## Workspace Attachment
 
-The TUI tracks the session attached to each host Workspace pane separately from inner-session metadata. The durable record is keyed by canonical host session name, so multiple hosts can remember different inner sessions while sharing the global sidebar.
+The TUI tracks each host Workspace attachment separately from inner-session metadata. `host-registry.toml` registers hosts before any inner attachment and assigns a stable runtime marker key. `hosts.toml` stores attachment intent by current host name.
 
 Durable records live at `$XDG_CONFIG_HOME/verij/hosts.toml`, or `~/.config/verij/hosts.toml` when `XDG_CONFIG_HOME` is unset:
 
 ```toml
-[hosts."_vj_project"]
+[hosts."project"]
 last_session = "backend"
 ```
 
-The record stores attachment intent. `/tmp/verij/states/` and `/tmp/verij/workspace-<host>.session` remain runtime state and are reconciled against the durable record and current pane title.
+The record stores attachment intent. `/tmp/verij/states/` and `/tmp/verij/workspace-<marker-key>.session` remain runtime state. Marker key stays stable through a Verij-controlled host rename, so the already-running nested attach shell can still clean it up.
+
+Press `R` in sidebar to rename host: Verij invokes Zellij `rename-session`, updates host registry and attachment key, and retains runtime marker key. Direct host rename in Zellij session manager is unsupported; rename it back before using Verij rename. Existing local `🔷v` host was migrated to `v` outside the application; no migration logic is embedded in Verij.
 
 ### Attach
 
@@ -123,7 +124,7 @@ export VERIJ_WORKSPACE_SESSION=backend
 stty sane
 zellij attach backend
 unset VERIJ_WORKSPACE_SESSION
-rm -f /tmp/verij/workspace-<host>.session
+rm -f /tmp/verij/workspace-<marker-key>.session
 ```
 
 The marker file is written by the CLI before attach and removed when the attach command returns. It lets the TUI recover attachment after its own process restarts. Native switches update the marker directly because the original attach process remains alive during an in-place switch.
@@ -175,14 +176,14 @@ The agent observes the resulting `TabUpdate` and `PaneUpdate` events. The Worksp
 Creating a session from the TUI uses a fake PTY because Zellij 0.45 can discard layouts created without an attached client.
 
 1. Verij runs `script` around `zellij attach -c <name>` with `ZELLIJ` nesting variables removed.
-2. The configured `~/.config/zellij/layouts/default.kdl` is passed as the default layout when present.
-3. Verij waits for a visible layout plugin pane to appear, with a bounded timeout.
+2. Inner session starts with the user's normal Zellij configuration and default layout. Verij reads that layout only to identify the first-tab plugin for readiness checks.
+3. Verij waits for the default tab template's status plugin and a terminal pane to coexist in the first tab for a stabilization interval.
 4. The fake client detaches while the session remains alive.
-5. Inner pane frames are set to `full`.
+5. Inner sessions use the normal Zellij config. Only the host overrides `[host].pane_frame_style` (default `titles`).
 6. If the agent state file does not appear, Verij launches the configured WASM plugin as a floating, unfocused fallback.
 7. The Workspace pane switches to the new session.
 
-The readiness poll replaces a blind delay so the first tab's layout plugin panes are not lost to startup timing.
+After detaching the fake client, Verij verifies the first-tab plugin still exists before switching the Workspace pane. A missing plugin becomes a visible creation error rather than a silent incomplete session.
 
 ## Session Resurrection
 
@@ -234,6 +235,7 @@ verij/
 |   `-- src/
 |       |-- main.rs          CLI commands and host startup
 |       |-- layout.rs        Generated host KDL and path resolution
+|       |-- registry.rs      Infrequently updated host-name registry
 |       |-- session.rs       Zellij session queries and exec helpers
 |       |-- fs_watcher.rs    State directory watcher and aggregation
 |       |-- actions.rs       Attach, marker, pane, tab, and switch actions

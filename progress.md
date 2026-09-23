@@ -6,17 +6,19 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 
 ### Host And CLI
 
-- `verij start` creates or attaches to a prefixed host session.
+- `verij start` creates or attaches to an exact-name registered host session.
 - `verij attach` attaches to an existing host session or creates one with `--create`.
 - `verij ui` runs the Ratatui sidebar.
-- Generated KDL embeds the native CLI path, plugin path, sidebar width, Verij pane, and Workspace pane.
+- Generated host KDL embeds native CLI path, sidebar width, Verij pane, and Workspace pane; no host state-export plugin.
 - Plugin path resolution supports CLI argument, environment variable, executable-relative, development, user, and system paths.
 - Config helpers provide `verij config init` and `verij config path`.
+- Host sessions override pane-frame style via `[host]` (default `titles`); inner sessions inherit Zellij's default config unchanged.
 
 ### Sidebar And Navigation
 
 - Live session and tab tree with filesystem-backed updates.
-- Session filtering by configurable host prefix.
+- Host filtering by cached registration, independent of session-name prefix.
+- Sidebar `R` renames the current host while retaining Workspace attachment identity.
 - Keyboard navigation, paging, folding, mouse selection, double-click actions, help view, and resize handling.
 - Active session and active tab styling.
 - New inner session creation from the sidebar.
@@ -38,6 +40,7 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 - Workspace attachment uses `VERIJ_WORKSPACE_SESSION` plus a host marker file.
 - Detach cleanup, restart recovery, and legacy pane-title recovery avoid nested duplicate attaches.
 - Durable host metadata records the last inner session attached to each host.
+- Separate `host-registry.toml` registers hosts even when they have no inner attachment.
 - Live and exited Zellij hosts and inner sessions are distinguished during attach.
 - Exited hosts and inner sessions can be resumed through Zellij session resurrection.
 - Resurrection sanitizes stale suspended-command flags and waits for visible layout plugins before detaching.
@@ -46,7 +49,7 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 ### Inner Session Initialization
 
 - Fake-PTY initialization avoids Zellij 0.45 no-viewport layout failures.
-- Creation waits for a visible layout plugin instead of relying only on a fixed delay.
+- Creation waits for the first tab's configured status plugin and a terminal pane to stabilize, then verifies the plugin survived fake-client detach.
 - Plugin fallback launches the agent when automatic layout loading does not produce state.
 
 ## Verification
@@ -58,7 +61,7 @@ cargo check --workspace
 cargo test --workspace
 ```
 
-The repository currently passes both checks. Focused tests cover host-keyed metadata and live/exited session classification. Release artifacts are built with:
+The repository currently passes both checks. Focused tests cover host registration/rename, first-tab readiness, host-keyed metadata, and live/exited session classification. Release artifacts are built with:
 
 ```bash
 make dev
@@ -75,6 +78,7 @@ make dev
 
 ## Roadmap
 
+- Validate live host rename after restarting existing sidebar with new binary; local `🔷v` → `v` migration was done once outside the product.
 - Add end-to-end coverage for host resurrection and inner-session resurrection.
 - Add coverage for manual Workspace detach, multiple inner clients, multiple hosts, and custom layouts.
 - Improve status reporting for missing or externally deleted remembered inner sessions.

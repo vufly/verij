@@ -37,26 +37,10 @@ pub fn create_inner_session(
     // a pseudo-terminal, giving zellij a viewport to size the first tab from. After the
     // layout settles we send `zellij action detach` to that fake client and wait for the
     // `script` process to exit cleanly before proceeding.
-    let default_layout = std::env::var("HOME")
-        .map(|h| std::path::PathBuf::from(h).join(".config/zellij/layouts/default.kdl"))
-        .ok()
-        .filter(|p| p.exists());
+    let default_layout = configured_zellij_layout();
 
-    // Build the inner zellij command that `script` will run in its fake PTY.
-    let mut zellij_args = vec![
-        "zellij".to_string(),
-        "attach".to_string(),
-        "-c".to_string(),
-        new_session_name.to_string(),
-    ];
-    if let Some(ref layout) = default_layout {
-        zellij_args.extend([
-            "options".to_string(),
-            "--default-layout".to_string(),
-            layout.to_string_lossy().into_owned(),
-        ]);
-    }
-    let zellij_cmd = zellij_args.join(" ");
+    // The inner session inherits Zellij config; the layout is inspected only for readiness.
+    let zellij_cmd = format!("zellij attach -c {}", shell_quote(new_session_name));
 
     let mut fake_client = Command::new("script")
         .args(["-q", "-c", &zellij_cmd, "/dev/null"])
@@ -71,13 +55,14 @@ pub fn create_inner_session(
             format!("Failed to create session '{new_session_name}' via fake-PTY attach")
         })?;
 
-    // Wait until the default layout's visible plugin pane is ready.
-    // A fixed delay can detach before a layout plugin finishes loading.
-    if default_layout.is_some() {
-        wait_for_layout_plugin(new_session_name);
+    // Wait for the actual first-tab status plugin, not an unrelated visible plugin.
+    let expected_plugin = default_layout.as_deref().and_then(default_tab_plugin);
+    let layout_ready = if let Some(ref plugin) = expected_plugin {
+        wait_for_layout_plugin(new_session_name, plugin)
     } else {
         std::thread::sleep(Duration::from_millis(400));
-    }
+        true
+    };
 
     // Detach the fake client — the session stays alive, layout already applied.
     let _ = Command::new("zellij")
@@ -90,11 +75,13 @@ pub fn create_inner_session(
     // Wait for `script` to exit after zellij detaches (prevents zombie processes).
     let _ = fake_client.wait();
 
-    // Set inner session pane frame style to full
-    let _ = Command::new("zellij")
-        .args(["-s", new_session_name, "action", "set-pane-frame-style", "full"])
-        .stdin(std::process::Stdio::null())
-        .status();
+    if let Some(plugin) = expected_plugin {
+        if !layout_ready || !session_has_visible_plugin(new_session_name, &plugin) {
+            anyhow::bail!(
+                "Session '{new_session_name}' started without its first-tab plugin '{plugin}'. Check Zellij plugin loading before using it."
+            );
+        }
+    }
 
     // 2. Check if agent state file appears (auto-loaded via Zellij load_plugins).
     // If not after brief delay, explicitly launch plugin with --floating --no-focus fallback.
@@ -207,10 +194,13 @@ const WORKSPACE_SESSION_ENV: &str = "VERIJ_WORKSPACE_SESSION";
 
 fn workspace_marker_path() -> Option<PathBuf> {
     let host_session = std::env::var("ZELLIJ_SESSION_NAME").ok()?;
+    let marker_key = std::env::var("VERIJ_HOST_MARKER_KEY").ok()
+        .or_else(|| crate::registry::marker_key(&host_session).ok().flatten())
+        .unwrap_or(host_session);
     Some(
         std::env::temp_dir()
             .join("verij")
-            .join(format!("workspace-{host_session}.session")),
+            .join(format!("workspace-{marker_key}.session")),
     )
 }
 
@@ -237,7 +227,8 @@ pub fn set_workspace_session(session: &str) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(path, session)?;
-    if let Ok(host) = std::env::var("ZELLIJ_SESSION_NAME") {
+    if let Some(host) = std::env::var("VERIJ_HOST_NAME").ok()
+        .or_else(|| std::env::var("ZELLIJ_SESSION_NAME").ok()) {
         crate::config::set_last_host_session(&host, session)?;
     }
     Ok(())
@@ -448,17 +439,70 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "'\\''"))
 }
 
-fn wait_for_layout_plugin(session_name: &str) {
-    let deadline = Instant::now() + Duration::from_secs(3);
+fn default_tab_plugin(layout: &Path) -> Option<String> {
+    let source = std::fs::read_to_string(layout).ok()?;
+    let template = source.split_once("default_tab_template")?.1;
+    template.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("plugin location=\"")
+            .and_then(|value| value.split_once('"').map(|(location, _)| location.to_string()))
+    })
+}
+
+/// Find the user's configured layout without overriding it on inner-session creation.
+fn configured_zellij_layout() -> Option<PathBuf> {
+    let config_dir = std::env::var_os("ZELLIJ_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("XDG_CONFIG_HOME").map(|home| PathBuf::from(home).join("zellij")))
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config/zellij")))?;
+    let config_file = std::env::var_os("ZELLIJ_CONFIG_FILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| config_dir.join("config.kdl"));
+    let config = std::fs::read_to_string(config_file).unwrap_or_default();
+    let layout_dir = kdl_option(&config, "layout_dir")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| config_dir.join("layouts"));
+    let layout = kdl_option(&config, "default_layout").unwrap_or_else(|| "default".to_string());
+    let path = PathBuf::from(&layout);
+    let path = if path.is_absolute() {
+        path
+    } else if path.extension().is_some() {
+        layout_dir.join(path)
+    } else {
+        layout_dir.join(format!("{layout}.kdl"))
+    };
+    path.exists().then_some(path)
+}
+
+fn kdl_option(config: &str, key: &str) -> Option<String> {
+    config.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix(key)?
+            .trim_start()
+            .strip_prefix('"')?
+            .split_once('"')
+            .map(|(value, _)| value.to_string())
+    })
+}
+
+fn wait_for_layout_plugin(session_name: &str, location: &str) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut stable_since = None;
     while Instant::now() < deadline {
-        if session_has_visible_plugin(session_name) {
-            return;
+        if session_has_visible_plugin(session_name, location) {
+            let since = stable_since.get_or_insert_with(Instant::now);
+            if since.elapsed() >= Duration::from_millis(1200) {
+                return true;
+            }
+        } else {
+            stable_since = None;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
+    false
 }
 
-fn session_has_visible_plugin(session_name: &str) -> bool {
+fn session_has_visible_plugin(session_name: &str, location: &str) -> bool {
     let Ok(output) = Command::new("zellij")
         .args(["--session", session_name, "action", "list-panes", "--all", "--json"])
         .output()
@@ -474,8 +518,59 @@ fn session_has_visible_plugin(session_name: &str) -> bool {
         return false;
     };
 
-    panes.iter().any(|pane| {
+    first_tab_plugin_ready(&panes, location)
+}
+
+fn first_tab_plugin_ready(panes: &[serde_json::Value], location: &str) -> bool {
+    let plugin = panes.iter().any(|pane| {
+        let url = pane
+            .get("plugin_url")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
         pane.get("is_plugin").and_then(|value| value.as_bool()) == Some(true)
-            && pane.get("is_suppressed").and_then(|value| value.as_bool()) != Some(true)
-    })
+            && pane.get("tab_position").and_then(|value| value.as_u64()) == Some(0)
+            && pane.get("is_suppressed").and_then(|value| value.as_bool()) == Some(false)
+            && pane.get("is_floating").and_then(|value| value.as_bool()) == Some(false)
+            && (url == location || url.contains(location))
+    });
+    let terminal = panes.iter().any(|pane| {
+        pane.get("is_plugin").and_then(|value| value.as_bool()) == Some(false)
+            && pane.get("tab_position").and_then(|value| value.as_u64()) == Some(0)
+            && pane.get("pane_rows").and_then(|value| value.as_u64()).unwrap_or(0) > 0
+    });
+    plugin && terminal
+}
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::{first_tab_plugin_ready, kdl_option};
+    use serde_json::json;
+
+    #[test]
+    fn requires_target_plugin_on_first_tab_and_terminal() {
+        let unrelated = json!({
+            "is_plugin": true, "plugin_url": "zellij:session-manager",
+            "tab_position": 0, "is_suppressed": false, "is_floating": true
+        });
+        let status_on_second_tab = json!({
+            "is_plugin": true, "plugin_url": "https://example.com/zjstatus.wasm",
+            "tab_position": 1, "is_suppressed": false, "is_floating": false
+        });
+        let terminal = json!({"is_plugin": false, "tab_position": 0, "pane_rows": 20});
+        assert!(!first_tab_plugin_ready(
+            &[unrelated, status_on_second_tab, terminal.clone()],
+            "zjstatus"
+        ));
+        let status = json!({
+            "is_plugin": true, "plugin_url": "https://example.com/zjstatus.wasm",
+            "tab_position": 0, "is_suppressed": false, "is_floating": false
+        });
+        assert!(first_tab_plugin_ready(&[status, terminal], "zjstatus"));
+    }
+
+    #[test]
+    fn layout_probe_uses_active_zellij_option_not_commented_default() {
+        let config = "// default_layout \"classic\"\ndefault_layout \"my-layout\"\n";
+        assert_eq!(kdl_option(config, "default_layout").as_deref(), Some("my-layout"));
+    }
 }

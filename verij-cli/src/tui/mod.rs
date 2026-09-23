@@ -36,9 +36,9 @@ use state::{AppState, InputMode};
 
 /// Launch the Verij TUI.
 pub async fn run(config: Config) -> Result<()> {
-    // Ensure host session pane frame style is titles
+    // Override pane-frame style only in the host session.
     let _ = std::process::Command::new("zellij")
-        .args(["action", "set-pane-frame-style", "titles"])
+        .args(["action", "set-pane-frame-style", config.host.pane_frame_style.as_str()])
         .stdin(std::process::Stdio::null())
         .status();
 
@@ -76,8 +76,7 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, confi
     state.plugin_path = crate::layout::resolve_plugin_path(None).ok();
 
     // Spawn filesystem watcher background task targeting /tmp/verij/states/
-    let prefix = state.config.prefix().to_string();
-    match fs_watcher::spawn_fs_watcher(tx, prefix) {
+    match fs_watcher::spawn_fs_watcher(tx) {
         Ok(_handle) => {}
         Err(e) => {
             state.error = Some(format!("FS watcher error: {e}"));
@@ -262,7 +261,7 @@ fn title_matches_session(title: &str, session: &str) -> bool {
 
 /// Process keyboard events. Returns `true` if TUI should quit.
 fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
-    if state.input_mode == InputMode::NewSession {
+    if state.input_mode != InputMode::Normal {
         match key.code {
             KeyCode::Esc => {
                 state.cancel_new_session_prompt();
@@ -276,6 +275,14 @@ fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
             KeyCode::Enter => {
                 let name = state.input_buffer.trim().to_string();
                 if !name.is_empty() {
+                    if state.input_mode == InputMode::RenameHost {
+                        let old = std::env::var("ZELLIJ_SESSION_NAME").unwrap_or_default();
+                        if let Err(e) = crate::session::rename_host(&old, &name) {
+                            state.error = Some(format!("Rename error: {e}"));
+                        }
+                        state.cancel_new_session_prompt();
+                        return Ok(false);
+                    }
                     let old_active = state.active_session.clone();
                     let workspace_pane_name = state.format_workspace_pane_name(&name);
                     let res = actions::create_inner_session(
@@ -314,6 +321,8 @@ fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
         KeyCode::Char('n') | KeyCode::Char('c') | KeyCode::Char('+') => {
             state.start_new_session_prompt();
         }
+
+        KeyCode::Char('R') => state.start_rename_host_prompt(),
 
         // Help bar toggle
         KeyCode::Char('?') => {
