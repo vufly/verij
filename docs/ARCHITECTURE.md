@@ -108,8 +108,9 @@ sequenceDiagram
    - `PermissionType::ReadApplicationState`
    - `PermissionType::ChangeApplicationState`
 3. On `Event::SessionUpdate(sessions, _)` or `Event::TabUpdate(tabs)`:
-   - Identifies its own session name from `SessionUpdate` (where `is_current_session == true`).
-   - Maps its tabs to `Vec<TabSnapshot>`.
+    - Identifies its own session name from `SessionUpdate` (where `is_current_session == true`).
+    - Exports `connected_clients`; `Some(0)` signals that all clients detached.
+    - Maps its tabs to `Vec<TabSnapshot>`.
    - Serializes a `SessionSnapshot` into JSON.
    - Ensures `/tmp/verij/states/` exists.
    - Writes the file `/tmp/verij/states/<session_name>.json`.
@@ -172,6 +173,8 @@ Each inner session agent writes its own snapshot:
 {
   "name": "backend",
   "is_current": true,
+  "connected_clients": 1,
+  "active_pane": "editor",
   "tabs": [
     {
       "name": "editor",

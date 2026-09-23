@@ -118,7 +118,44 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, confi
             match rx.try_recv() {
                 Ok(snapshot) => {
                     state.error = None;
+
+                    // A detached active session means the Workspace pane is empty again.
+                    // Do this before reconcile so the cleared active state is preserved.
+                    let active_detached = state.active_session.as_deref().is_some_and(|active| {
+                        snapshot
+                            .iter()
+                            .any(|session| {
+                                session.name == active && session.connected_clients == Some(0)
+                            })
+                    });
+                    if active_detached {
+                        state.active_session = None;
+                        let default_name = state.config.workspace.pane_default.clone();
+                        if let Err(e) = actions::re_focus_right_pane()
+                            .and_then(|_| actions::rename_workspace_pane(&default_name))
+                        {
+                            state.error = Some(e.to_string());
+                        } else {
+                            state.workspace_pane_name = Some(default_name);
+                        }
+                    }
+
                     state.reconcile(snapshot);
+
+                    if !active_detached {
+                        if let Some(active) = state.active_session.clone() {
+                            let desired_name = state.format_workspace_pane_name(&active);
+                            if state.workspace_pane_name.as_deref() != Some(&desired_name) {
+                                if let Err(e) = actions::re_focus_right_pane()
+                                    .and_then(|_| actions::rename_workspace_pane(&desired_name))
+                                {
+                                    state.error = Some(e.to_string());
+                                } else {
+                                    state.workspace_pane_name = Some(desired_name);
+                                }
+                            }
+                        }
+                    }
                     needs_render = true;
                 }
                 Err(mpsc::error::TryRecvError::Empty) => break,
@@ -165,14 +202,17 @@ fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
                 let name = state.input_buffer.trim().to_string();
                 if !name.is_empty() {
                     let old_active = state.active_session.clone();
+                    let workspace_pane_name = state.format_workspace_pane_name(&name);
                     let res = actions::create_inner_session(
                         old_active.as_deref(),
                         &name,
                         state.plugin_path.as_deref(),
+                        &workspace_pane_name,
                     );
                     match res {
                         Ok(()) => {
                             state.active_session = Some(name);
+                            state.workspace_pane_name = Some(workspace_pane_name);
                             state.error = None;
                         }
                         Err(e) => {
@@ -294,10 +334,10 @@ fn dispatch_action(state: &mut AppState) -> Result<()> {
     let old_active = state.active_session.clone();
     state.active_session = Some(target_session.clone());
 
-    // Only rename the Workspace tab when switching at session level (not tab navigation).
-    // For tab clicks, the session is already attached — no rename needed.
-    let workspace_tab_name: Option<String> = if tab_position.is_none() {
-        Some(state.config.workspace.format_tab_name(&target_session))
+    // Session switches can use current metadata immediately. Tab switches update
+    // the name from the next filesystem snapshot after Zellij changes focus.
+    let workspace_pane_name = if tab_position.is_none() {
+        Some(state.format_workspace_pane_name(&target_session))
     } else {
         None
     };
@@ -306,12 +346,15 @@ fn dispatch_action(state: &mut AppState) -> Result<()> {
         old_active.as_deref(),
         &target_session,
         tab_position,
-        workspace_tab_name.as_deref(),
+        workspace_pane_name.as_deref(),
     );
 
     if let Err(e) = result {
         state.error = Some(e.to_string());
     } else {
+        if workspace_pane_name.is_some() {
+            state.workspace_pane_name = workspace_pane_name;
+        }
         state.error = None;
     }
 

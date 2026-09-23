@@ -97,6 +97,9 @@ pub struct AppState {
     /// Name of the session currently focused / attached in the right pane.
     pub active_session: Option<String>,
 
+    /// Last name applied to the host Workspace pane.
+    pub workspace_pane_name: Option<String>,
+
     /// Current input mode (Normal vs NewSession prompt).
     pub input_mode: InputMode,
 
@@ -188,13 +191,6 @@ impl AppState {
             .into_iter()
             .filter(|s| !s.name.starts_with(&prefix))
             .collect();
-
-        // If active_session is not set yet, pick the first session if available
-        if self.active_session.is_none() {
-            if let Some(first) = self.sessions.first() {
-                self.active_session = Some(first.name.clone());
-            }
-        }
 
         self.rebuild_nodes();
 
@@ -360,6 +356,16 @@ impl AppState {
         self.nodes.get(self.cursor)
     }
 
+    /// Format the Workspace pane name from the target session's active tab and pane.
+    pub fn format_workspace_pane_name(&self, session_name: &str) -> String {
+        let snapshot = self.sessions.iter().find(|session| session.name == session_name);
+        let tab = snapshot.and_then(|session| session.active_tab()).map(|tab| tab.name.as_str());
+        let pane = snapshot.and_then(|session| session.active_pane());
+        self.config
+            .workspace
+            .format_pane_name(session_name, tab, pane)
+    }
+
     /// Synchronize `list_state` with current cursor.
     pub fn sync_list_state(&mut self) {
         if self.nodes.is_empty() {
@@ -444,6 +450,8 @@ mod tests {
                         is_active: false,
                     },
                 ],
+                active_pane: None,
+                connected_clients: None,
             },
             SessionSnapshot {
                 name: "_vj_main".to_string(),
@@ -453,6 +461,8 @@ mod tests {
                     position: 0,
                     is_active: true,
                 }],
+                active_pane: None,
+                connected_clients: None,
             },
             SessionSnapshot {
                 name: "frontend".to_string(),
@@ -462,6 +472,8 @@ mod tests {
                     position: 0,
                     is_active: true,
                 }],
+                active_pane: None,
+                connected_clients: None,
             },
         ]
     }

@@ -30,6 +30,12 @@ struct State {
 
     /// Cached list of tabs for this session.
     tabs: Vec<TabSnapshot>,
+
+    /// Number of clients attached to this session in the latest snapshot.
+    connected_clients: Option<usize>,
+
+    /// Title of the focused pane in the active tab.
+    active_pane: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -64,10 +70,11 @@ fn load() {
         }
     });
 
-    eprintln!("[verij-plugin] load: subscribing to SessionUpdate, TabUpdate");
+    eprintln!("[verij-plugin] load: subscribing to SessionUpdate, TabUpdate, PaneUpdate");
     subscribe(&[
         EventType::SessionUpdate,
         EventType::TabUpdate,
+        EventType::PaneUpdate,
         EventType::PermissionRequestResult,
     ]);
 
@@ -211,8 +218,12 @@ impl ZellijPlugin for State {
                 // Find our own session from the list of all sessions
                 if let Some(current) = session_infos.into_iter().find(|s| s.is_current_session) {
                     let name_changed = self.session_name.as_deref() != Some(&current.name);
-                    self.session_name = Some(current.name);
-                    self.connected_clients = Some(current.connected_clients);
+                    self.session_name = Some(current.name.clone());
+                    let connected_clients = Some(current.connected_clients);
+                    let clients_changed = self.connected_clients != connected_clients;
+                    self.connected_clients = connected_clients;
+                    let active_pane = Self::active_pane_name(&current.tabs, &current.panes);
+                    let pane_changed = self.active_pane != active_pane;
 
                     let new_tabs: Vec<TabSnapshot> = current
                         .tabs
@@ -228,9 +239,9 @@ impl ZellijPlugin for State {
                         })
                         .collect();
 
-                    if name_changed || self.tabs != new_tabs || self.clients_changed {
+                    if name_changed || self.tabs != new_tabs || clients_changed || pane_changed {
                         self.tabs = new_tabs;
-                        self.clients_changed = false;
+                        self.active_pane = active_pane;
                         self.export_state();
                     }
                 }
@@ -256,6 +267,19 @@ impl ZellijPlugin for State {
 
                 if self.tabs != new_tabs {
                     self.tabs = new_tabs;
+                    self.active_pane = None;
+                    self.export_state();
+                }
+            }
+
+            Event::PaneUpdate(panes) => {
+                if self.session_name.is_none() {
+                    self.resolve_session_from_snapshot();
+                }
+
+                let active_pane = Self::active_pane_name_from_snapshots(&self.tabs, &panes);
+                if self.active_pane != active_pane {
+                    self.active_pane = active_pane;
                     self.export_state();
                 }
             }
@@ -278,12 +302,40 @@ impl ZellijPlugin for State {
 // ---------------------------------------------------------------------------
 
 impl State {
+    fn active_pane_name(tabs: &[TabInfo], panes: &PaneManifest) -> Option<String> {
+        let active_position = tabs.iter().find(|tab| tab.active)?.position;
+        panes
+            .panes
+            .get(&active_position)?
+            .iter()
+            .find(|pane| pane.is_focused && !pane.is_suppressed)
+            .map(|pane| pane.title.clone())
+    }
+
+    fn active_pane_name_from_snapshots(
+        tabs: &[TabSnapshot],
+        panes: &PaneManifest,
+    ) -> Option<String> {
+        let active_position = tabs.iter().find(|tab| tab.is_active)?.position;
+        panes
+            .panes
+            .get(&active_position)?
+            .iter()
+            .find(|pane| pane.is_focused && !pane.is_suppressed)
+            .map(|pane| pane.title.clone())
+    }
+
     /// Attempts to populate session name and initial tabs using `get_session_list()`.
     fn resolve_session_from_snapshot(&mut self) {
         if let Ok(snapshot) = get_session_list() {
             if let Some(current) = snapshot.live_sessions.into_iter().find(|s| s.is_current_session) {
                 let name_changed = self.session_name.as_deref() != Some(&current.name);
-                self.session_name = Some(current.name);
+                self.session_name = Some(current.name.clone());
+                let connected_clients = Some(current.connected_clients);
+                let clients_changed = self.connected_clients != connected_clients;
+                self.connected_clients = connected_clients;
+                let active_pane = Self::active_pane_name(&current.tabs, &current.panes);
+                let pane_changed = self.active_pane != active_pane;
 
                 let new_tabs: Vec<TabSnapshot> = current
                     .tabs
@@ -299,8 +351,9 @@ impl State {
                     })
                     .collect();
 
-                if name_changed || self.tabs != new_tabs {
+                if name_changed || self.tabs != new_tabs || clients_changed || pane_changed {
                     self.tabs = new_tabs;
+                    self.active_pane = active_pane;
                     self.export_state();
                 }
             }
@@ -328,6 +381,8 @@ impl State {
             name: session_name.clone(),
             is_current: true,
             tabs: self.tabs.clone(),
+            active_pane: self.active_pane.clone(),
+            connected_clients: self.connected_clients,
         };
 
         let json = match serde_json::to_string_pretty(&snapshot) {

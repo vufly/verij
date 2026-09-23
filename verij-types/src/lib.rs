@@ -21,8 +21,6 @@ pub const VERIJ_STATES_DIR: &str = "/tmp/verij/states";
 /// Prefix for Verij host wrapper sessions. Sessions with this prefix must be
 /// filtered out of workspace management and navigation.
 pub const HOST_SESSION_PREFIX: &str = "_vj_";
-
-
 /// A compact, serializable snapshot of a single Zellij session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionSnapshot {
@@ -32,6 +30,10 @@ pub struct SessionSnapshot {
     pub is_current: bool,
     /// Ordered list of tabs in this session.
     pub tabs: Vec<TabSnapshot>,
+    /// Title of the focused pane in the active tab, if available.
+    /// `None` if the exporting plugin predates this field or no pane is focused.
+    #[serde(default)]
+    pub active_pane: Option<String>,
     /// Number of clients currently attached to this session.
     /// `None` if the exporting plugin predates this field.
     /// `Some(0)` means all clients have detached.
@@ -43,6 +45,11 @@ impl SessionSnapshot {
     /// Returns the currently active tab in this session, if any.
     pub fn active_tab(&self) -> Option<&TabSnapshot> {
         self.tabs.iter().find(|t| t.is_active)
+    }
+
+    /// Returns the title of the focused pane in the active tab, if available.
+    pub fn active_pane(&self) -> Option<&str> {
+        self.active_pane.as_deref()
     }
 }
 
@@ -78,6 +85,8 @@ mod tests {
                     is_active: false,
                 },
             ],
+            active_pane: None,
+            connected_clients: None,
         }];
 
         let json = serde_json::to_string(&snapshot).expect("serialize");

@@ -22,6 +22,7 @@ pub fn create_inner_session(
     old_active_session: Option<&str>,
     new_session_name: &str,
     plugin_path: Option<&Path>,
+    workspace_pane_name: &str,
 ) -> Result<()> {
     // 1. Create the session with a fake PTY via `script` so zellij has a valid viewport.
     //
@@ -110,8 +111,13 @@ pub fn create_inner_session(
         }
     }
 
-    // 3. Switch right pane to this new session (also renames the Workspace tab)
-    switch_session(old_active_session, new_session_name, None, Some(new_session_name))?;
+    // 3. Switch right pane to this new session and rename the Workspace pane
+    switch_session(
+        old_active_session,
+        new_session_name,
+        None,
+        Some(workspace_pane_name),
+    )?;
 
     Ok(())
 }
@@ -123,13 +129,13 @@ pub fn create_inner_session(
 /// If no session was previously active (e.g. initial launch in empty pane),
 /// falls back to attaching directly via `zellij action write-chars`.
 ///
-/// `workspace_tab_name`: if `Some(name)`, renames the host session's Workspace tab
-/// to `name` after switching. Pass `None` to skip renaming (e.g. tab-only switches).
+/// `workspace_pane_name`: if `Some(name)`, renames the host session's Workspace pane
+/// to `name` after switching. Pass `None` to skip renaming.
 pub fn switch_session(
     old_active_session: Option<&str>,
     target_session: &str,
     tab_position: Option<usize>,
-    workspace_tab_name: Option<&str>,
+    workspace_pane_name: Option<&str>,
 ) -> Result<()> {
     match old_active_session {
         Some(old) if old == target_session => {
@@ -179,32 +185,31 @@ pub fn switch_session(
         }
     }
 
-    // Rename the host session's Workspace tab to reflect the active inner session
-    if let Some(name) = workspace_tab_name {
-        rename_workspace_tab(name)?;
-    }
-
     // Ensure inner session ready before refocusing
     std::thread::sleep(std::time::Duration::from_millis(200));
     // Always re-focus the right pane so keyboard input goes to the attached workspace
     re_focus_right_pane()?;
 
+    // Rename the right-side Workspace pane, not the host session tab.
+    if let Some(name) = workspace_pane_name {
+        rename_workspace_pane(name)?;
+    }
+
     Ok(())
 }
 
-/// Renames the currently focused tab in the host session.
+/// Renames the currently focused pane in the host session.
 ///
-/// Since `verij ui` runs inside the host session, `zellij action rename-tab` always
-/// targets the host session's tab — independent of which pane currently has focus.
-pub fn rename_workspace_tab(name: &str) -> Result<()> {
+/// The caller must focus the Workspace pane before invoking this action.
+pub fn rename_workspace_pane(name: &str) -> Result<()> {
     let status = Command::new("zellij")
-        .args(["action", "rename-tab", name])
+        .args(["action", "rename-pane", name])
         .status()
-        .context("Failed to rename workspace tab")?;
+        .context("Failed to rename workspace pane")?;
 
     if !status.success() {
         eprintln!(
-            "[verij-cli] Warning: rename-tab '{}' exited with status: {}",
+            "[verij-cli] Warning: rename-pane '{}' exited with status: {}",
             name, status
         );
     }

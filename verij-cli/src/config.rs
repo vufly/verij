@@ -109,12 +109,15 @@ pub struct WorkspaceConfig {
     pub prefix: String,
     /// Sidebar pane width passed to the KDL layout (default: `25%`).
     pub sidebar_width: String,
-    /// Format string for the Workspace tab name when a session is active.
-    /// `{session}` is replaced with the inner session name.
-    /// Example: `"󱀂 {session}"` or `"[{session}]"` (default: `"{session}"`).
-    pub tab_format: String,
-    /// Workspace tab name when no inner session is attached yet (default: `"Workspace"`).
-    pub tab_default: String,
+    /// Format string for the Workspace pane name when a session is active.
+    /// `{session}`, `{tab}`/`{active_tab}`, and `{pane}`/`{active_pane}` are
+    /// replaced with inner active names. Use `{if variable}...{else}...{endif}`
+    /// for optional sections.
+    #[serde(alias = "tab_format")]
+    pub pane_format: String,
+    /// Workspace pane name when no inner session is attached yet (default: `"Workspace"`).
+    #[serde(alias = "tab_default")]
+    pub pane_default: String,
 }
 
 impl Default for WorkspaceConfig {
@@ -123,17 +126,74 @@ impl Default for WorkspaceConfig {
             default_mode: WorkspaceMode::Descend,
             prefix: verij_types::HOST_SESSION_PREFIX.to_string(),
             sidebar_width: "25%".to_string(),
-            tab_format: "{session}".to_string(),
-            tab_default: "Workspace".to_string(),
+            pane_format: "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}"
+                .to_string(),
+            pane_default: "Workspace".to_string(),
         }
     }
 }
 
 impl WorkspaceConfig {
-    /// Render the tab name for a given inner session name using `tab_format`.
-    pub fn format_tab_name(&self, session: &str) -> String {
-        self.tab_format.replace("{session}", session)
+    /// Render the Workspace pane name using inner session, tab, and pane names.
+    pub fn format_pane_name(
+        &self,
+        session: &str,
+        tab: Option<&str>,
+        pane: Option<&str>,
+    ) -> String {
+        let values = [
+            ("session", Some(session)),
+            ("tab", tab),
+            ("active_tab", tab),
+            ("pane", pane),
+            ("active_pane", pane),
+        ];
+        let rendered = render_conditionals(&self.pane_format, &values);
+
+        rendered
+            .replace("{session}", session)
+            .replace("{tab}", tab.unwrap_or(""))
+            .replace("{active_tab}", tab.unwrap_or(""))
+            .replace("{pane}", pane.unwrap_or(""))
+            .replace("{active_pane}", pane.unwrap_or(""))
     }
+}
+
+fn render_conditionals(template: &str, values: &[(&str, Option<&str>)]) -> String {
+    let mut output = String::new();
+    let mut remaining = template;
+
+    while let Some(start) = remaining.find("{if ") {
+        output.push_str(&remaining[..start]);
+        let condition_start = start + "{if ".len();
+        let Some(condition_end) = remaining[condition_start..].find('}') else {
+            output.push_str(&remaining[start..]);
+            return output;
+        };
+        let condition_end = condition_start + condition_end;
+        let condition = remaining[condition_start..condition_end].trim();
+        let body_start = condition_end + 1;
+        let Some(end_offset) = remaining[body_start..].find("{endif}") else {
+            output.push_str(&remaining[start..]);
+            return output;
+        };
+        let body_end = body_start + end_offset;
+        let body = &remaining[body_start..body_end];
+        let (when_true, when_false) = body.split_once("{else}").unwrap_or((body, ""));
+        let value = values
+            .iter()
+            .find(|(name, _)| *name == condition)
+            .and_then(|(_, value)| *value);
+        output.push_str(if value.is_some_and(|value| !value.is_empty()) {
+            when_true
+        } else {
+            when_false
+        });
+        remaining = &remaining[body_end + "{endif}".len()..];
+    }
+
+    output.push_str(remaining);
+    output
 }
 
 // ---------------------------------------------------------------------------
@@ -234,13 +294,14 @@ prefix = "_vj_"
 # Sidebar pane width as a percentage or fixed cell count, e.g. "25%" or "30".
 sidebar_width = "25%"
 
-# Workspace tab name format when an inner session is active.
-# {session} is replaced with the session name.
-# Examples: "{session}", "󱀂 {session}", "[{session}]"
-tab_format = "{session}"
+# Workspace pane name format when an inner session is active.
+# {session}, {tab}/{active_tab}, and {pane}/{active_pane} are replaced with inner active names.
+# Use {if variable}...{else}...{endif} for optional sections.
+# Example: "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}"
+pane_format = "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}"
 
-# Workspace tab name when no inner session is attached yet.
-tab_default = "Workspace"
+# Workspace pane name when no inner session is attached yet.
+pane_default = "Workspace"
 
 [colors]
 # ANSI 256-color indices for every UI element.
@@ -289,6 +350,38 @@ sidebar_width = "30%"
         assert_eq!(cfg.workspace.sidebar_width, "30%");
         // defaults preserved for unset keys
         assert_eq!(cfg.colors.active_bg, 1);
+    }
+
+    #[test]
+    fn test_pane_format_variables() {
+        let config = WorkspaceConfig {
+            pane_format: "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}".to_string(),
+            ..WorkspaceConfig::default()
+        };
+
+        assert_eq!(
+            config.format_pane_name("backend", Some("editor"), Some("shell")),
+            "backend | editor | shell"
+        );
+        assert_eq!(config.format_pane_name("backend", None, None), "backend");
+        assert_eq!(
+            config.format_pane_name("backend", Some("editor"), None),
+            "backend | editor"
+        );
+        assert_eq!(
+            config.format_pane_name("backend", None, Some("shell")),
+            "backend | shell"
+        );
+
+        let fallback = WorkspaceConfig {
+            pane_format: "{if pane}{pane}{else}no pane{endif}".to_string(),
+            ..WorkspaceConfig::default()
+        };
+        assert_eq!(
+            fallback.format_pane_name("backend", None, Some("shell")),
+            "shell"
+        );
+        assert_eq!(fallback.format_pane_name("backend", None, None), "no pane");
     }
 
     #[test]
