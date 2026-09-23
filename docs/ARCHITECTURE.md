@@ -195,6 +195,20 @@ Verij uses this in two stages:
 
 Zellij resurrection restores runtime layout state. It does not replace Verij's host-to-inner attachment record, and it does not provide a global workspace model.
 
+To preserve pane viewport and scrollback, Zellij must be configured with:
+
+```kdl
+session_serialization true
+serialize_pane_viewport true
+scrollback_lines_to_serialize 0
+```
+
+These serialization options require restarting the Zellij server. Existing resurrection snapshots cannot regain scrollback that was never serialized.
+
+Verij removes stale serialized `start_suspended true` flags before automatic resurrection because Zellij 0.45.1 can retain them even when `--force-run-commands` is used. Verij also waits for a visible layout plugin before detaching its temporary resurrection client, preventing the first resurrected session from losing `zjstatus`.
+
+Host resurrection rewrites the serialized Workspace-pane `zellij attach` command to the durable last-session target. This prevents an older command captured before an in-place session switch from resurrecting a different inner session first.
+
 ## Pane Naming
 
 `WorkspaceConfig::format_pane_name` supports:

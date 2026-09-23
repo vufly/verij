@@ -132,6 +132,20 @@ Workspace attachment state is host-local. Verij persists the last inner session 
 
 When a host or remembered inner session is listed by Zellij as `EXITED`, `verij attach` uses Zellij session resurrection with `--force-run-commands`. Live sessions use the normal attach path. Multiple hosts keep independent remembered inner sessions while sharing the sidebar's global session tree.
 
+To preserve pane viewport and scrollback across resurrection, enable these Zellij options:
+
+```kdl
+session_serialization true
+serialize_pane_viewport true
+scrollback_lines_to_serialize 0
+```
+
+These serialization options require restarting the Zellij server. Existing resurrection snapshots cannot regain scrollback that was never serialized.
+
+Zellij 0.45.1 can retain `start_suspended` in serialized layouts despite `--force-run-commands`; Verij removes that stale flag before automatic resurrection.
+
+Host resurrection also replaces stale serialized Workspace-pane attach commands with the host's durable last-session target.
+
 New inner sessions receive a fake-PTY attach while their initial layout is created. Verij waits for a visible layout plugin pane when the default layout is available, then detaches the fake client before attaching the Workspace pane.
 
 ## Documentation

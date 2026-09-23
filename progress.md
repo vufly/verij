@@ -40,6 +40,8 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 - Durable host metadata records the last inner session attached to each host.
 - Live and exited Zellij hosts and inner sessions are distinguished during attach.
 - Exited hosts and inner sessions can be resumed through Zellij session resurrection.
+- Resurrection sanitizes stale suspended-command flags and waits for visible layout plugins before detaching.
+- Host resurrection rewrites stale serialized Workspace-pane attach commands to the durable target.
 
 ### Inner Session Initialization
 
@@ -69,6 +71,7 @@ make dev
 - The Workspace marker represents Verij-controlled attachment; arbitrary external manipulation of the right pane is outside the supported flow.
 - State files and host markers are runtime data under `/tmp/verij/`, not durable attachment metadata.
 - Durable attachment metadata is stored under the XDG config directory in `hosts.toml`.
+- Zellij `serialize_pane_viewport` and scrollback serialization must be enabled to preserve terminal history.
 
 ## Roadmap
 

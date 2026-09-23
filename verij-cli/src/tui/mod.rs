@@ -213,11 +213,18 @@ fn restore_last_workspace_session(state: &mut AppState) {
         return;
     };
 
-    if let Ok(Some(title)) = actions::workspace_pane_title() {
-        if title_matches_session(&title, &last_session) {
-            let _ = actions::set_workspace_session(&last_session);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    while std::time::Instant::now() < deadline {
+        if actions::workspace_session().as_deref() == Some(last_session.as_str()) {
             return;
         }
+        if let Ok(Some(title)) = actions::workspace_pane_title() {
+            if title_matches_session(&title, &last_session) {
+                let _ = actions::set_workspace_session(&last_session);
+                return;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
     let status = crate::session::session_status(&last_session);

@@ -404,6 +404,9 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
         crate::session::session_status(target_session),
         Ok(crate::session::SessionStatus::Exited)
     );
+    if resurrection_flag {
+        let _ = crate::session::prepare_resurrection_layout(target_session);
+    }
     let attach_options = if resurrection_flag {
         "--force-run-commands "
     } else {

@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -128,6 +128,9 @@ pub fn start_host_session(session_name: &str, layout_path: &Path, no_attach: boo
 /// Attaches to an existing host session.
 pub fn attach_session(session_name: &str) -> Result<()> {
     if matches!(session_status(session_name)?, SessionStatus::Exited) {
+        let last_session = crate::config::last_host_session(session_name);
+        prepare_resurrection_layout(session_name)?;
+        prepare_host_workspace_layout(session_name, last_session.as_deref())?;
         exec_zellij(["attach", "--force-run-commands", session_name])
     } else {
         exec_zellij(["attach", session_name])
@@ -140,6 +143,8 @@ pub fn resurrect_session(session_name: &str) -> Result<()> {
     if !matches!(session_status(session_name)?, SessionStatus::Exited) {
         return Ok(());
     }
+
+    prepare_resurrection_layout(session_name)?;
 
     let command = format!(
         "zellij attach --force-run-commands {}",
@@ -158,7 +163,9 @@ pub fn resurrect_session(session_name: &str) -> Result<()> {
 
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
-        if matches!(session_status(session_name)?, SessionStatus::Live) {
+        if matches!(session_status(session_name)?, SessionStatus::Live)
+            && session_has_visible_plugin(session_name)
+        {
             break;
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -194,6 +201,116 @@ pub fn restore_last_inner_session(host_session: &str) -> Result<()> {
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "'\\''"))
+}
+
+/// Removes Zellij's serialized `start_suspended` state before resurrection.
+/// Zellij 0.45.1 can retain this flag even with `--force-run-commands`.
+pub fn prepare_resurrection_layout(session_name: &str) -> Result<()> {
+    let Some(path) = resurrection_layout_path(session_name) else {
+        return Ok(());
+    };
+    let content = std::fs::read_to_string(&path)?;
+    let updated = content.replace("start_suspended true", "start_suspended false");
+    if updated == content {
+        return Ok(());
+    }
+
+    let temporary = path.with_extension(format!("kdl.tmp-{}", std::process::id()));
+    std::fs::write(&temporary, updated)?;
+    std::fs::rename(&temporary, path)?;
+    Ok(())
+}
+
+/// Rewrites a resurrected host's stale nested attach command to its durable target.
+pub fn prepare_host_workspace_layout(host_session: &str, target_session: Option<&str>) -> Result<()> {
+    let Some(target_session) = target_session else {
+        return Ok(());
+    };
+    let Some(path) = resurrection_layout_path(host_session) else {
+        return Ok(());
+    };
+    let content = std::fs::read_to_string(&path)?;
+    let updated = rewrite_host_workspace_attach(&content, target_session);
+    if updated == content {
+        return Ok(());
+    }
+
+    let temporary = path.with_extension(format!("kdl.tmp-{}", std::process::id()));
+    std::fs::write(&temporary, updated)?;
+    std::fs::rename(&temporary, path)?;
+    Ok(())
+}
+
+fn resurrection_layout_path(session_name: &str) -> Option<PathBuf> {
+    let cache_home = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?;
+    let path = cache_home
+        .join("zellij/contract_version_1/session_info")
+        .join(session_name)
+        .join("session-layout.kdl");
+    path.exists().then_some(path)
+}
+
+fn session_has_visible_plugin(session_name: &str) -> bool {
+    let Ok(output) = Command::new("zellij")
+        .args(["--session", session_name, "action", "list-panes", "--all", "--json"])
+        .output()
+    else {
+        return false;
+    };
+
+    if !output.status.success() {
+        return false;
+    }
+
+    let Ok(panes) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout) else {
+        return false;
+    };
+
+    panes.iter().any(|pane| {
+        pane.get("is_plugin").and_then(|value| value.as_bool()) == Some(true)
+            && pane.get("is_suppressed").and_then(|value| value.as_bool()) != Some(true)
+    })
+}
+
+fn rewrite_host_workspace_attach(layout: &str, target_session: &str) -> String {
+    let target = kdl_quote(target_session);
+    let mut in_workspace_pane = false;
+    let mut rewritten = Vec::new();
+
+    for line in layout.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("pane command=\"zellij\"") {
+            in_workspace_pane = true;
+        }
+
+        if in_workspace_pane && trimmed.starts_with("args \"attach\"") {
+            let indent = &line[..line.len() - trimmed.len()];
+            rewritten.push(format!(
+                "{indent}args \"attach\" \"--force-run-commands\" {target}"
+            ));
+            continue;
+        }
+
+        rewritten.push(line.to_string());
+        if in_workspace_pane && trimmed == "}" {
+            in_workspace_pane = false;
+        }
+    }
+
+    let mut result = rewritten.join("\n");
+    if layout.ends_with('\n') {
+        result.push('\n');
+    }
+    result
+}
+
+fn kdl_quote(value: &str) -> String {
+    format!(
+        "\"{}\"",
+        value.replace('\\', "\\\\").replace('"', "\\\"")
+    )
 }
 
 fn parse_session_status(output: &str, name: &str) -> SessionStatus {
@@ -238,6 +355,25 @@ mod tests {
         assert_eq!(
             parse_session_status(output, "backend"),
             SessionStatus::Missing
+        );
+    }
+
+    #[test]
+    fn removes_serialized_suspended_state() {
+        let layout = "pane command=\"watch\" start_suspended true\n";
+        assert_eq!(
+            layout.replace("start_suspended true", "start_suspended false"),
+            "pane command=\"watch\" start_suspended false\n"
+        );
+    }
+
+    #[test]
+    fn rewrites_stale_host_workspace_attach() {
+        let layout = "layout {\n    pane command=\"zellij\" {\n        args \"attach\" \"old\"\n    }\n}\n";
+
+        assert_eq!(
+            super::rewrite_host_workspace_attach(layout, "new"),
+            "layout {\n    pane command=\"zellij\" {\n        args \"attach\" \"--force-run-commands\" \"new\"\n    }\n}\n"
         );
     }
 }
