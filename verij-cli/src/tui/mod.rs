@@ -20,7 +20,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{backend::{Backend, CrosstermBackend}, Terminal};
 use std::io;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -49,7 +49,9 @@ pub async fn run(config: Config) -> Result<()> {
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("Failed to create terminal")?;
-    terminal.clear()?;
+    // `Terminal::clear()` queries terminal cursor position, which can time out
+    // inside Zellij during a resize. Clearing backend directly needs no query.
+    terminal.backend_mut().clear()?;
 
     let result = event_loop(&mut terminal, config).await;
 
@@ -107,7 +109,9 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, confi
                     needs_render = true;
                 }
                 CEvent::Resize(_cols, _rows) => {
-                    terminal.clear()?;
+                    // `draw` autoresizes and clears its fullscreen viewport. Calling
+                    // Terminal::clear() here queries cursor position and can time out
+                    // while Zellij is still processing a drag-resize.
                     needs_render = true;
                 }
                 _ => {}

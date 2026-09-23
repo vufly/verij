@@ -20,6 +20,7 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 - Host filtering by cached registration, independent of session-name prefix.
 - Sidebar `R` renames the current host while retaining Workspace attachment identity.
 - Keyboard navigation, paging, folding, mouse selection, double-click actions, help view, and resize handling.
+- Resize redraw avoids cursor-position queries, keeping sidebar alive when Zellij temporarily delays terminal replies.
 - Active session and active tab styling.
 - New inner session creation from the sidebar.
 
