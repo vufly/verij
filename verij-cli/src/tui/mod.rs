@@ -84,6 +84,8 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, confi
         }
     }
 
+    restore_last_workspace_session(&mut state);
+
     // Initial render
     terminal.draw(|frame| render::render(frame, &mut state))?;
 
@@ -196,6 +198,55 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, confi
     }
 
     Ok(())
+}
+
+/// Reconnects the host Workspace pane to its durable last inner session.
+fn restore_last_workspace_session(state: &mut AppState) {
+    if actions::workspace_session().is_some() {
+        return;
+    }
+
+    let Ok(host_session) = std::env::var("ZELLIJ_SESSION_NAME") else {
+        return;
+    };
+    let Some(last_session) = crate::config::last_host_session(&host_session) else {
+        return;
+    };
+
+    if let Ok(Some(title)) = actions::workspace_pane_title() {
+        if title_matches_session(&title, &last_session) {
+            let _ = actions::set_workspace_session(&last_session);
+            return;
+        }
+    }
+
+    let status = crate::session::session_status(&last_session);
+    if !matches!(
+        status,
+        Ok(crate::session::SessionStatus::Live | crate::session::SessionStatus::Exited)
+    ) {
+        return;
+    }
+
+    let pane_name = state
+        .config
+        .workspace
+        .format_pane_name(&last_session, None, None);
+    if let Err(error) = actions::switch_session(
+        None,
+        &last_session,
+        None,
+        Some(&pane_name),
+    ) {
+        state.error = Some(format!("Failed to restore '{last_session}': {error}"));
+    }
+}
+
+fn title_matches_session(title: &str, session: &str) -> bool {
+    title == session
+        || title
+            .split(" | ")
+            .any(|part| part.trim() == session)
 }
 
 // ---------------------------------------------------------------------------

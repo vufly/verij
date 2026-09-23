@@ -1,8 +1,8 @@
 # Verij
 
-Verij adds a workspace layer above Zellij. A persistent Ratatui sidebar lists inner Zellij sessions and tabs; one host-session Workspace pane displays the selected inner session.
+Verij adds a host-session layer above Zellij. A persistent Ratatui sidebar lists inner Zellij sessions and tabs; each host-session Workspace pane displays its selected inner session.
 
-Project is functional but experimental. Core navigation, distributed state sync, pane naming, and nested-session attachment are implemented. Workspace persistence is not implemented yet.
+Project is functional but experimental. Core navigation, distributed state sync, pane naming, nested-session attachment, and per-host attachment persistence are implemented.
 
 ## Topology
 
@@ -83,7 +83,7 @@ Host sessions receive the configured workspace prefix. Default prefix is `_vj_`;
 
 ## Configuration
 
-Config path is `~/.config/verij/config.toml`, or `$XDG_CONFIG_HOME/verij/config.toml` when `XDG_CONFIG_HOME` is set.
+Config path is `~/.config/verij/config.toml`, or `$XDG_CONFIG_HOME/verij/config.toml` when `XDG_CONFIG_HOME` is set. Per-host attachment state is stored in the sibling `hosts.toml` file.
 
 ```toml
 [workspace]
@@ -128,7 +128,9 @@ Each inner session runs a headless `verij-plugin.wasm`. It exports atomic JSON s
 
 Session changes use the Inception Switch: the sidebar sends `switch:<target>` to the currently attached inner agent, which calls Zellij's native `switch_session` API from inside the inner session. Tab changes use Zellij's session-targeted `go-to-tab` action.
 
-Workspace attachment state is host-local. The attach shell sets `VERIJ_WORKSPACE_SESSION`; a marker file lets the TUI recover after restart. Detaching clears both markers. This avoids using global inner-session client counts, which cannot identify the host Workspace client and can cause nested Zellij attaches.
+Workspace attachment state is host-local. Verij persists the last inner session for each host in `hosts.toml`. The attach shell also sets `VERIJ_WORKSPACE_SESSION`; a marker file lets the TUI recover after restart. Detaching clears runtime markers while preserving the durable last-session record for future restoration. This avoids using global inner-session client counts, which cannot identify the host Workspace client and can cause nested Zellij attaches.
+
+When a host or remembered inner session is listed by Zellij as `EXITED`, `verij attach` uses Zellij session resurrection with `--force-run-commands`. Live sessions use the normal attach path. Multiple hosts keep independent remembered inner sessions while sharing the sidebar's global session tree.
 
 New inner sessions receive a fake-PTY attach while their initial layout is created. Verij waits for a visible layout plugin pane when the default layout is available, then detaches the fake client before attaching the Workspace pane.
 

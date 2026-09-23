@@ -25,7 +25,8 @@
 /// current_mark = 2   # Green
 /// ```
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
@@ -207,6 +208,18 @@ pub struct Config {
     pub colors: ColorConfig,
 }
 
+/// Durable attachment state keyed by canonical host-session name.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct HostsConfig {
+    pub hosts: BTreeMap<String, HostAttachment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HostAttachment {
+    pub last_session: String,
+}
+
 impl Config {
     /// Load configuration from `~/.config/verij/config.toml` (XDG-aware).
     ///
@@ -256,6 +269,75 @@ pub fn config_path() -> Option<PathBuf> {
         PathBuf::from(home).join(".config")
     };
     Some(base.join("verij").join("config.toml"))
+}
+
+/// Resolves durable per-host attachment state beside the regular config file.
+pub fn hosts_path() -> Option<PathBuf> {
+    config_path().map(|path| path.with_file_name("hosts.toml"))
+}
+
+/// Loads durable host attachment state. Missing or invalid files fall back to empty state.
+pub fn load_hosts() -> HostsConfig {
+    let Some(path) = hosts_path() else {
+        return HostsConfig::default();
+    };
+
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return HostsConfig::default();
+    };
+
+    match toml::from_str::<HostsConfig>(&text) {
+        Ok(hosts) => hosts,
+        Err(error) => {
+            eprintln!(
+                "[verij] Warning: failed to parse host state at {}: {error}",
+                path.display()
+            );
+            HostsConfig::default()
+        }
+    }
+}
+
+/// Returns the last inner session attached to a host, if one was recorded.
+pub fn last_host_session(host: &str) -> Option<String> {
+    load_hosts()
+        .hosts
+        .get(host)
+        .map(|attachment| attachment.last_session.clone())
+}
+
+/// Records the last inner session attached to a host using an atomic file replace.
+pub fn set_last_host_session(host: &str, session: &str) -> anyhow::Result<()> {
+    let Some(path) = hosts_path() else {
+        anyhow::bail!("Cannot determine host state path (HOME not set?)");
+    };
+
+    let mut hosts = load_hosts();
+    hosts.hosts.insert(
+        host.to_string(),
+        HostAttachment {
+            last_session: session.to_string(),
+        },
+    );
+    write_hosts(&path, &hosts)
+}
+
+fn write_hosts(path: &std::path::Path, hosts: &HostsConfig) -> anyhow::Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Host state path has no parent"))?;
+    std::fs::create_dir_all(parent)?;
+
+    let content = toml::to_string_pretty(hosts)?;
+    let temporary = path.with_extension(format!("toml.tmp-{}", std::process::id()));
+    std::fs::write(&temporary, content)?;
+    std::fs::rename(&temporary, path).map_err(|error| {
+        anyhow::anyhow!(
+            "Failed to replace host state {} with {}: {error}",
+            path.display(),
+            temporary.display()
+        )
+    })
 }
 
 /// Write a starter config file to `~/.config/verij/config.toml` if it does
@@ -408,5 +490,28 @@ current_mark = 10
         assert!(matches!(cfg.workspace.default_mode, WorkspaceMode::Fullscreen));
         assert_eq!(cfg.colors.title, 5);
         assert_eq!(cfg.colors.active_bg, 9);
+    }
+
+    #[test]
+    fn test_hosts_toml_is_keyed_by_host() {
+        let hosts: HostsConfig = toml::from_str(
+            r#"
+[hosts."_vj_project"]
+last_session = "backend"
+
+[hosts."_vj_personal"]
+last_session = "shell"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            hosts.hosts.get("_vj_project").unwrap().last_session,
+            "backend"
+        );
+        assert_eq!(
+            hosts.hosts.get("_vj_personal").unwrap().last_session,
+            "shell"
+        );
     }
 }

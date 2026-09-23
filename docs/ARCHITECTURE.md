@@ -1,16 +1,17 @@
 # Verij Architecture
 
-This document describes the current Verij implementation: a Zellij host session, a Ratatui sidebar, distributed WASM agents in inner sessions, filesystem state synchronization, and native in-place session switching.
+This document describes the current Verij implementation: Zellij host sessions, a Ratatui sidebar, distributed WASM agents in inner sessions, filesystem state synchronization, native in-place session switching, and durable host-local attachment recovery.
 
 ## Design
 
-Verij separates orchestration from workspace state:
+Verij separates host orchestration from inner-session state:
 
-- The host session owns navigation and one Workspace pane.
+- Each host session owns navigation and one Workspace pane.
 - Each inner Zellij session owns its own tabs and panes.
 - A WASM agent runs inside every inner session and exports only that session's state.
 - The sidebar aggregates state files instead of polling all Zellij sessions through one plugin.
 - Session switching is executed by the agent inside the currently attached session.
+- The last inner session attached to each host is persisted independently.
 
 This avoids the former global-polling, cross-session pipe, process-killing, and PTY-manipulation design.
 
@@ -102,7 +103,16 @@ Host sessions are filtered using the configured prefix, not a hard-coded histori
 
 ## Workspace Attachment
 
-The TUI tracks the session attached to the host Workspace pane separately from inner-session metadata.
+The TUI tracks the session attached to each host Workspace pane separately from inner-session metadata. The durable record is keyed by canonical host session name, so multiple hosts can remember different inner sessions while sharing the global sidebar.
+
+Durable records live at `$XDG_CONFIG_HOME/verij/hosts.toml`, or `~/.config/verij/hosts.toml` when `XDG_CONFIG_HOME` is unset:
+
+```toml
+[hosts."_vj_project"]
+last_session = "backend"
+```
+
+The record stores attachment intent. `/tmp/verij/states/` and `/tmp/verij/workspace-<host>.session` remain runtime state and are reconciled against the durable record and current pane title.
 
 ### Attach
 
@@ -126,6 +136,8 @@ On state updates, the TUI:
 - Falls back to the current Workspace pane title for hosts created before markers existed.
 - Clears active state and restores the configured default pane name when the marker disappears.
 - Never issues another `zellij attach` for a session already tracked as attached.
+- Persists the selected inner session for the current host after a successful switch.
+- Preserves durable attachment intent when the runtime Workspace marker disappears.
 
 This distinction matters because an inner session may have other clients. A global client count cannot tell whether the host Workspace pane is the client currently attached.
 
@@ -172,6 +184,17 @@ Creating a session from the TUI uses a fake PTY because Zellij 0.45 can discard 
 
 The readiness poll replaces a blind delay so the first tab's layout plugin panes are not lost to startup timing.
 
+## Session Resurrection
+
+Zellij serializes sessions by default. `zellij list-sessions` marks exited sessions with `EXITED`; attaching with `--force-run-commands` restores their serialized layout and commands without waiting for the command banner.
+
+Verij uses this in two stages:
+
+1. An exited host is resurrected before its sidebar is attached.
+2. The host's durable last-session record is loaded. A live inner session is attached normally; an exited inner session is resurrected with `--force-run-commands` before attachment.
+
+Zellij resurrection restores runtime layout state. It does not replace Verij's host-to-inner attachment record, and it does not provide a global workspace model.
+
 ## Pane Naming
 
 `WorkspaceConfig::format_pane_name` supports:
@@ -215,4 +238,5 @@ verij/
 - Workspace attachment tracking assumes Verij controls the host Workspace pane.
 - Custom Zellij layouts can change pane geometry and may not provide a pane immediately to the right of the sidebar.
 - Older plugins may omit optional snapshot fields until rebuilt.
-- Workspace persistence, named workspace configuration, and automatic resurrection are not implemented.
+- Zellij resurrection depends on session serialization being enabled in the user's Zellij configuration.
+- Missing or externally deleted remembered inner sessions require user selection from the sidebar.

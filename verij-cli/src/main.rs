@@ -116,19 +116,23 @@ fn handle_start(args: StartArgs) -> Result<()> {
     let cfg = config::Config::load();
     let host_name = ensure_host_session_name(&args.session_name, cfg.prefix());
 
-    if session::is_session_running(&host_name)? {
-        if args.no_attach {
-            bail!(
-                "Session '{}' is already running. Specify a different name with --session-name or attach with 'verij attach'.",
-                host_name
-            );
-        } else {
+    match session::session_status(&host_name)? {
+        session::SessionStatus::Live | session::SessionStatus::Exited => {
+            if args.no_attach {
+                bail!(
+                    "Session '{}' already exists. Specify a different name with --session-name or attach with 'verij attach'.",
+                    host_name
+                );
+            }
+
             eprintln!(
-                "Session '{}' is already running. Attaching to it...",
+                "Session '{}' already exists. Attaching to it...",
                 host_name
             );
+            session::restore_last_inner_session(&host_name)?;
             return session::attach_session(&host_name);
         }
+        session::SessionStatus::Missing => {}
     }
 
     let layout_path = if let Some(custom) = args.layout {
@@ -150,15 +154,20 @@ fn handle_start(args: StartArgs) -> Result<()> {
         layout::write_layout_file(&layout_config)?
     };
 
+    session::restore_last_inner_session(&host_name)?;
     session::start_host_session(&host_name, &layout_path, args.no_attach)
 }
 
 fn handle_attach(args: AttachArgs) -> Result<()> {
     let cfg = config::Config::load();
     let host_name = ensure_host_session_name(&args.session_name, cfg.prefix());
-    let running = session::is_session_running(&host_name)?;
+    let status = session::session_status(&host_name)?;
 
-    if running {
+    if matches!(
+        status,
+        session::SessionStatus::Live | session::SessionStatus::Exited
+    ) {
+        session::restore_last_inner_session(&host_name)?;
         session::attach_session(&host_name)
     } else if args.create {
         handle_start(StartArgs {

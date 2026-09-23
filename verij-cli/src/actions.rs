@@ -237,6 +237,9 @@ pub fn set_workspace_session(session: &str) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(path, session)?;
+    if let Ok(host) = std::env::var("ZELLIJ_SESSION_NAME") {
+        crate::config::set_last_host_session(&host, session)?;
+    }
     Ok(())
 }
 
@@ -397,8 +400,17 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
     let marker_cleanup = workspace_marker_path()
         .map(|path| format!("; rm -f {}", shell_quote(&path.to_string_lossy())))
         .unwrap_or_default();
+    let resurrection_flag = matches!(
+        crate::session::session_status(target_session),
+        Ok(crate::session::SessionStatus::Exited)
+    );
+    let attach_options = if resurrection_flag {
+        "--force-run-commands "
+    } else {
+        ""
+    };
     let attach_cmd = format!(
-        "export {WORKSPACE_SESSION_ENV}={}; stty sane; zellij attach {}; unset {WORKSPACE_SESSION_ENV}{marker_cleanup}\n",
+        "export {WORKSPACE_SESSION_ENV}={}; stty sane; zellij attach {attach_options}{}; unset {WORKSPACE_SESSION_ENV}{marker_cleanup}\n",
         shell_quote(target_session),
         shell_quote(target_session),
     );

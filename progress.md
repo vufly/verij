@@ -1,6 +1,6 @@
 # Verij Progress
 
-Verij currently provides a working nested-workspace prototype for Zellij. The host session, sidebar, distributed state agents, Workspace attachment lifecycle, and session switching are implemented and tested.
+Verij currently provides a working nested-session host for Zellij. Each host session has a persistent sidebar and Workspace pane; the Workspace pane remembers its last inner-session attachment independently from other hosts.
 
 ## Implemented
 
@@ -37,6 +37,9 @@ Verij currently provides a working nested-workspace prototype for Zellij. The ho
 - Conditional pane formats omit empty tab/pane separators.
 - Workspace attachment uses `VERIJ_WORKSPACE_SESSION` plus a host marker file.
 - Detach cleanup, restart recovery, and legacy pane-title recovery avoid nested duplicate attaches.
+- Durable host metadata records the last inner session attached to each host.
+- Live and exited Zellij hosts and inner sessions are distinguished during attach.
+- Exited hosts and inner sessions can be resumed through Zellij session resurrection.
 
 ### Inner Session Initialization
 
@@ -53,7 +56,7 @@ cargo check --workspace
 cargo test --workspace
 ```
 
-The repository currently passes both checks. Release artifacts are built with:
+The repository currently passes both checks. Focused tests cover host-keyed metadata and live/exited session classification. Release artifacts are built with:
 
 ```bash
 make dev
@@ -64,13 +67,13 @@ make dev
 - Verij assumes its sidebar and Workspace pane use the generated two-pane host layout.
 - Custom layouts with different geometry may require compatible pane placement.
 - The Workspace marker represents Verij-controlled attachment; arbitrary external manipulation of the right pane is outside the supported flow.
-- State files are runtime data under `/tmp/verij/`, not durable workspace metadata.
+- State files and host markers are runtime data under `/tmp/verij/`, not durable attachment metadata.
+- Durable attachment metadata is stored under the XDG config directory in `hosts.toml`.
 
 ## Roadmap
 
-- Define durable workspace configuration in `~/.config/verij/workspaces.toml`.
-- Add `verij workspace new <name>`.
-- Add `verij workspace list` with live/offline state.
-- Add `verij workspace delete <name>` and cleanup behavior.
-- Restore configured inner sessions automatically when starting a workspace.
-- Add more end-to-end tests for host restart, manual detach, multiple inner clients, and custom layouts.
+- Add end-to-end coverage for host resurrection and inner-session resurrection.
+- Add coverage for manual Workspace detach, multiple inner clients, multiple hosts, and custom layouts.
+- Improve status reporting for missing or externally deleted remembered inner sessions.
+
+The previous named-workspace lifecycle proposal was superseded. A Verij workspace is the host Zellij session plus its current Workspace-pane attachment; `verij start` and `verij attach` remain the lifecycle commands.
