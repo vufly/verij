@@ -129,9 +129,19 @@ pub fn switch_session(
 ) -> Result<()> {
     match old_active_session {
         Some(old) if old == target_session => {
-            // Target is already attached. Just navigate tab if requested.
-            if let Some(pos) = tab_position {
-                switch_tab(target_session, pos)?;
+            match tab_position {
+                Some(pos) => {
+                    // Tab click on the currently active session: just navigate the tab.
+                    // The right pane should already be attached; switch_tab is safe.
+                    switch_tab(target_session, pos)?;
+                }
+                None => {
+                    // Session row click on the currently active session.
+                    // The user may have manually detached (Ctrl+q / zellij action detach)
+                    // from inside the inner session, leaving the right pane as a bare shell.
+                    // Re-attach unconditionally so this always recovers the workspace pane.
+                    attach_in_right_pane(target_session)?;
+                }
             }
         }
         Some(old) => {
