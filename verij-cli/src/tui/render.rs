@@ -4,9 +4,10 @@
 /// scrolling viewport, animated spinner empty state, and status bar.
 ///
 /// Color design:
-///   - ANSI 0-15 palette to honor user terminal themes.
+///   - ANSI 0-15 palette to honor user terminal themes (configurable via config.toml).
 ///   - Selected cursor row uses theme-neutral pair `bg=243, fg=0`.
-///   - Active tab of attached Workspace session uses `bg=1, fg=255`.
+///   - Attached/active Workspace session row uses `bg=1 (Red), fg=255` (configurable).
+///   - Active tab of attached session uses same red badge.
 
 
 use ratatui::{
@@ -17,31 +18,17 @@ use ratatui::{
     Frame,
 };
 
-use super::state::{AppState, InputMode, TreeNode};
+use super::state::{AppState, TreeNode};
 
 // ---------------------------------------------------------------------------
-// Colour palette (ANSI 0-15 & theme-neutral 256 pair)
+// Color helpers
 // ---------------------------------------------------------------------------
 
-const COLOR_TITLE: Color = Color::Indexed(6); // Cyan
-const COLOR_SESSION: Color = Color::Indexed(4); // Blue
-const COLOR_CURRENT_MARKER: Color = Color::Indexed(2); // Green
-const COLOR_TAB_NORMAL: Color = Color::Reset; // Terminal default foreground
-const COLOR_FOLD_ICON: Color = Color::Indexed(8); // Muted Gray
-const COLOR_MUTED: Color = Color::Indexed(8); // Muted Gray
-const COLOR_STATUS: Color = Color::Indexed(8); // Muted Gray
-const COLOR_ERROR: Color = Color::Indexed(1); // Red
-const COLOR_SPINNER: Color = Color::Indexed(6); // Cyan
-
-// Selected row pair: neutral medium-gray with black text (dark & light compatible)
-const COLOR_SELECTED_BG: Color = Color::Indexed(243);
-const COLOR_SELECTED_FG: Color = Color::Indexed(0);
-
-// Active tab pair: Red background with bright white text (active tab of session attached in Workspace pane)
-const COLOR_ACTIVE_TAB_BG: Color = Color::Indexed(1);
-const COLOR_ACTIVE_TAB_FG: Color = Color::Indexed(255);
-
-const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/// Convert a config u8 ANSI index into a ratatui `Color`.
+#[inline]
+fn c(idx: u8) -> Color {
+    Color::Indexed(idx)
+}
 
 // ---------------------------------------------------------------------------
 // Main render function
@@ -66,7 +53,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
         render_status_bar(frame, status_rect, state);
     }
 
-    if state.input_mode == InputMode::NewSession {
+    if state.input_mode == super::state::InputMode::NewSession {
         render_new_session_dialog(frame, area, state);
     }
 }
@@ -76,18 +63,21 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
 // ---------------------------------------------------------------------------
 
 fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
+    let colors = state.config.colors.clone();
+    let spinner_frames = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
     // Build list items (edge-to-edge compact UI without wasted border space)
     let items: Vec<ListItem> = if state.nodes.is_empty() {
-        // 4.4 Animated empty state
-        let spinner_char = SPINNER_FRAMES[(state.tick / 2) % SPINNER_FRAMES.len()];
+        // Animated empty state
+        let spinner_char = spinner_frames[(state.tick / 2) % spinner_frames.len()];
         vec![ListItem::new(Line::from(vec![
             Span::styled(
                 format!("{spinner_char} "),
-                Style::default().fg(COLOR_SPINNER),
+                Style::default().fg(c(colors.spinner)),
             ),
             Span::styled(
                 "Connecting to verij-plugin...",
-                Style::default().fg(COLOR_MUTED),
+                Style::default().fg(c(colors.muted)),
             ),
         ]))]
     } else {
@@ -104,7 +94,7 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
                 } else {
                     false
                 };
-                node_to_list_item(node, i == state.cursor, is_last_tab)
+                node_to_list_item(node, i == state.cursor, is_last_tab, &colors)
             })
             .collect()
     };
@@ -112,77 +102,72 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
     // Ensure list state selects current cursor
     state.sync_list_state();
 
-    let list = List::new(items)
-        .highlight_style(Style::default().bg(COLOR_SELECTED_BG).fg(COLOR_SELECTED_FG));
+    // highlight_style is intentionally left at default (no-op) so that span-level
+    // background colours (e.g. bg=1 on the active-tab name) are not clobbered by
+    // the list widget's selection overlay.  Selection styling is applied at the
+    // ListItem level inside node_to_list_item instead.
+    let list = List::new(items);
 
-    // 4.1 Stateful rendering handles viewport scrolling
+    // Stateful rendering handles viewport scrolling
     frame.render_stateful_widget(list, area, &mut state.list_state);
 }
 
 /// Convert a `TreeNode` into a styled `ListItem`.
-fn node_to_list_item(node: &TreeNode, is_selected: bool, is_last_tab: bool) -> ListItem<'static> {
+fn node_to_list_item(
+    node: &TreeNode,
+    is_selected: bool,
+    is_last_tab: bool,
+    colors: &crate::config::ColorConfig,
+) -> ListItem<'static> {
     let mut spans = Vec::new();
 
     let is_workspace_active_tab = node.is_workspace_active_tab();
 
-    let (fold_fg, current_fg, session_fg, muted_fg) = if is_selected {
-        (
-            COLOR_SELECTED_FG,
-            COLOR_SELECTED_FG,
-            COLOR_SELECTED_FG,
-            COLOR_SELECTED_FG,
-        )
+    let (fold_fg, session_fg, muted_fg) = if is_selected {
+        (c(colors.selected_fg), c(colors.selected_fg), c(colors.selected_fg))
     } else {
-        (
-            COLOR_FOLD_ICON,
-            COLOR_CURRENT_MARKER,
-            COLOR_SESSION,
-            COLOR_MUTED,
-        )
+        (c(colors.muted), c(colors.session), c(colors.muted))
     };
 
     match node {
         TreeNode::Session {
             name,
-            is_current,
+            is_current: _,
             is_attached,
             is_collapsed,
             active_tab,
             tab_count,
             ..
         } => {
-            // Fold marker (4.7)
-            let fold_icon = if *is_collapsed { "▸ " } else { "▾ " };
+            // Fold marker
+            let fold_icon = if *is_collapsed { "▷ " } else { "▽ " };
             spans.push(Span::styled(
                 fold_icon,
                 Style::default().fg(fold_fg).add_modifier(Modifier::BOLD),
             ));
 
-            // Current session indicator (* for current host session)
-            if *is_current {
-                spans.push(Span::styled(
-                    "* ",
-                    Style::default().fg(current_fg).add_modifier(Modifier::BOLD),
-                ));
-            }
-
-            // Session name
+            // Session name — red fg when attached (active in workspace pane), even when selected
+            let name_fg = if *is_attached {
+                c(colors.attached_fg)
+            } else {
+                session_fg
+            };
             spans.push(Span::styled(
                 name.clone(),
-                Style::default().fg(session_fg).add_modifier(Modifier::BOLD),
+                Style::default().fg(name_fg).add_modifier(Modifier::BOLD),
             ));
 
-            // 4.3 Tab activity indicator on session row
+            // Tab activity indicator on session row (when collapsed)
             if *is_collapsed {
                 if let Some(tab) = active_tab {
                     spans.push(Span::raw(" "));
                     if *is_attached {
-                        // Attached in workspace pane: highlight active tab badge in bg=1, fg=255
+                        // Attached in workspace pane: highlight active tab badge in active colors
                         spans.push(Span::styled(
                             format!(" [{tab}] "),
                             Style::default()
-                                .bg(COLOR_ACTIVE_TAB_BG)
-                                .fg(COLOR_ACTIVE_TAB_FG)
+                                .bg(c(colors.active_bg))
+                                .fg(c(colors.active_fg))
                                 .add_modifier(Modifier::BOLD),
                         ));
                     } else {
@@ -219,28 +204,28 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool, is_last_tab: bool) -> L
 
             if *is_workspace_active {
                 if is_selected {
-                    // Line is selected (bg=243, fg=0), but tab name specifically gets bg=1, fg=255
+                    // Line is selected (bg=selected), but tab name specifically gets active colors
                     spans.push(Span::styled(
                         format!(" {name} "),
                         Style::default()
-                            .bg(COLOR_ACTIVE_TAB_BG)
-                            .fg(COLOR_ACTIVE_TAB_FG)
+                            .bg(c(colors.active_bg))
+                            .fg(c(colors.active_fg))
                             .add_modifier(Modifier::BOLD),
                     ));
                 } else {
-                    // Active tab of Workspace session, not selected: entire line styled with bg=1, fg=255
+                    // Active tab of Workspace session, not selected: active fg, bold
                     spans.push(Span::styled(
                         name.clone(),
                         Style::default()
-                            .fg(COLOR_ACTIVE_TAB_FG)
+                            .fg(c(colors.active_fg))
                             .add_modifier(Modifier::BOLD),
                     ));
                 }
             } else {
                 let text_fg = if is_selected {
-                    COLOR_SELECTED_FG
+                    c(colors.selected_fg)
                 } else {
-                    COLOR_TAB_NORMAL
+                    Color::Reset
                 };
                 spans.push(Span::styled(name.clone(), Style::default().fg(text_fg)));
             }
@@ -250,12 +235,12 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool, is_last_tab: bool) -> L
     let line = Line::from(spans);
     let mut item = ListItem::new(line);
     if is_selected {
-        item = item.style(Style::default().bg(COLOR_SELECTED_BG).fg(COLOR_SELECTED_FG));
+        item = item.style(Style::default().bg(c(colors.selected_bg)).fg(c(colors.selected_fg)));
     } else if is_workspace_active_tab {
         item = item.style(
             Style::default()
-                .bg(COLOR_ACTIVE_TAB_BG)
-                .fg(COLOR_ACTIVE_TAB_FG),
+                .bg(c(colors.active_bg))
+                .fg(c(colors.active_fg)),
         );
     }
     item
@@ -266,24 +251,25 @@ fn node_to_list_item(node: &TreeNode, is_selected: bool, is_last_tab: bool) -> L
 // ---------------------------------------------------------------------------
 
 fn render_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
+    let colors = &state.config.colors;
     let content = if let Some(err) = &state.error {
         Span::styled(
             format!(" ✗ {err}"),
             Style::default()
-                .fg(COLOR_ERROR)
+                .fg(c(colors.error))
                 .add_modifier(Modifier::BOLD),
         )
-    } else if state.input_mode == InputMode::NewSession {
+    } else if state.input_mode == super::state::InputMode::NewSession {
         Span::styled(
             format!(" New Session: {}█  (Enter: create, Esc: cancel)", state.input_buffer),
             Style::default()
-                .fg(COLOR_TITLE)
+                .fg(c(colors.title))
                 .add_modifier(Modifier::BOLD),
         )
     } else {
         Span::styled(
             " j/k: nav  Enter: attach  n: new  ?: hide  q: quit",
-            Style::default().fg(COLOR_STATUS),
+            Style::default().fg(c(colors.muted)),
         )
     };
 
@@ -293,6 +279,7 @@ fn render_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
 
 /// Renders a centered modal dialog for typing a new inner session name.
 fn render_new_session_dialog(frame: &mut Frame, area: Rect, state: &AppState) {
+    let colors = &state.config.colors;
     let dialog_width = (area.width.saturating_sub(4)).min(45).max(28);
     let dialog_height = 5;
     let x = (area.width.saturating_sub(dialog_width)) / 2;
@@ -306,26 +293,26 @@ fn render_new_session_dialog(frame: &mut Frame, area: Rect, state: &AppState) {
         .title(Span::styled(
             " New Workspace Session ",
             Style::default()
-                .fg(COLOR_TITLE)
+                .fg(c(colors.title))
                 .add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(COLOR_CURRENT_MARKER));
+        .border_style(Style::default().fg(c(colors.current_mark)));
 
     let cursor_char = if (state.tick / 3) % 2 == 0 { "█" } else { " " };
     let text = vec![
         Line::from(vec![
-            Span::styled(" Name: ", Style::default().fg(COLOR_MUTED)),
+            Span::styled(" Name: ", Style::default().fg(c(colors.muted))),
             Span::styled(
                 &state.input_buffer,
                 Style::default()
-                    .fg(COLOR_TITLE)
+                    .fg(c(colors.title))
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(cursor_char, Style::default().fg(COLOR_CURRENT_MARKER)),
+            Span::styled(cursor_char, Style::default().fg(c(colors.current_mark))),
         ]),
         Line::from(vec![
-            Span::styled(" Enter: create   Esc: cancel", Style::default().fg(COLOR_MUTED)),
+            Span::styled(" Enter: create   Esc: cancel", Style::default().fg(c(colors.muted))),
         ]),
     ];
 

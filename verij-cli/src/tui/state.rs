@@ -7,7 +7,9 @@
 /// and ListState.
 use ratatui::widgets::ListState;
 use std::collections::HashSet;
-use verij_types::{SessionSnapshot, HOST_SESSION_PREFIX};
+use verij_types::SessionSnapshot;
+
+use crate::config::{Config, WorkspaceMode};
 
 // ---------------------------------------------------------------------------
 // Tree node model
@@ -76,6 +78,9 @@ pub enum InputMode {
 /// The complete mutable state of the Verij TUI.
 #[derive(Default)]
 pub struct AppState {
+    /// Loaded user configuration (colors, workspace mode, prefix, …).
+    pub config: Config,
+
     /// Current snapshot of all non-host sessions, as received from the FS watcher.
     pub sessions: Vec<SessionSnapshot>,
 
@@ -115,6 +120,26 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Build a new `AppState` with the given config.
+    pub fn with_config(config: Config) -> Self {
+        Self {
+            config,
+            ..Self::default()
+        }
+    }
+
+    /// Return the effective host-session prefix (from config, defaults to `_vj_`).
+    #[allow(dead_code)]
+    pub fn prefix(&self) -> &str {
+        self.config.prefix()
+    }
+
+    /// Return the configured default workspace mode.
+    #[allow(dead_code)]
+    pub fn workspace_mode(&self) -> WorkspaceMode {
+        self.config.workspace.default_mode
+    }
+
     /// Toggles the keyboard shortcut help bar.
     pub fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
@@ -145,7 +170,7 @@ impl AppState {
     }
     /// Replace `sessions` with new snapshots and rebuild the node tree.
     ///
-    /// Filters out any session starting with `__verij_host_`.
+    /// Filters out any session starting with `_vj_`.
     /// Preserves cursor position on the same logical node when possible.
     pub fn reconcile(&mut self, new_sessions: Vec<SessionSnapshot>) {
         let previous_target = self.nodes.get(self.cursor).map(|n| match n {
@@ -158,9 +183,10 @@ impl AppState {
         });
 
         // Strict filtering: filter out any host sessions
+        let prefix = self.config.prefix().to_string();
         self.sessions = new_sessions
             .into_iter()
-            .filter(|s| !s.name.starts_with(HOST_SESSION_PREFIX))
+            .filter(|s| !s.name.starts_with(&prefix))
             .collect();
 
         // If active_session is not set yet, pick the first session if available
@@ -353,7 +379,7 @@ impl AppState {
 
         for (session_index, session) in self.sessions.iter().enumerate() {
             // Defensively skip any host sessions
-            if session.name.starts_with(HOST_SESSION_PREFIX) {
+            if session.name.starts_with(self.config.prefix()) {
                 continue;
             }
 
@@ -420,7 +446,7 @@ mod tests {
                 ],
             },
             SessionSnapshot {
-                name: "__verij_host_main".to_string(),
+                name: "_vj_main".to_string(),
                 is_current: true,
                 tabs: vec![TabSnapshot {
                     name: "host".to_string(),
@@ -445,7 +471,7 @@ mod tests {
         let mut state = AppState::default();
         state.reconcile(make_test_sessions());
 
-        // "__verij_host_main" MUST be filtered out
+        // "_vj_main" MUST be filtered out
         assert_eq!(state.sessions.len(), 2);
         assert_eq!(state.sessions[0].name, "backend");
         assert_eq!(state.sessions[1].name, "frontend");
@@ -454,7 +480,7 @@ mod tests {
         assert!(state
             .nodes
             .iter()
-            .all(|n| !n.session_name().starts_with(HOST_SESSION_PREFIX)));
+            .all(|n| !n.session_name().starts_with("_vj_")));
     }
 
     #[test]

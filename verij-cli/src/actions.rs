@@ -23,35 +23,64 @@ pub fn create_inner_session(
     new_session_name: &str,
     plugin_path: Option<&Path>,
 ) -> Result<()> {
-    // 1. Create the session in background detached mode (-b)
-    // Isolate stdio and clear ZELLIJ env vars to avoid inheriting raw-mode TTY / nested state
+    // 1. Create the session with a fake PTY via `script` so zellij has a valid viewport.
+    //
+    // Zellij 0.45.x regression (zellij-org/zellij#5594): tabs created against a session
+    // with no attached client have no viewport, so `default_tab_template` layout fails with
+    // "Not enough room for panes" and the tab (+ zjstatus pane) is silently discarded when
+    // the first real client attaches. Using -b (headless) triggers this every time.
+    //
+    // Fix: attach through `script -q -c "zellij attach -c <name>" /dev/null` which provides
+    // a pseudo-terminal, giving zellij a viewport to size the first tab from. After the
+    // layout settles we send `zellij action detach` to that fake client and wait for the
+    // `script` process to exit cleanly before proceeding.
     let default_layout = std::env::var("HOME")
         .map(|h| std::path::PathBuf::from(h).join(".config/zellij/layouts/default.kdl"))
         .ok()
         .filter(|p| p.exists());
 
-    let mut cmd = Command::new("zellij");
-    cmd.args(["attach", "-c", "-b", new_session_name]);
+    // Build the inner zellij command that `script` will run in its fake PTY.
+    let mut zellij_args = vec![
+        "zellij".to_string(),
+        "attach".to_string(),
+        "-c".to_string(),
+        new_session_name.to_string(),
+    ];
     if let Some(ref layout) = default_layout {
-        cmd.args(["options", "--default-layout", &layout.to_string_lossy()]);
+        zellij_args.extend([
+            "options".to_string(),
+            "--default-layout".to_string(),
+            layout.to_string_lossy().into_owned(),
+        ]);
     }
-    cmd.env_remove("ZELLIJ")
+    let zellij_cmd = zellij_args.join(" ");
+
+    let mut fake_client = Command::new("script")
+        .args(["-q", "-c", &zellij_cmd, "/dev/null"])
+        .env_remove("ZELLIJ")
         .env_remove("ZELLIJ_SESSION_NAME")
         .env_remove("ZELLIJ_PANE_ID")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .with_context(|| {
+            format!("Failed to create session '{new_session_name}' via fake-PTY attach")
+        })?;
 
-    let status = cmd
-        .status()
-        .with_context(|| format!("Failed to create background session '{new_session_name}'"))?;
+    // Wait for zellij to apply the default_tab_template layout inside the fake PTY.
+    std::thread::sleep(std::time::Duration::from_millis(400));
 
-    if !status.success() {
-        eprintln!(
-            "[verij-cli] Warning: background attach exited with status: {}",
-            status
-        );
-    }
+    // Detach the fake client — the session stays alive, layout already applied.
+    let _ = Command::new("zellij")
+        .args(["-s", new_session_name, "action", "detach"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    // Wait for `script` to exit after zellij detaches (prevents zombie processes).
+    let _ = fake_client.wait();
 
     // Set inner session pane frame style to full
     let _ = Command::new("zellij")

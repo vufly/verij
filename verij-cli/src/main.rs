@@ -11,6 +11,7 @@ use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 mod actions;
+mod config;
 mod fs_watcher;
 mod layout;
 mod session;
@@ -48,6 +49,21 @@ enum Commands {
     /// Connects to the verij-plugin via a Zellij native pipe and renders a
     /// live, navigable 2-level tree of sessions and tabs.
     Ui,
+
+    /// Configuration helpers.
+    #[command(subcommand)]
+    Config(ConfigCommands),
+}
+
+#[derive(Subcommand)]
+enum ConfigCommands {
+    /// Write a starter config file to ~/.config/verij/config.toml.
+    ///
+    /// No-op if the file already exists.
+    Init,
+
+    /// Print the path of the config file that would be loaded.
+    Path,
 }
 
 #[derive(Args, Debug)]
@@ -179,6 +195,19 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Start(args) => handle_start(args),
         Commands::Attach(args) => handle_attach(args),
-        Commands::Ui => tui::run().await,
+        Commands::Ui => {
+            let cfg = config::Config::load();
+            tui::run(cfg).await
+        }
+        Commands::Config(cmd) => match cmd {
+            ConfigCommands::Init => config::write_default_config(),
+            ConfigCommands::Path => {
+                match config::config_path() {
+                    Some(p) => println!("{}", p.display()),
+                    None => println!("(cannot determine config path)"),
+                }
+                Ok(())
+            }
+        },
     }
 }

@@ -44,7 +44,7 @@ pub fn resolve_states_dir() -> PathBuf {
 /// Reads and aggregates all session JSON files currently present in the states directory.
 ///
 /// Prunes stale state files for sessions that no longer exist in Zellij, and filters
-/// out any host sessions (`__verij_host_*`).
+/// out any host sessions (`_vj_*`).
 pub fn read_all_states() -> Vec<SessionSnapshot> {
     let dir = resolve_states_dir();
     let Ok(entries) = std::fs::read_dir(&dir) else {

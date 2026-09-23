@@ -26,6 +26,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::actions;
+use crate::config::Config;
 use crate::fs_watcher;
 use state::{AppState, InputMode};
 
@@ -34,7 +35,7 @@ use state::{AppState, InputMode};
 // ---------------------------------------------------------------------------
 
 /// Launch the Verij TUI.
-pub async fn run() -> Result<()> {
+pub async fn run(config: Config) -> Result<()> {
     // Ensure host session pane frame style is titles
     let _ = std::process::Command::new("zellij")
         .args(["action", "set-pane-frame-style", "titles"])
@@ -50,7 +51,7 @@ pub async fn run() -> Result<()> {
     let mut terminal = Terminal::new(backend).context("Failed to create terminal")?;
     terminal.clear()?;
 
-    let result = event_loop(&mut terminal).await;
+    let result = event_loop(&mut terminal, config).await;
 
     // --- Restore terminal (always runs, even on error) ---
     disable_raw_mode().ok();
@@ -69,9 +70,9 @@ pub async fn run() -> Result<()> {
 // Event loop
 // ---------------------------------------------------------------------------
 
-async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, config: Config) -> Result<()> {
     let (tx, mut rx) = mpsc::channel(16);
-    let mut state = AppState::default();
+    let mut state = AppState::with_config(config);
     state.plugin_path = crate::layout::resolve_plugin_path(None).ok();
 
     // Spawn filesystem watcher background task targeting /tmp/verij/states/
