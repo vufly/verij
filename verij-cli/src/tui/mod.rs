@@ -119,17 +119,37 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, confi
                 Ok(snapshot) => {
                     state.error = None;
 
-                    // A detached active session means the Workspace pane is empty again.
-                    // Do this before reconcile so the cleared active state is preserved.
-                    let active_detached = state.active_session.as_deref().is_some_and(|active| {
-                        snapshot
-                            .iter()
-                            .any(|session| {
-                                session.name == active && session.connected_clients == Some(0)
-                            })
+                    state.reconcile(snapshot);
+
+                    // Restore or clear Workspace attachment from host-pane marker.
+                    let marked_session = actions::workspace_session();
+                    let recovered_title = if marked_session.is_none() {
+                        actions::workspace_pane_title().ok().flatten()
+                    } else {
+                        None
+                    };
+                    let attached_session = marked_session.clone().or_else(|| {
+                        recovered_title.as_deref().and_then(|title| {
+                            state
+                                .sessions
+                                .iter()
+                                .find(|session| state.format_workspace_pane_name(&session.name) == title)
+                                .map(|session| session.name.clone())
+                        })
                     });
-                    if active_detached {
+                    if state.active_session.is_none() {
+                        if let Some(session_name) = attached_session.as_deref() {
+                            if state.sessions.iter().any(|session| session.name == session_name) {
+                                state.active_session = Some(session_name.to_string());
+                                if marked_session.is_none() {
+                                    let _ = actions::set_workspace_session(session_name);
+                                }
+                                state.rebuild_nodes();
+                            }
+                        }
+                    } else if attached_session.as_deref() != state.active_session.as_deref() {
                         state.active_session = None;
+                        let _ = actions::clear_workspace_session();
                         let default_name = state.config.workspace.pane_default.clone();
                         if let Err(e) = actions::re_focus_right_pane()
                             .and_then(|_| actions::rename_workspace_pane(&default_name))
@@ -138,21 +158,18 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, confi
                         } else {
                             state.workspace_pane_name = Some(default_name);
                         }
+                        state.rebuild_nodes();
                     }
 
-                    state.reconcile(snapshot);
-
-                    if !active_detached {
-                        if let Some(active) = state.active_session.clone() {
-                            let desired_name = state.format_workspace_pane_name(&active);
-                            if state.workspace_pane_name.as_deref() != Some(&desired_name) {
-                                if let Err(e) = actions::re_focus_right_pane()
-                                    .and_then(|_| actions::rename_workspace_pane(&desired_name))
-                                {
-                                    state.error = Some(e.to_string());
-                                } else {
-                                    state.workspace_pane_name = Some(desired_name);
-                                }
+                    if let Some(active) = state.active_session.clone() {
+                        let desired_name = state.format_workspace_pane_name(&active);
+                        if state.workspace_pane_name.as_deref() != Some(&desired_name) {
+                            if let Err(e) = actions::re_focus_right_pane()
+                                .and_then(|_| actions::rename_workspace_pane(&desired_name))
+                            {
+                                state.error = Some(e.to_string());
+                            } else {
+                                state.workspace_pane_name = Some(desired_name);
                             }
                         }
                     }

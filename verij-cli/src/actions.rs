@@ -12,7 +12,8 @@
 ///     focus transfers to the attached inner session.
 ///   - Tab navigation: Directly executes `zellij --session <target> action go-to-tab <pos+1>`.
 use anyhow::{Context, Result};
-use std::path::Path;
+use serde::Deserialize;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use verij_types::VERIJ_CONTROL_PIPE;
 
@@ -146,11 +147,8 @@ pub fn switch_session(
                     switch_tab(target_session, pos)?;
                 }
                 None => {
-                    // Session row click on the currently active session.
-                    // The user may have manually detached (Ctrl+q / zellij action detach)
-                    // from inside the inner session, leaving the right pane as a bare shell.
-                    // Re-attach unconditionally so this always recovers the workspace pane.
-                    attach_in_right_pane(target_session)?;
+                    // `active_session` identifies the Workspace attachment. Do not
+                    // write another attach command into an already attached pane.
                 }
             }
         }
@@ -194,8 +192,103 @@ pub fn switch_session(
     if let Some(name) = workspace_pane_name {
         rename_workspace_pane(name)?;
     }
+    set_workspace_session(target_session)?;
 
     Ok(())
+}
+
+const WORKSPACE_SESSION_ENV: &str = "VERIJ_WORKSPACE_SESSION";
+
+fn workspace_marker_path() -> Option<PathBuf> {
+    let host_session = std::env::var("ZELLIJ_SESSION_NAME").ok()?;
+    Some(
+        std::env::temp_dir()
+            .join("verij")
+            .join(format!("workspace-{host_session}.session")),
+    )
+}
+
+/// Returns session recorded as attached to this host Workspace pane.
+pub fn workspace_session() -> Option<String> {
+    if let Some(path) = workspace_marker_path() {
+        return std::fs::read_to_string(path)
+            .ok()
+            .map(|session| session.trim().to_string())
+            .filter(|session| !session.is_empty());
+    }
+    std::env::var(WORKSPACE_SESSION_ENV)
+        .ok()
+        .filter(|session| !session.is_empty())
+}
+
+/// Records the inner session currently attached to the host Workspace pane.
+pub fn set_workspace_session(session: &str) -> Result<()> {
+    std::env::set_var(WORKSPACE_SESSION_ENV, session);
+    let Some(path) = workspace_marker_path() else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, session)?;
+    Ok(())
+}
+
+/// Clears host Workspace attachment marker.
+pub fn clear_workspace_session() -> Result<()> {
+    std::env::remove_var(WORKSPACE_SESSION_ENV);
+    if let Some(path) = workspace_marker_path() {
+        match std::fs::remove_file(path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct HostPaneInfo {
+    id: u32,
+    is_plugin: bool,
+    is_focused: bool,
+    pane_x: usize,
+    title: String,
+}
+
+/// Returns title of pane immediately right of current TUI pane.
+/// Used to recover attachment state from hosts created before the marker existed.
+pub fn workspace_pane_title() -> Result<Option<String>> {
+    let output = Command::new("zellij")
+        .args(["action", "list-panes", "--tab", "--json"])
+        .output()
+        .context("Failed to inspect host panes")?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let panes: Vec<HostPaneInfo> = serde_json::from_slice(&output.stdout)
+        .context("Failed to parse host pane information")?;
+    let current_id = std::env::var("ZELLIJ_PANE_ID")
+        .ok()
+        .and_then(|id| {
+            id.rsplit('_')
+                .next()
+                .and_then(|value| value.parse::<u32>().ok())
+        });
+    let current = current_id
+        .and_then(|id| panes.iter().find(|pane| pane.id == id))
+        .or_else(|| panes.iter().find(|pane| pane.is_focused));
+    let Some(current) = current else {
+        return Ok(None);
+    };
+
+    Ok(panes
+        .iter()
+        .filter(|pane| !pane.is_plugin && pane.pane_x > current.pane_x)
+        .min_by_key(|pane| pane.pane_x)
+        .map(|pane| pane.title.clone()))
 }
 
 /// Renames the currently focused pane in the host session.
@@ -294,7 +387,15 @@ pub fn switch_tab(session_name: &str, tab_position: usize) -> Result<()> {
 /// Initial attach fallback when no session was previously active in the right pane:
 /// sends `stty sane; zellij attach <target>\n` to the active pane.
 fn attach_in_right_pane(target_session: &str) -> Result<()> {
-    let attach_cmd = format!("stty sane; zellij attach {}\n", target_session);
+    set_workspace_session(target_session)?;
+    let marker_cleanup = workspace_marker_path()
+        .map(|path| format!("; rm -f {}", shell_quote(&path.to_string_lossy())))
+        .unwrap_or_default();
+    let attach_cmd = format!(
+        "export {WORKSPACE_SESSION_ENV}={}; stty sane; zellij attach {}; unset {WORKSPACE_SESSION_ENV}{marker_cleanup}\n",
+        shell_quote(target_session),
+        shell_quote(target_session),
+    );
     let _ = Command::new("zellij")
         .args(["action", "move-focus", "right"])
         .stdin(std::process::Stdio::null())
@@ -312,6 +413,7 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
         })?;
 
     if !status.success() {
+        let _ = clear_workspace_session();
         eprintln!(
             "[verij-cli] Warning: initial attach write-chars exited with status: {}",
             status
@@ -319,4 +421,8 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\\', "\\\\").replace('\'', "'\\''"))
 }
