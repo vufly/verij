@@ -109,6 +109,12 @@ pub struct WorkspaceConfig {
     pub prefix: String,
     /// Sidebar pane width passed to the KDL layout (default: `25%`).
     pub sidebar_width: String,
+    /// Format string for the Workspace tab name when a session is active.
+    /// `{session}` is replaced with the inner session name.
+    /// Example: `"󱀂 {session}"` or `"[{session}]"` (default: `"{session}"`).
+    pub tab_format: String,
+    /// Workspace tab name when no inner session is attached yet (default: `"Workspace"`).
+    pub tab_default: String,
 }
 
 impl Default for WorkspaceConfig {
@@ -117,7 +123,16 @@ impl Default for WorkspaceConfig {
             default_mode: WorkspaceMode::Descend,
             prefix: verij_types::HOST_SESSION_PREFIX.to_string(),
             sidebar_width: "25%".to_string(),
+            tab_format: "{session}".to_string(),
+            tab_default: "Workspace".to_string(),
         }
+    }
+}
+
+impl WorkspaceConfig {
+    /// Render the tab name for a given inner session name using `tab_format`.
+    pub fn format_tab_name(&self, session: &str) -> String {
+        self.tab_format.replace("{session}", session)
     }
 }
 
@@ -218,6 +233,14 @@ prefix = "_vj_"
 
 # Sidebar pane width as a percentage or fixed cell count, e.g. "25%" or "30".
 sidebar_width = "25%"
+
+# Workspace tab name format when an inner session is active.
+# {session} is replaced with the session name.
+# Examples: "{session}", "󱀂 {session}", "[{session}]"
+tab_format = "{session}"
+
+# Workspace tab name when no inner session is attached yet.
+tab_default = "Workspace"
 
 [colors]
 # ANSI 256-color indices for every UI element.

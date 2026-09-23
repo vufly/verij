@@ -294,7 +294,20 @@ fn dispatch_action(state: &mut AppState) -> Result<()> {
     let old_active = state.active_session.clone();
     state.active_session = Some(target_session.clone());
 
-    let result = actions::switch_session(old_active.as_deref(), &target_session, tab_position);
+    // Only rename the Workspace tab when switching at session level (not tab navigation).
+    // For tab clicks, the session is already attached — no rename needed.
+    let workspace_tab_name: Option<String> = if tab_position.is_none() {
+        Some(state.config.workspace.format_tab_name(&target_session))
+    } else {
+        None
+    };
+
+    let result = actions::switch_session(
+        old_active.as_deref(),
+        &target_session,
+        tab_position,
+        workspace_tab_name.as_deref(),
+    );
 
     if let Err(e) = result {
         state.error = Some(e.to_string());
