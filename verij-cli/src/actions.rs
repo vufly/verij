@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 use verij_types::VERIJ_CONTROL_PIPE;
 
 /// Creates a new inner session in the background, ensures the WASM agent is running,
@@ -70,8 +71,13 @@ pub fn create_inner_session(
             format!("Failed to create session '{new_session_name}' via fake-PTY attach")
         })?;
 
-    // Wait for zellij to apply the default_tab_template layout inside the fake PTY.
-    std::thread::sleep(std::time::Duration::from_millis(400));
+    // Wait until the default layout and zjstatus pane are actually ready.
+    // A fixed delay can detach before zjstatus finishes loading.
+    if default_layout.is_some() {
+        wait_for_zjstatus(new_session_name);
+    } else {
+        std::thread::sleep(Duration::from_millis(400));
+    }
 
     // Detach the fake client — the session stays alive, layout already applied.
     let _ = Command::new("zellij")
@@ -425,4 +431,36 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "'\\''"))
+}
+
+fn wait_for_zjstatus(session_name: &str) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if session_has_zjstatus(session_name) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn session_has_zjstatus(session_name: &str) -> bool {
+    let Ok(output) = Command::new("zellij")
+        .args(["--session", session_name, "action", "list-panes", "--all", "--json"])
+        .output()
+    else {
+        return false;
+    };
+
+    if !output.status.success() {
+        return false;
+    }
+
+    let Ok(panes) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout) else {
+        return false;
+    };
+
+    panes.iter().any(|pane| {
+        pane.get("plugin_url").and_then(|url| url.as_str()) == Some("zjstatus")
+            || pane.get("title").and_then(|title| title.as_str()) == Some("zjstatus")
+    })
 }
