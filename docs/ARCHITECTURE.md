@@ -1,180 +1,88 @@
 # Verij Architecture
 
-> **Context anchor** — This document is the authoritative reference for the Verij system design. It defines the Distributed Agent ("Inside Man") architecture, filesystem state synchronization, and pipe-injected native session switching ("The Inception Switch").
+This document describes the current Verij implementation: a Zellij host session, a Ratatui sidebar, distributed WASM agents in inner sessions, filesystem state synchronization, and native in-place session switching.
 
----
+## Design
 
-## 1. Executive Summary & Architectural Pivot
+Verij separates orchestration from workspace state:
 
-### 1.1 The Problem with the Single-Plugin Architecture
-The initial Verij implementation relied on a single WASM plugin instance running in the Host Session, attempting to:
-1. Poll all global Zellij sessions via `get_session_list()` on a timer loop.
-2. Stream global snapshots over a Zellij CLI pipe (`verij_events`) to the TUI.
-3. Manage the attached session in the right pane via out-of-band hacks: inspecting `/proc` on Linux to discover sibling process IDs, terminating `zellij attach` with `kill -TERM`, and typing commands into the terminal pane via `zellij action write-chars`.
+- The host session owns navigation and one Workspace pane.
+- Each inner Zellij session owns its own tabs and panes.
+- A WASM agent runs inside every inner session and exports only that session's state.
+- The sidebar aggregates state files instead of polling all Zellij sessions through one plugin.
+- Session switching is executed by the agent inside the currently attached session.
 
-This approach suffered from several fundamental failure modes:
-- **State Staleness & Ghost Tabs**: `get_session_list()` polling does not trigger immediate updates on inner session tab switches, and multi-client attachments cause Zellij to report multiple tabs as active simultaneously.
-- **Pipe Deadlocks & Broken Streams**: CLI pipes in Zellij are fragile when handling reconnects or high-frequency updates, causing reader blocking and dropped frames.
-- **Terminal Corruption via `/proc` Hacks**: Arbitrarily killing `zellij attach` and injecting text characters directly into the PTY caused race conditions, missed keystrokes, and garbled terminal escape sequences.
+This avoids the former global-polling, cross-session pipe, process-killing, and PTY-manipulation design.
 
-### 1.2 The Pivot: Distributed Agent Pattern
-Verij pivots to a **Nested Session & Distributed Agent** model:
-- **Host Session Isolation**: The outer wrapper session is strictly isolated and identified by the prefix `__verij_host_`. The TUI filters out any host sessions from the navigation tree.
-- **Inside Man (Distributed WASM Agent)**: `verij-plugin` runs inside **every inner session**. Each agent is authoritative only for its own session's state.
-- **State Synchronization via Filesystem Watcher**: Each agent serializes its own session state directly to `/tmp/verij/states/<session_name>.json`. The TUI watches this directory using the `notify` crate, aggregating individual files into a unified state tree.
-- **Action Control via The Inception Switch**: Rather than manipulating panes from the outside, the TUI injects a pipe message into the *currently attached inner session*. The agent running inside that session invokes Zellij's native `switch_session` API from within, switching the attached client cleanly with zero terminal artifacts.
+## Host Topology
 
----
-
-## 2. System Topology
-
-```
-┌───────────────────────────────── Host Session: "__verij_host_<name>" ────┐
-│  Tab 0                                                                    │
-│  ┌────────────────────────┐  ┌──────────────────────────────────────────┐ │
-│  │  Left Pane             │  │  Right Pane (Focus Target)               │ │
-│  │  verij ui              │  │  zellij attach <active_session>          │ │
-│  │  (Ratatui TUI)         │  │                                          │ │
-│  │                        │  │  ┌── Attached Session: "backend" ──────┐ │ │
-│  │  Sessions              │  │  │  Tab 0: api [Active]  Tab 1: db      │ │ │
-│  │  ├─ backend   [● api]  │  │  │                                      │ │ │
-│  │  │  ├─ api  (● active) │  │  │  verij-plugin (Agent / Inside Man)   │ │ │
-│  │  │  └─ db              │  │  └──────────────────────────────────────┘ │ │
-│  │  └─ frontend           │  │                                          │ │
-│  │                        │  │  (Switches in-place to "frontend"       │ │
-│  │                        │  │   via inside-man native SwitchSession)   │ │
-│  └────────────────────────┘  └──────────────────────────────────────────┘ │
-└───────────────────────────────────────────────────────────────────────────┘
-                                      ▲
-                                      │ Watcher & Pipe Control
-                                      ▼
-                        ┌───────────────────────────┐
-                        │ Filesystem State Cache    │
-                        │ /tmp/verij/states/        │
-                        │ ├─ backend.json           │
-                        │ └─ frontend.json          │
-                        └───────────────────────────┘
+```text
+┌──────────────────────────── Host Session: "_vj_<name>" ────────────────────────┐
+│ Tab: Verij Host                                                                │
+│ ┌───────────────────────┐  ┌─────────────────────────────────────────────────┐ │
+│ │ Verij pane            │  │ Workspace pane                                  │ │
+│ │ verij ui              │  │ zellij attach <active_session>                  │ │
+│ │                       │  │                                                 │ │
+│ │ Sessions              │  │ ┌──────── Attached inner session: "backend" ──┐ │ │
+│ │ ├─ backend [editor]   │  │ │ Tab 0: editor [active]  Tab 1: server       │ │ │
+│ │ │  ├─ editor          │  │ │                                             │ │ │
+│ │ │  └─ server          │  │ │ Active pane: shell                          │ │ │
+│ │ └─ frontend           │  │ │ verij-plugin.wasm                           │ │ │
+│ │                       │  │ └─────────────────────────────────────────────┘ │ │
+│ └───────────────────────┘  └─────────────────────────────────────────────────┘ │
+│                                                                                │
+│ Hidden host plugin pane                                                        │
+└────────────────────────────────────────────────────────────────────────────────┘
+                         ▲                         ▲
+                         │                         │
+                         │                         └─ Inception Switch
+                         │                            switch:<target>
+                         │
+                         └─ Filesystem watcher
+                            /tmp/verij/states/*.json
 ```
 
-### 2.1 Host Session (`__verij_host_*`)
-- **Naming Rule**: Must always be prefixed with `__verij_host_` (e.g. `__verij_host_main`, `__verij_host_work`).
-- **Structure**: Exactly 1 tab containing 2 panes:
-  - **Left Pane**: Runs `verij ui` (Ratatui TUI orchestrator).
-  - **Right Pane**: Embedded terminal running `zellij attach <initial_session>`.
-- **Filtering**: The TUI rendering logic explicitly filters out any session whose name starts with `__verij_host`. The user never sees the host session listed in their workspace tree.
+The prefix defaults to `_vj_` and is configurable through `[workspace].prefix`. The generated layout uses:
 
-### 2.2 Inner Sessions & Distributed Agents
-- Standard Zellij sessions representing user workspaces (`backend`, `frontend`, `infra`).
-- Each inner session runs an instance of `verij-plugin` as a headless background plugin.
-- The plugin acts as the "Inside Man":
-  1. Observes local `SessionUpdate` and `TabUpdate` events.
-  2. Exports state to `/tmp/verij/states/<session_name>.json`.
-  3. Listens on the `verij_control` pipe for session switch commands.
+- Sidebar name: `Verij`
+- Workspace pane name: `Workspace`
+- Host tab name: `Verij Host`
+- Configurable sidebar width, default `25%`
 
----
+The host plugin is not the source of inner-session state. It exists as part of the host layout, while each inner session has its own distributed agent.
 
-## 3. Communication & IPC Architecture
+## Inner Sessions
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Agent as WASM Agent (verij-plugin in "backend")
-    participant FS as FS: /tmp/verij/states/
-    participant TUI as Orchestrator TUI (verij-cli)
-    participant Core as Zellij Core (Inner Session)
+An inner session is an ordinary Zellij session such as `backend`, `frontend`, or `infra`. Its agent:
 
-    Note over Agent,FS: 1. State Synchronization
-    Agent->>Core: Subscribe TabUpdate, SessionUpdate
-    Core-->>Agent: TabUpdate([api, db])
-    Agent->>FS: Atomic write backend.json
-    FS-->>TUI: notify::Event (Modify/Create)
-    TUI->>TUI: Ingest & rebuild unified tree
-    TUI->>TUI: Render updated sidebar
+1. Subscribes to `SessionUpdate`, `TabUpdate`, and `PaneUpdate`.
+2. Resolves its own session from `SessionUpdate`.
+3. Captures ordered tabs, active tab state, active pane title, and optional client-count compatibility data.
+4. Writes an atomic snapshot to `/tmp/verij/states/<session>.json`.
+5. Listens for `verij_control` pipe commands.
 
-    Note over TUI,Core: 2. The Inception Switch (Enter on "frontend")
-    TUI->>TUI: Update local active_session = "frontend"
-    TUI->>Core: zellij -s backend pipe --name verij_control -- "switch:frontend"
-    Core-->>Agent: pipe(PipeMessage { name: "verij_control", payload: "switch:frontend" })
-    Agent->>Core: switch_session(Some("frontend"))
-    Note over Core: Zellij natively switches attached client to "frontend"
-    TUI->>Core: zellij action move-focus right
-```
+The agent requests `ReadApplicationState`, `ChangeApplicationState`, and `ReadCliPipes` permissions.
 
-### 3.1 State Sync: Filesystem Watcher
+## State Synchronization
 
-#### Agent State Export (`verij-plugin`)
-1. On initialization (`load`), the plugin subscribes to `EventType::SessionUpdate` and `EventType::TabUpdate`.
-2. It requests permissions:
-   - `PermissionType::ReadApplicationState`
-   - `PermissionType::ChangeApplicationState`
-3. On `Event::SessionUpdate(sessions, _)` or `Event::TabUpdate(tabs)`:
-    - Identifies its own session name from `SessionUpdate` (where `is_current_session == true`).
-    - Exports `connected_clients`; `Some(0)` signals that all clients detached.
-    - Maps its tabs to `Vec<TabSnapshot>`.
-   - Serializes a `SessionSnapshot` into JSON.
-   - Ensures `/tmp/verij/states/` exists.
-   - Writes the file `/tmp/verij/states/<session_name>.json`.
+The native CLI starts `fs_watcher` for `/tmp/verij/states/`.
 
-#### Orchestrator State Ingestion (`verij-cli`)
-1. Spawns a background file watcher task using the `notify` crate targeting `/tmp/verij/states/`.
-2. On startup:
-   - Reads existing JSON files from `/tmp/verij/states/`.
-   - Populates initial `AppState.sessions`.
-3. On filesystem events (`Create`, `Modify`, `Remove`):
-   - Reads all `.json` files in `/tmp/verij/states/`.
-   - Parses each into a `SessionSnapshot`.
-   - Filters out any session where `name.starts_with("__verij_host")`.
-   - Aggregates the remaining sessions into a sorted list.
-   - Sends the aggregated snapshot via `tokio::sync::mpsc` to the Ratatui event loop.
-4. When an inner session terminates, its state file is deleted or cleaned up, automatically pruning it from the tree.
+1. The watcher reads existing JSON files at startup.
+2. Create, modify, and remove events trigger an aggregate read.
+3. Invalid, stale, and host-prefixed files are ignored or pruned.
+4. Snapshots are sorted by session name and sent to the TUI event loop.
+5. The TUI reconciles snapshots, preserves logical cursor position, and rebuilds the flattened session/tab tree.
 
-### 3.2 Action Control: The Inception Switch
+Host sessions are filtered using the configured prefix, not a hard-coded historical prefix.
 
-Session switching from an embedded Zellij pane cannot be achieved cleanly by external process manipulation. Instead, Verij leverages Zellij's native `switch_session` API executed from the **inside**:
-
-1. **Active Session Tracking**:
-   The TUI tracks `active_session: Option<String>` locally in `AppState`. This represents the session currently connected in the right pane.
-
-2. **Trigger Sequence**:
-   When the user navigates to `<new_selected_session>` and presses `Enter`:
-   - If `<new_selected_session> == active_session`:
-     - If a specific tab was selected, invoke tab switch:
-       `zellij --session <active_session> action go-to-tab <position + 1>`.
-     - Otherwise, re-focus the right pane.
-   - If `<new_selected_session> != active_session`:
-     1. Retrieve `<old_active_session>` from state.
-     2. Update local state: `active_session = Some(new_selected_session)`.
-     3. Execute non-blocking background command:
-        ```bash
-        zellij -s <old_active_session> pipe --name verij_control -- "switch:<new_selected_session>"
-        ```
-     4. Re-focus the right pane so keyboard input immediately goes to the attached workspace:
-        ```bash
-        zellij action move-focus right
-        ```
-
-3. **Agent Action Handling**:
-   Inside `<old_active_session>`, `verij-plugin::pipe(pipe_message)` receives the invocation:
-   - Validates `pipe_message.name == "verij_control"`.
-   - Checks payload prefix `switch:`.
-   - Parses `<target_session>` from `switch:<target_session>`.
-   - Calls `zellij_tile::prelude::switch_session(Some(&target_session))`.
-   - Zellij handles the client detachment from `<old_active_session>` and re-attachment to `<new_selected_session>` natively within the right pane's PTY.
-
----
-
-## 4. Wire Formats & Schemas
-
-### 4.1 State File Schema (`/tmp/verij/states/<session_name>.json`)
-
-Each inner session agent writes its own snapshot:
+### Snapshot Schema
 
 ```json
 {
   "name": "backend",
   "is_current": true,
+  "active_pane": "shell",
   "connected_clients": 1,
-  "active_pane": "editor",
   "tabs": [
     {
       "name": "editor",
@@ -190,93 +98,121 @@ Each inner session agent writes its own snapshot:
 }
 ```
 
-### 4.2 Control Pipe Payload Protocol (`verij_control`)
+`active_pane` and `connected_clients` use serde defaults so snapshots from older agents remain readable. `connected_clients` is informational compatibility data; Workspace attachment is not inferred from global inner-session client counts.
 
-| Payload | Handler | Action |
-|---|---|---|
-| `switch:<target_session>` | `verij-plugin::pipe` | Calls `switch_session(Some(target_session))` |
-| `switch_tab:<position>` | `verij-plugin::pipe` | Calls `switch_tab_to(position)` |
+## Workspace Attachment
 
----
+The TUI tracks the session attached to the host Workspace pane separately from inner-session metadata.
 
-## 5. Crate Architecture & Responsibilities
+### Attach
 
+When no Workspace session is known, Verij focuses the right pane and writes a shell command equivalent to:
+
+```bash
+export VERIJ_WORKSPACE_SESSION=backend
+stty sane
+zellij attach backend
+unset VERIJ_WORKSPACE_SESSION
+rm -f /tmp/verij/workspace-<host>.session
 ```
+
+The marker file is written by the CLI before attach and removed when the attach command returns. It lets the TUI recover attachment after its own process restarts. Native switches update the marker directly because the original attach process remains alive during an in-place switch.
+
+### Recovery And Detach
+
+On state updates, the TUI:
+
+- Restores `active_session` from the host marker when the session exists.
+- Falls back to the current Workspace pane title for hosts created before markers existed.
+- Clears active state and restores the configured default pane name when the marker disappears.
+- Never issues another `zellij attach` for a session already tracked as attached.
+
+This distinction matters because an inner session may have other clients. A global client count cannot tell whether the host Workspace pane is the client currently attached.
+
+## Session And Tab Switching
+
+### Session Switch
+
+For a target different from the current Workspace session:
+
+1. TUI records the target as active.
+2. TUI sends `switch:<target>` to the current inner agent:
+
+   ```bash
+   zellij -s <old> pipe --name verij_control -- switch:<target>
+   ```
+
+3. The inner agent calls `switch_session(Some(target))` through the Zellij plugin API.
+4. Zellij switches the attached client in place.
+5. TUI focuses the host Workspace pane and renames it using `pane_format`.
+
+If there is no active Workspace session, Verij performs the initial attach fallback instead.
+
+### Tab Switch
+
+Selecting a tab in the active session runs:
+
+```bash
+zellij --session <session> action go-to-tab <position + 1>
+```
+
+The agent observes the resulting `TabUpdate` and `PaneUpdate` events. The Workspace pane title is then refreshed with the active tab and pane values.
+
+## Inner Session Creation
+
+Creating a session from the TUI uses a fake PTY because Zellij 0.45 can discard layouts created without an attached client.
+
+1. Verij runs `script` around `zellij attach -c <name>` with `ZELLIJ` nesting variables removed.
+2. The configured `~/.config/zellij/layouts/default.kdl` is passed as the default layout when present.
+3. Verij waits for the `zjstatus` pane to appear, with a bounded timeout.
+4. The fake client detaches while the session remains alive.
+5. Inner pane frames are set to `full`.
+6. If the agent state file does not appear, Verij launches the configured WASM plugin as a floating, unfocused fallback.
+7. The Workspace pane switches to the new session.
+
+The readiness poll replaces a blind delay so the first tab's `zjstatus` pane is not lost to startup timing.
+
+## Pane Naming
+
+`WorkspaceConfig::format_pane_name` supports:
+
+- `{session}`
+- `{tab}` and `{active_tab}`
+- `{pane}` and `{active_pane}`
+- `{if variable}...{else}...{endif}` optional sections
+
+Default:
+
+```toml
+pane_format = "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}"
+```
+
+The formatter emits no dangling separator when an active tab or pane has no title. Conditional blocks are simple and non-nested.
+
+## Crate Responsibilities
+
+```text
 verij/
-├── Cargo.toml                  (Workspace manifest)
-├── docs/
-│   └── ARCHITECTURE.md         (This reference document)
-├── verij-types/                (Shared types, zero OS/WASM dependencies)
-│   ├── Cargo.toml
-│   └── src/lib.rs              (SessionSnapshot, TabSnapshot, constants)
-├── verij-plugin/               (Distributed WASM Agent)
-│   ├── Cargo.toml
-│   └── src/main.rs             (ZellijPlugin, FS state export, verij_control pipe)
-└── verij-cli/                  (Orchestrator binary & TUI)
-    ├── Cargo.toml
-    └── src/
-        ├── main.rs             (CLI argument dispatch: start, attach, ui)
-        ├── layout.rs           (Dynamic KDL layout generator)
-        ├── session.rs          (Zellij process queries & exec)
-        ├── fs_watcher.rs       (notify-based watcher for /tmp/verij/states/)
-        ├── actions.rs          (Inception switch pipe dispatch & focus)
-        └── tui/
-            ├── mod.rs          (Event loop, key/mouse event routing)
-            ├── state.rs        (AppState, active_session tracking, node flattening)
-            └── render.rs       (Tree rendering, host filtering, active badges)
+|-- verij-cli/
+|   `-- src/
+|       |-- main.rs          CLI commands and host startup
+|       |-- layout.rs        Generated host KDL and path resolution
+|       |-- session.rs       Zellij session queries and exec helpers
+|       |-- fs_watcher.rs    State directory watcher and aggregation
+|       |-- actions.rs       Attach, marker, pane, tab, and switch actions
+|       `-- tui/              Event loop, state, and rendering
+|-- verij-plugin/
+|   `-- src/main.rs          Distributed WASM agent
+|-- verij-types/
+|   `-- src/lib.rs           Shared serde wire types and constants
+|-- layouts/verij.kdl       Static host layout reference
+|-- Makefile                Build and verification targets
+`-- docs/                    Project documentation
 ```
 
-### 5.1 `verij-types`
-- Minimal, shared types between CLI and Plugin.
-- Contains:
-  - `SessionSnapshot`: Session name, current status, tabs vector.
-  - `TabSnapshot`: Tab name, position, active status.
-  - Path constants: `/tmp/verij/states/`.
-  - Pipe constants: `verij_control`.
+## Known Boundaries
 
-### 5.2 `verij-plugin`
-- Target: `wasm32-wasip1`.
-- Headless plugin running in each inner session.
-- Subscribes to `SessionUpdate`, `TabUpdate`.
-- Writes atomic updates to `/tmp/verij/states/<session_name>.json`.
-- Listens to `verij_control` pipe and executes native `switch_session`.
-- Permissions required:
-  - `ReadApplicationState`: Read tab and session lists.
-  - `ChangeApplicationState`: Execute `switch_session`.
-
-### 5.3 `verij-cli`
-- Target: Host platform binary (`verij`).
-- Subcommands:
-  - `verij start`: Generates host KDL layout named `__verij_host_<session>`, boots host session.
-  - `verij attach`: Attaches to an existing `__verij_host_*` session.
-  - `verij ui`: Runs the Ratatui sidebar.
-- Replaces old `pipe_reader.rs` with `fs_watcher.rs` using `notify`.
-- Replaces old `/proc` inspection in `actions.rs` with pipe injection to `<old_active_session>`.
-
----
-
-## 6. TUI Navigation & Visual Design
-
-### 6.1 Rendering Rules
-- **Host Session Filtering**: Any session where `name.starts_with("__verij_host")` is omitted from the render tree.
-- **Active Workspace Badge**:
-  - The session matching `active_session` is highlighted with an attached badge.
-  - The currently active tab within that session is highlighted with `bg=1, fg=255` (red background, white text).
-- **Navigation**:
-  - `j` / `k` / Arrows: Move selection cursor up/down.
-  - `Space` / `Tab`: Fold/unfold session tabs.
-  - `Enter`: Trigger Inception Switch to selected session or tab.
-  - `q` / `Esc`: Exit TUI.
-
----
-
-## 7. Migration & Implementation Phases
-
-| Phase | Description | Key Changes | Status |
-|---|---|---|---|
-| **Phase 0** | **Analyze & Document** | Update `ARCHITECTURE.md` to define distributed agent, FS watcher, and Inception Switch. | 🔄 Current |
-| **Phase 1** | **Refactor WASM Plugin (`verij-plugin`)** | Strip pipe snapshot broadcaster and timer polling; export state to `/tmp/verij/states/<session_name>.json` on `TabUpdate`/`SessionUpdate`; implement `verij_control` pipe listener for native `switch_session`. | ⏳ Pending Approval |
-| **Phase 2** | **Refactor Orchestrator TUI (`verij-cli`)** | Replace `pipe_reader.rs` with `notify` watcher on `/tmp/verij/states/`; aggregate state tree; filter out `__verij_host*` sessions; track `active_session` in `AppState`. | ⏳ Queued |
-| **Phase 3** | **Refactor Switch Action (Inception Switch)** | Remove `/proc` PID scraping, SIGTERM, and `write-chars` in `actions.rs`; implement pipe dispatch `zellij -s <old> pipe --name verij_control -- "switch:<new>"` + `move-focus right`. | ⏳ Queued |
-| **Phase 4** | **Host Session Launch Alignment** | Ensure `verij start` names host sessions with `__verij_host_` prefix and boots initial inner session attachment cleanly. | ⏳ Queued |
-| **Phase 5** | **Testing & Verification** | End-to-end multi-session switching validation, state sync latency checks, clean detach/attach verification. | ⏳ Queued |
+- Workspace attachment tracking assumes Verij controls the host Workspace pane.
+- Custom Zellij layouts can change pane geometry and may not provide a pane immediately to the right of the sidebar.
+- Older plugins may omit optional snapshot fields until rebuilt.
+- Workspace persistence, named workspace configuration, and automatic resurrection are not implemented.
