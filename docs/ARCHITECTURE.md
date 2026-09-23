@@ -164,13 +164,13 @@ Creating a session from the TUI uses a fake PTY because Zellij 0.45 can discard 
 
 1. Verij runs `script` around `zellij attach -c <name>` with `ZELLIJ` nesting variables removed.
 2. The configured `~/.config/zellij/layouts/default.kdl` is passed as the default layout when present.
-3. Verij waits for the `zjstatus` pane to appear, with a bounded timeout.
+3. Verij waits for a visible layout plugin pane to appear, with a bounded timeout.
 4. The fake client detaches while the session remains alive.
 5. Inner pane frames are set to `full`.
 6. If the agent state file does not appear, Verij launches the configured WASM plugin as a floating, unfocused fallback.
 7. The Workspace pane switches to the new session.
 
-The readiness poll replaces a blind delay so the first tab's `zjstatus` pane is not lost to startup timing.
+The readiness poll replaces a blind delay so the first tab's layout plugin panes are not lost to startup timing.
 
 ## Pane Naming
 

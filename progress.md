@@ -41,7 +41,7 @@ Verij currently provides a working nested-workspace prototype for Zellij. The ho
 ### Inner Session Initialization
 
 - Fake-PTY initialization avoids Zellij 0.45 no-viewport layout failures.
-- Creation waits for `zjstatus` readiness instead of relying only on a fixed delay.
+- Creation waits for a visible layout plugin instead of relying only on a fixed delay.
 - Plugin fallback launches the agent when automatic layout loading does not produce state.
 
 ## Verification

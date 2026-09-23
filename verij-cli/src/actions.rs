@@ -71,10 +71,10 @@ pub fn create_inner_session(
             format!("Failed to create session '{new_session_name}' via fake-PTY attach")
         })?;
 
-    // Wait until the default layout and zjstatus pane are actually ready.
-    // A fixed delay can detach before zjstatus finishes loading.
+    // Wait until the default layout's visible plugin pane is ready.
+    // A fixed delay can detach before a layout plugin finishes loading.
     if default_layout.is_some() {
-        wait_for_zjstatus(new_session_name);
+        wait_for_layout_plugin(new_session_name);
     } else {
         std::thread::sleep(Duration::from_millis(400));
     }
@@ -433,17 +433,17 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "'\\''"))
 }
 
-fn wait_for_zjstatus(session_name: &str) {
+fn wait_for_layout_plugin(session_name: &str) {
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
-        if session_has_zjstatus(session_name) {
+        if session_has_visible_plugin(session_name) {
             return;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
 }
 
-fn session_has_zjstatus(session_name: &str) -> bool {
+fn session_has_visible_plugin(session_name: &str) -> bool {
     let Ok(output) = Command::new("zellij")
         .args(["--session", session_name, "action", "list-panes", "--all", "--json"])
         .output()
@@ -460,7 +460,7 @@ fn session_has_zjstatus(session_name: &str) -> bool {
     };
 
     panes.iter().any(|pane| {
-        pane.get("plugin_url").and_then(|url| url.as_str()) == Some("zjstatus")
-            || pane.get("title").and_then(|title| title.as_str()) == Some("zjstatus")
+        pane.get("is_plugin").and_then(|value| value.as_bool()) == Some(true)
+            && pane.get("is_suppressed").and_then(|value| value.as_bool()) != Some(true)
     })
 }

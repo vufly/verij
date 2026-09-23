@@ -130,7 +130,7 @@ Session changes use the Inception Switch: the sidebar sends `switch:<target>` to
 
 Workspace attachment state is host-local. The attach shell sets `VERIJ_WORKSPACE_SESSION`; a marker file lets the TUI recover after restart. Detaching clears both markers. This avoids using global inner-session client counts, which cannot identify the host Workspace client and can cause nested Zellij attaches.
 
-New inner sessions receive a fake-PTY attach while their initial layout is created. Verij waits for the `zjstatus` pane when the default layout is available, then detaches the fake client before attaching the Workspace pane.
+New inner sessions receive a fake-PTY attach while their initial layout is created. Verij waits for a visible layout plugin pane when the default layout is available, then detaches the fake client before attaching the Workspace pane.
 
 ## Documentation
 
