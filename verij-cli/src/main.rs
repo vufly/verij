@@ -165,6 +165,7 @@ fn handle_start(args: StartArgs) -> Result<()> {
         &layout_path,
         args.no_attach,
         cfg.host.pane_frame_style,
+        cfg.host.focus_follows_mouse,
     )
 }
 

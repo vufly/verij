@@ -181,7 +181,7 @@ Creating a session from the TUI uses a fake PTY because Zellij 0.45 can discard 
 2. Inner session starts with the user's normal Zellij configuration and default layout. Verij reads that layout only to identify the first-tab plugin for readiness checks.
 3. Verij waits for the default tab template's status plugin and a terminal pane to coexist in the first tab for a stabilization interval.
 4. The fake client detaches while the session remains alive.
-5. Inner sessions use the normal Zellij config. Only the host overrides `[host].pane_frame_style` (default `titles`).
+5. Inner sessions use the normal Zellij config. The host overrides `[host].pane_frame_style` (default `titles`) and `[host].focus_follows_mouse` (default `true`).
 6. If the agent state file does not appear, Verij launches the configured WASM plugin as a floating, unfocused fallback.
 7. The Workspace pane switches to the new session.
 

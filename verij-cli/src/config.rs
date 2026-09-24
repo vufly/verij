@@ -68,12 +68,15 @@ impl PaneFrameStyle {
 #[serde(default)]
 pub struct HostConfig {
     pub pane_frame_style: PaneFrameStyle,
+    /// Focus Host panes when mouse pointer enters them (default: true).
+    pub focus_follows_mouse: bool,
 }
 
 impl Default for HostConfig {
     fn default() -> Self {
         Self {
             pane_frame_style: PaneFrameStyle::Titles,
+            focus_follows_mouse: true,
         }
     }
 }
@@ -428,6 +431,9 @@ pane_default = "Workspace"
 # Host sidebar/Workspace pane frames; keeps host compact.
 pane_frame_style = "titles"
 
+# Focus Host panes when mouse pointer enters them.
+focus_follows_mouse = true
+
 [colors]
 # ANSI 256-color indices for every UI element.
 title        = 6    # Cyan
@@ -461,6 +467,7 @@ mod tests {
         assert_eq!(cfg.colors.selected_bg, 15);
         assert_eq!(cfg.colors.selected_fg, 8);
         assert_eq!(cfg.host.pane_frame_style, PaneFrameStyle::Titles);
+        assert!(cfg.host.focus_follows_mouse);
     }
 
     #[test]
@@ -477,8 +484,12 @@ sidebar_width = "30%"
 
     #[test]
     fn test_host_frame_style_override() {
-        let cfg: Config = toml::from_str("[host]\npane_frame_style = 'none'\n").unwrap();
+        let cfg: Config = toml::from_str(
+            "[host]\npane_frame_style = 'none'\nfocus_follows_mouse = false\n",
+        )
+        .unwrap();
         assert_eq!(cfg.host.pane_frame_style, PaneFrameStyle::None);
+        assert!(!cfg.host.focus_follows_mouse);
         assert!(toml::from_str::<Config>("[host]\npane_frame_style = 'invalid'\n").is_err());
     }
 

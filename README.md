@@ -98,9 +98,10 @@ pane_default = "Workspace"
 
 [host]
 pane_frame_style = "titles"
+focus_follows_mouse = true
 ```
 
-`[host].pane_frame_style` overrides Zellij's frame style for the Verij host only; it accepts `full`, `titles`, or `none`. All inner sessions (including those created or resurrected by Verij) inherit normal `~/.config/zellij/config.kdl` options and default layout without Verij overrides. To give inner sessions full frames, set `pane_frame_style "full"` in Zellij config; the host remains `titles`. Existing hosts apply the new style when their sidebar restarts.
+`[host].pane_frame_style` overrides Zellij's frame style for the Verij host only; it accepts `full`, `titles`, or `none`. `[host].focus_follows_mouse` defaults to `true`, focusing the sidebar or Workspace pane when hovered. All inner sessions (including those created or resurrected by Verij) inherit normal `~/.config/zellij/config.kdl` options and default layout without Verij overrides. To give inner sessions full frames, set `pane_frame_style "full"` in Zellij config; the host remains `titles`. Existing hosts apply the new frame style when their sidebar restarts; recreate a host to apply a changed mouse-focus setting.
 
 `pane_format` supports:
 

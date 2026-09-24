@@ -160,6 +160,7 @@ pub fn start_host_session(
     layout_path: &Path,
     no_attach: bool,
     frame_style: PaneFrameStyle,
+    focus_follows_mouse: bool,
 ) -> Result<()> {
     match session_status(session_name)? {
         SessionStatus::Live | SessionStatus::Exited => {
@@ -177,6 +178,7 @@ pub fn start_host_session(
     }
 
     let layout_str = layout_path.to_string_lossy();
+    let focus_follows_mouse = if focus_follows_mouse { "true" } else { "false" };
 
     // Use -n (--new-session-with-layout) with -s to always create and attach to a new named session
     // with the given layout. In Zellij CLI, passing -l with -s treats it as adding tabs to an
@@ -189,6 +191,8 @@ pub fn start_host_session(
         "options",
         "--pane-frame-style",
         frame_style.as_str(),
+        "--focus-follows-mouse",
+        focus_follows_mouse,
     ])
 }
 
