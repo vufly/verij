@@ -150,9 +150,7 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, confi
                         state.active_session = None;
                         let _ = actions::clear_workspace_session();
                         let default_name = state.config.workspace.pane_default.clone();
-                        if let Err(e) = actions::re_focus_right_pane()
-                            .and_then(|_| actions::rename_workspace_pane(&default_name))
-                        {
+                        if let Err(e) = actions::rename_workspace_pane(&default_name) {
                             state.error = Some(e.to_string());
                         } else {
                             state.workspace_pane_name = Some(default_name);
@@ -163,9 +161,7 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, confi
                     if let Some(active) = state.active_session.clone() {
                         let desired_name = state.format_workspace_pane_name(&active);
                         if state.workspace_pane_name.as_deref() != Some(&desired_name) {
-                            if let Err(e) = actions::re_focus_right_pane()
-                                .and_then(|_| actions::rename_workspace_pane(&desired_name))
-                            {
+                            if let Err(e) = actions::rename_workspace_pane(&desired_name) {
                                 state.error = Some(e.to_string());
                             } else {
                                 state.workspace_pane_name = Some(desired_name);

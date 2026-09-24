@@ -262,8 +262,8 @@ pub fn clear_workspace_session() -> Result<()> {
 struct HostPaneInfo {
     id: u32,
     is_plugin: bool,
-    is_focused: bool,
     pane_x: usize,
+    tab_id: u32,
     title: String,
 }
 
@@ -280,25 +280,30 @@ fn workspace_pane() -> Result<Option<HostPaneInfo>> {
 
     let panes: Vec<HostPaneInfo> = serde_json::from_slice(&output.stdout)
         .context("Failed to parse host pane information")?;
-    let current_id = std::env::var("ZELLIJ_PANE_ID")
-        .ok()
-        .and_then(|id| {
-            id.rsplit('_')
-                .next()
-                .and_then(|value| value.parse::<u32>().ok())
-        });
-    let current = current_id
-        .and_then(|id| panes.iter().find(|pane| pane.id == id))
-        .or_else(|| panes.iter().find(|pane| pane.is_focused));
-    let Some(current) = current else {
-        return Ok(None);
-    };
+    Ok(workspace_pane_from_list(
+        &panes,
+        std::env::var("ZELLIJ_PANE_ID").ok().as_deref(),
+    ))
+}
 
-    Ok(panes
+fn workspace_pane_from_list(panes: &[HostPaneInfo], sidebar_id: Option<&str>) -> Option<HostPaneInfo> {
+    // Zellij supplies plain numeric ZELLIJ_PANE_ID in terminal processes;
+    // CLI pane identifiers also accept the explicit terminal_<id> form.
+    let sidebar_id = sidebar_id?;
+    let current_id = sidebar_id
+        .strip_prefix("terminal_")
+        .unwrap_or(sidebar_id)
+        .parse::<u32>()
+        .ok()?;
+    // Plugin and terminal IDs are separate namespaces. A plugin may have the
+    // same numeric ID as the sidebar terminal, so require the terminal kind.
+    let sidebar = panes.iter().find(|pane| !pane.is_plugin && pane.id == current_id)?;
+
+    panes
         .iter()
-        .filter(|pane| !pane.is_plugin && pane.pane_x > current.pane_x)
+        .filter(|pane| !pane.is_plugin && pane.tab_id == sidebar.tab_id && pane.pane_x > sidebar.pane_x)
         .min_by_key(|pane| pane.pane_x)
-        .cloned())
+        .cloned()
 }
 
 /// Returns title of pane immediately right of current TUI pane.
@@ -310,7 +315,7 @@ pub fn workspace_pane_title() -> Result<Option<String>> {
 /// Renames host Workspace pane, explicitly targeting pane right of sidebar.
 pub fn rename_workspace_pane(name: &str) -> Result<()> {
     let pane_id = workspace_pane()?
-        .map(|pane| pane.id.to_string())
+        .map(|pane| format!("terminal_{}", pane.id))
         .context("Failed to identify host Workspace pane")?;
     let status = Command::new("zellij")
         .args(["action", "rename-pane", "--pane-id", &pane_id, name])
@@ -587,5 +592,41 @@ mod readiness_tests {
     fn layout_probe_uses_active_zellij_option_not_commented_default() {
         let config = "// default_layout \"classic\"\ndefault_layout \"my-layout\"\n";
         assert_eq!(kdl_option(config, "default_layout").as_deref(), Some("my-layout"));
+    }
+}
+
+#[cfg(test)]
+mod workspace_pane_tests {
+    use super::{workspace_pane_from_list, HostPaneInfo};
+
+    fn pane(id: u32, is_plugin: bool, tab_id: u32, pane_x: usize) -> HostPaneInfo {
+        HostPaneInfo {
+            id,
+            is_plugin,
+            tab_id,
+            pane_x,
+            title: format!("Pane {id}"),
+        }
+    }
+
+    #[test]
+    fn finds_workspace_from_sidebar_terminal_even_if_plugin_has_same_id() {
+        let panes = [
+            pane(0, true, 0, 25),
+            pane(3, false, 1, 0),
+            pane(0, false, 0, 0),
+            pane(2, false, 0, 60),
+            pane(1, false, 0, 25),
+        ];
+        assert_eq!(workspace_pane_from_list(&panes, Some("terminal_0")).unwrap().id, 1);
+        assert_eq!(workspace_pane_from_list(&panes, Some("0")).unwrap().id, 1);
+        assert!(workspace_pane_from_list(&panes, Some("plugin_0")).is_none());
+    }
+
+    #[test]
+    fn does_not_target_panes_on_other_tabs_or_when_sidebar_is_missing() {
+        let panes = [pane(0, false, 0, 0), pane(1, false, 1, 25)];
+        assert!(workspace_pane_from_list(&panes, Some("terminal_0")).is_none());
+        assert!(workspace_pane_from_list(&panes, Some("terminal_3")).is_none());
     }
 }
