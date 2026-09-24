@@ -17,6 +17,7 @@ mod layout;
 mod registry;
 mod session;
 mod tui;
+mod zellij_config;
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -61,6 +62,13 @@ enum ConfigCommands {
 
     /// Print the path of the config file that would be loaded.
     Path,
+
+    /// Render or write the generated Zellij host configuration.
+    Zellij {
+        /// Print generated KDL without writing the cache file.
+        #[arg(long)]
+        stdout: bool,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -136,7 +144,7 @@ fn handle_start(args: StartArgs) -> Result<()> {
     layout::init_user_layout()?;
     let host_name = args.session_name.as_str();
 
-    match session::session_status(&host_name)? {
+    match session::session_status(host_name)? {
         session::SessionStatus::Live | session::SessionStatus::Exited => {
             verify_host(host_name)?;
             if args.no_attach {
@@ -150,28 +158,25 @@ fn handle_start(args: StartArgs) -> Result<()> {
                 "Session '{}' already exists. Attaching to it...",
                 host_name
             );
-            session::restore_last_inner_session(&host_name)?;
-            return session::attach_session(&host_name);
+            session::restore_last_inner_session(host_name)?;
+            let host_config = zellij_config::write_host_config(&cfg)?;
+            return session::attach_session(host_name, &host_config);
         }
         session::SessionStatus::Missing => {}
     }
 
     let layout_path = layout_for_new_host(&args, &cfg, host_name)?;
-    let zellij_options = cfg.zellij.host_options();
+    let host_config = zellij_config::write_host_config(&cfg)?;
 
     registry::register(host_name)?;
     session::restore_last_inner_session(host_name)?;
-    session::start_host_session(
-        host_name,
-        &layout_path,
-        args.no_attach,
-        &zellij_options,
-    )
+    session::start_host_session(host_name, &layout_path, args.no_attach, &host_config)
 }
 
 fn handle_attach(args: AttachArgs) -> Result<()> {
+    let cfg = config::Config::load();
     let host_name = args.session_name.as_str();
-    let status = session::session_status(&host_name)?;
+    let status = session::session_status(host_name)?;
 
     if matches!(
         status,
@@ -179,7 +184,8 @@ fn handle_attach(args: AttachArgs) -> Result<()> {
     ) {
         verify_host(host_name)?;
         session::restore_last_inner_session(host_name)?;
-        session::attach_session(host_name)
+        let host_config = zellij_config::write_host_config(&cfg)?;
+        session::attach_session(host_name, &host_config)
     } else if args.create {
         handle_start(StartArgs {
             session_name: args.session_name,
@@ -270,6 +276,15 @@ async fn main() -> Result<()> {
                 match config::config_path() {
                     Some(p) => println!("{}", p.display()),
                     None => println!("(cannot determine config path)"),
+                }
+                Ok(())
+            }
+            ConfigCommands::Zellij { stdout } => {
+                let config = config::Config::load();
+                if stdout {
+                    print!("{}", zellij_config::render_host_config(&config)?);
+                } else {
+                    println!("{}", zellij_config::write_host_config(&config)?.display());
                 }
                 Ok(())
             }

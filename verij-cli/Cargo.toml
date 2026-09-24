@@ -30,6 +30,7 @@ anyhow = "1"
 
 # Config file parsing
 toml = "0.8"
+kdl = "4.7.1"
 
 # Filesystem watcher for distributed agent state synchronization
 notify = "8"

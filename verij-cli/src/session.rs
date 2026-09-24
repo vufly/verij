@@ -1,4 +1,3 @@
-use crate::config::ZellijOption;
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -186,7 +185,7 @@ pub fn start_host_session(
     session_name: &str,
     layout_path: &Path,
     no_attach: bool,
-    zellij_options: &BTreeMap<String, ZellijOption>,
+    host_config_path: &Path,
 ) -> Result<()> {
     match session_status(session_name)? {
         SessionStatus::Live | SessionStatus::Exited => {
@@ -198,7 +197,7 @@ pub fn start_host_session(
             }
 
             eprintln!("Session '{}' already exists. Attaching to it...", session_name);
-            return attach_session(session_name);
+            return attach_session(session_name, host_config_path);
         }
         SessionStatus::Missing => {}
     }
@@ -206,53 +205,61 @@ pub fn start_host_session(
     // Use -n (--new-session-with-layout) with -s to always create and attach to a new named session
     // with the given layout. In Zellij CLI, passing -l with -s treats it as adding tabs to an
     // existing session, which fails if the session does not already exist.
-    exec_zellij(host_start_args(session_name, layout_path, zellij_options))
+    exec_zellij(host_start_args(session_name, layout_path, host_config_path))
 }
 
 fn host_start_args(
     session_name: &str,
     layout_path: &Path,
-    zellij_options: &BTreeMap<String, ZellijOption>,
+    host_config_path: &Path,
 ) -> Vec<String> {
-    let mut args = vec![
+    vec![
+        "--config".to_string(),
+        host_config_path.to_string_lossy().into_owned(),
         "-s".to_string(),
         session_name.to_string(),
         "-n".to_string(),
         layout_path.to_string_lossy().into_owned(),
-        "options".to_string(),
-    ];
-    for (name, value) in zellij_options {
-        args.push(format!("--{}", name.replace('_', "-")));
-        args.push(value.to_string());
-    }
-    args
+    ]
 }
 
 /// Attaches to an existing host session.
-pub fn attach_session(session_name: &str) -> Result<()> {
+pub fn attach_session(session_name: &str, host_config_path: &Path) -> Result<()> {
     if matches!(session_status(session_name)?, SessionStatus::Exited) {
         let last_session = crate::config::last_host_session(session_name);
         prepare_resurrection_layout(session_name)?;
         prepare_host_workspace_layout(session_name, last_session.as_deref())?;
-        exec_zellij(["attach", "--force-run-commands", session_name])
-    } else {
-        exec_zellij(["attach", session_name])
+        resurrect_session_with_config(session_name, Some(host_config_path))?;
     }
+    exec_zellij(host_attach_args(session_name, host_config_path))
+}
+
+fn host_attach_args(session_name: &str, host_config_path: &Path) -> Vec<String> {
+    vec![
+        "--config".to_string(),
+        host_config_path.to_string_lossy().into_owned(),
+        "attach".to_string(),
+        session_name.to_string(),
+    ]
 }
 
 /// Resurrects an exited session through a short-lived fake PTY, then detaches it.
 /// This makes its panes and plugins available before a host Workspace pane attaches.
 pub fn resurrect_session(session_name: &str) -> Result<()> {
+    resurrect_session_with_config(session_name, None)
+}
+
+fn resurrect_session_with_config(session_name: &str, host_config_path: Option<&Path>) -> Result<()> {
     if !matches!(session_status(session_name)?, SessionStatus::Exited) {
         return Ok(());
     }
 
     prepare_resurrection_layout(session_name)?;
+    let expects_zjstatus = resurrection_layout_path(session_name)
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .is_some_and(|layout| layout.contains("zjstatus"));
 
-    let command = format!(
-        "zellij attach --force-run-commands {}",
-        shell_quote(session_name)
-    );
+    let command = resurrection_command(session_name, host_config_path);
     let mut fake_client = Command::new("script")
         .args(["-q", "-c", &command, "/dev/null"])
         .env_remove("ZELLIJ")
@@ -264,12 +271,22 @@ pub fn resurrect_session(session_name: &str) -> Result<()> {
         .spawn()
         .with_context(|| format!("Failed to resurrect session '{session_name}'"))?;
 
-    let deadline = Instant::now() + Duration::from_secs(3);
+    // The first status pane can appear before the remaining serialized tabs
+    // restore. Detaching then leaves those tabs without their status plugin.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut stable_since = None;
+    let mut layout_ready = false;
     while Instant::now() < deadline {
-        if matches!(session_status(session_name)?, SessionStatus::Live)
-            && session_has_visible_plugin(session_name)
-        {
-            break;
+        let ready = matches!(session_status(session_name)?, SessionStatus::Live)
+            && (!expects_zjstatus || session_tabs_have_tiled_plugin(session_name));
+        if ready {
+            let since = stable_since.get_or_insert_with(Instant::now);
+            if !expects_zjstatus || since.elapsed() >= Duration::from_millis(1200) {
+                layout_ready = true;
+                break;
+            }
+        } else {
+            stable_since = None;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -289,6 +306,9 @@ pub fn resurrect_session(session_name: &str) -> Result<()> {
     if !matches!(session_status(session_name)?, SessionStatus::Live) {
         bail!("Session '{session_name}' did not become live after resurrection");
     }
+    if !layout_ready {
+        bail!("Session '{session_name}' did not restore zjstatus on every tab");
+    }
 
     Ok(())
 }
@@ -304,6 +324,16 @@ pub fn restore_last_inner_session(host_session: &str) -> Result<()> {
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "'\\''"))
+}
+
+fn resurrection_command(session_name: &str, host_config_path: Option<&Path>) -> String {
+    let config_flag = host_config_path
+        .map(|path| format!(" --config {}", shell_quote(&path.to_string_lossy())))
+        .unwrap_or_default();
+    format!(
+        "zellij{config_flag} attach --force-run-commands {}",
+        shell_quote(session_name)
+    )
 }
 
 /// Removes Zellij's serialized `start_suspended` state before resurrection.
@@ -355,9 +385,16 @@ fn resurrection_layout_path(session_name: &str) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-fn session_has_visible_plugin(session_name: &str) -> bool {
+fn session_tabs_have_tiled_plugin(session_name: &str) -> bool {
     let Ok(output) = Command::new("zellij")
-        .args(["--session", session_name, "action", "list-panes", "--all", "--json"])
+        .args([
+            "--session",
+            session_name,
+            "action",
+            "list-panes",
+            "--all",
+            "--json",
+        ])
         .output()
     else {
         return false;
@@ -371,10 +408,26 @@ fn session_has_visible_plugin(session_name: &str) -> bool {
         return false;
     };
 
-    panes.iter().any(|pane| {
-        pane.get("is_plugin").and_then(|value| value.as_bool()) == Some(true)
-            && pane.get("is_suppressed").and_then(|value| value.as_bool()) != Some(true)
-    })
+    terminal_tabs_have_tiled_plugin(&panes)
+}
+
+fn terminal_tabs_have_tiled_plugin(panes: &[serde_json::Value]) -> bool {
+    let terminal_tabs = panes
+        .iter()
+        .filter(|pane| pane.get("is_plugin").and_then(|value| value.as_bool()) == Some(false))
+        .filter_map(|pane| pane.get("tab_position").and_then(|value| value.as_u64()))
+        .collect::<std::collections::BTreeSet<_>>();
+
+    !terminal_tabs.is_empty()
+        && terminal_tabs.iter().all(|tab_position| {
+            panes.iter().any(|pane| {
+                pane.get("is_plugin").and_then(|value| value.as_bool()) == Some(true)
+                    && pane.get("tab_position").and_then(|value| value.as_u64())
+                        == Some(*tab_position)
+                    && pane.get("is_suppressed").and_then(|value| value.as_bool()) == Some(false)
+                    && pane.get("is_floating").and_then(|value| value.as_bool()) == Some(false)
+            })
+        })
 }
 
 fn rewrite_host_workspace_attach(layout: &str, target_session: &str) -> String {
@@ -434,9 +487,11 @@ fn parse_session_status(output: &str, name: &str) -> SessionStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::{host_start_args, parse_session_status, SessionStatus};
-    use crate::config::ZellijOption;
-    use std::collections::BTreeMap;
+    use super::{
+        host_attach_args, host_start_args, parse_session_status, resurrection_command,
+        terminal_tabs_have_tiled_plugin, SessionStatus,
+    };
+    use serde_json::json;
     use std::path::Path;
 
     #[test]
@@ -484,37 +539,58 @@ mod tests {
     }
 
     #[test]
-    fn builds_host_start_options_from_sorted_config_entries() {
-        let options = BTreeMap::from([
-            (
-                "focus_follows_mouse".to_string(),
-                ZellijOption::Boolean(true),
-            ),
-            (
-                "pane_frame_style".to_string(),
-                ZellijOption::String("titles".to_string()),
-            ),
-            (
-                "scroll_buffer_size".to_string(),
-                ZellijOption::Integer(5000),
-            ),
-        ]);
-
+    fn host_commands_use_generated_config() {
+        let config = Path::new("/tmp/verij/host-config.kdl");
         assert_eq!(
-            host_start_args("host", Path::new("/tmp/host.kdl"), &options),
+            host_start_args("host", Path::new("/tmp/host.kdl"), config),
             vec![
+                "--config",
+                "/tmp/verij/host-config.kdl",
                 "-s",
                 "host",
                 "-n",
                 "/tmp/host.kdl",
-                "options",
-                "--focus-follows-mouse",
-                "true",
-                "--pane-frame-style",
-                "titles",
-                "--scroll-buffer-size",
-                "5000",
             ]
         );
+        assert_eq!(
+            host_attach_args("host", config),
+            vec!["--config", "/tmp/verij/host-config.kdl", "attach", "host"]
+        );
+        assert_eq!(
+            resurrection_command("host", Some(config)),
+            "zellij --config '/tmp/verij/host-config.kdl' attach --force-run-commands 'host'"
+        );
+        assert_eq!(
+            resurrection_command("inner", None),
+            "zellij attach --force-run-commands 'inner'"
+        );
+    }
+
+    #[test]
+    fn waits_for_tiled_plugin_on_every_terminal_tab() {
+        let terminal = |tab_position| json!({"is_plugin": false, "tab_position": tab_position});
+        let tiled_plugin = |tab_position| {
+            json!({
+                "is_plugin": true, "tab_position": tab_position,
+                "is_suppressed": false, "is_floating": false
+            })
+        };
+        let floating_plugin = json!({
+            "is_plugin": true, "tab_position": 1,
+            "is_suppressed": false, "is_floating": true
+        });
+
+        assert!(!terminal_tabs_have_tiled_plugin(&[
+            terminal(0),
+            tiled_plugin(0),
+            terminal(1),
+            floating_plugin,
+        ]));
+        assert!(terminal_tabs_have_tiled_plugin(&[
+            terminal(0),
+            tiled_plugin(0),
+            terminal(1),
+            tiled_plugin(1),
+        ]));
     }
 }

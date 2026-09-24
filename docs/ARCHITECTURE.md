@@ -53,6 +53,8 @@ The host layout needs no state-export plugin. Each inner session runs its own di
 
 `layouts/verij.kdl` is embedded in CLI as the starter template. On first `verij start` / `verij attach --create` or `verij config init`, Verij creates the XDG-aware `verij.kdl` next to `config.toml` if missing. New host startup reads that user-owned template, escapes and substitutes `{{verij_bin}}` and `{{sidebar_width}}`, and passes a rendered cache file to Zellij. CLI width overrides TOML width; explicit `--layout` bypasses template rendering. Existing live or exited hosts retain their Zellij layout on attach/resurrection; changing the template affects only newly created hosts.
 
+Verij separates editable config from durable and disposable data: `$XDG_CONFIG_HOME/verij` (fallback `~/.config/verij`) contains `config.toml` and user layout; `$XDG_STATE_HOME/verij` (fallback `~/.local/state/verij`) contains host registry and durable attachments; `$XDG_CACHE_HOME/verij` (fallback `~/.cache/verij`) contains generated layouts and generated host Zellij KDL; `$XDG_RUNTIME_DIR/verij` (fallback `/tmp/verij`) contains Workspace markers. Legacy state beside `config.toml` migrates on first access.
+
 ## Inner Sessions
 
 An inner session is an ordinary Zellij session such as `backend`, `frontend`, or `infra`. Its agent:
@@ -106,7 +108,7 @@ Host names are filtered through cached `host-registry.toml` membership rather th
 
 The TUI tracks each host Workspace attachment separately from inner-session metadata. `host-registry.toml` registers hosts before any inner attachment and assigns a stable runtime marker key. `hosts.toml` stores attachment intent by current host name.
 
-Durable records live at `$XDG_CONFIG_HOME/verij/hosts.toml`, or `~/.config/verij/hosts.toml` when `XDG_CONFIG_HOME` is unset:
+Durable records live at `$XDG_STATE_HOME/verij/hosts.toml`, or `~/.local/state/verij/hosts.toml` when `XDG_STATE_HOME` is unset:
 
 ```toml
 [hosts."project"]
@@ -181,7 +183,7 @@ Creating a session from the TUI uses a fake PTY because Zellij 0.45 can discard 
 2. Inner session starts with the user's normal Zellij configuration and default layout. Verij reads that layout only to identify the first-tab plugin for readiness checks.
 3. Verij waits for the default tab template's status plugin and a terminal pane to coexist in the first tab for a stabilization interval.
 4. The fake client detaches while the session remains alive.
-5. Inner sessions use the normal Zellij config. Host creation forwards scalar `[zellij]` config entries to Zellij's `options` command, defaulting `pane_frame_style` to `titles` and `focus_follows_mouse` to `true`; recreate a host after changing these options.
+5. Inner sessions use normal Zellij config. Verij hosts use a generated complete config: scalar `[zellij]` entries replace matching root nodes in effective user config, preserving themes, keybinds, plugins, and other blocks. Host launch paths pass it through global `zellij --config`; inspect it with `verij config zellij --stdout`.
 6. If the agent state file does not appear, Verij launches the configured WASM plugin as a floating, unfocused fallback.
 7. The Workspace pane switches to the new session.
 
@@ -208,7 +210,7 @@ scrollback_lines_to_serialize 0
 
 These serialization options require restarting the Zellij server. Existing resurrection snapshots cannot regain scrollback that was never serialized.
 
-Verij removes stale serialized `start_suspended true` flags before automatic resurrection because Zellij 0.45.1 can retain them even when `--force-run-commands` is used. Verij also waits for a visible layout plugin before detaching its temporary resurrection client, preventing the first resurrected session from losing `zjstatus`.
+Verij removes stale serialized `start_suspended true` flags before automatic resurrection because Zellij 0.45.1 can retain them even when `--force-run-commands` is used. When serialized layout contains `zjstatus`, Verij waits until every terminal tab has a visible tiled plugin before detaching temporary resurrection client, preventing partial tab restoration from losing `zjstatus`.
 
 Host resurrection rewrites the serialized Workspace-pane `zellij attach` command to the durable last-session target. This prevents an older command captured before an in-place session switch from resurrecting a different inner session first.
 

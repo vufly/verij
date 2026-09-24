@@ -9,10 +9,10 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 - `verij start` creates or attaches to an exact-name registered host session.
 - `verij attach` attaches to an existing host session or creates one with `--create`.
 - `verij ui` runs the Ratatui sidebar.
-- Host KDL comes from editable `~/.config/verij/verij.kdl`; runtime rendering inserts native CLI path and sidebar width, with no host state-export plugin.
+- Host KDL comes from editable XDG config `verij.kdl`; cache rendering inserts native CLI path and sidebar width, with no host state-export plugin.
 - Plugin path resolution supports CLI argument, environment variable, executable-relative, development, user, and system paths.
-- `verij config init` and first `verij start` create missing layout template without overwriting user edits; `verij config path` prints config path.
-- Host creation forwards scalar `[zellij]` config options, defaulting pane frames to `titles` and focus-following-mouse to `true`; inner sessions inherit Zellij's default config unchanged.
+- `verij config init` and first `verij start` create missing layout template without overwriting user edits; `verij config path` prints config path; `verij config zellij` writes or inspects generated host config.
+- Hosts use complete generated Zellij config with scalar `[zellij]` root-node overrides, defaulting pane frames to `titles` and focus-following-mouse to `true`; inner sessions inherit normal Zellij config unchanged.
 
 ### Sidebar And Navigation
 
@@ -45,7 +45,7 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 - Live and exited Zellij hosts and inner sessions are distinguished during attach.
 - Exited hosts and inner sessions can be resumed through Zellij session resurrection.
 - Switching to an exited inner session force-resurrects it before the native switch so saved commands start without an Enter prompt.
-- Resurrection sanitizes stale suspended-command flags and waits for visible layout plugins before detaching.
+- Resurrection sanitizes stale suspended-command flags and waits for tiled `zjstatus` on every restored terminal tab before detaching.
 - Host resurrection rewrites stale serialized Workspace-pane attach commands to the durable target.
 
 ### Inner Session Initialization
@@ -74,8 +74,8 @@ make dev
 - Verij assumes its sidebar and Workspace pane use the generated two-pane host layout.
 - Custom layouts with different geometry may require compatible pane placement.
 - The Workspace marker represents Verij-controlled attachment; arbitrary external manipulation of the right pane is outside the supported flow.
-- State files and host markers are runtime data under `/tmp/verij/`, not durable attachment metadata.
-- Durable attachment metadata is stored under the XDG config directory in `hosts.toml`.
+- Generated layouts and host configs are cache data under `$XDG_CACHE_HOME/verij` or `~/.cache/verij`; Workspace markers and plugin snapshots remain runtime data.
+- Durable attachment metadata and host registry are stored under `$XDG_STATE_HOME/verij` or `~/.local/state/verij`, migrating legacy config-adjacent state automatically.
 - Zellij `serialize_pane_viewport` and scrollback serialization must be enabled to preserve terminal history.
 
 ## Roadmap

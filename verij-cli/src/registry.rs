@@ -1,4 +1,4 @@
-//! Durable host identity, separate from frequently updated attachment state.
+//! Durable host identity stored in XDG state, separate from attachment state.
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -16,9 +16,7 @@ pub struct Host {
 }
 
 pub fn path() -> Result<PathBuf> {
-    Ok(crate::config::config_path()
-        .context("Cannot determine Verij config directory")?
-        .with_file_name("host-registry.toml"))
+    crate::config::host_registry_path().context("Cannot determine Verij state directory")
 }
 
 pub fn load() -> Result<Registry> {

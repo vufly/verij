@@ -132,15 +132,7 @@ pub fn resolve_verij_bin() -> String {
 
 /// Returns a cache directory path for generated Verij layouts.
 pub fn get_cache_dir() -> Result<PathBuf> {
-    if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-        Ok(PathBuf::from(runtime_dir).join("verij"))
-    } else if let Ok(cache_home) = std::env::var("XDG_CACHE_HOME") {
-        Ok(PathBuf::from(cache_home).join("verij"))
-    } else if let Ok(home) = std::env::var("HOME") {
-        Ok(PathBuf::from(home).join(".cache").join("verij"))
-    } else {
-        Ok(std::env::temp_dir().join("verij"))
-    }
+    crate::config::cache_dir().context("Cannot determine Verij cache directory")
 }
 
 // ---------------------------------------------------------------------------

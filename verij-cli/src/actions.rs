@@ -211,9 +211,7 @@ fn workspace_marker_path() -> Option<PathBuf> {
         .or_else(|| crate::registry::marker_key(&host_session).ok().flatten())
         .unwrap_or(host_session);
     Some(
-        std::env::temp_dir()
-            .join("verij")
-            .join(format!("workspace-{marker_key}.session")),
+        crate::config::runtime_dir().join(format!("workspace-{marker_key}.session")),
     )
 }
 
@@ -464,12 +462,10 @@ fn default_tab_plugin(layout: &Path) -> Option<String> {
 
 /// Find the user's configured layout without overriding it on inner-session creation.
 fn configured_zellij_layout() -> Option<PathBuf> {
-    let config_dir = std::env::var_os("ZELLIJ_CONFIG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("XDG_CONFIG_HOME").map(|home| PathBuf::from(home).join("zellij")))
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config/zellij")))?;
-    let config_file = std::env::var_os("ZELLIJ_CONFIG_FILE")
-        .map(PathBuf::from)
+    let config_dir = crate::zellij_config::config_dir()?;
+    let config_file = crate::zellij_config::effective_config_path()
+        .ok()
+        .flatten()
         .unwrap_or_else(|| config_dir.join("config.kdl"));
     let config = std::fs::read_to_string(config_file).unwrap_or_default();
     let layout_dir = kdl_option(&config, "layout_dir")

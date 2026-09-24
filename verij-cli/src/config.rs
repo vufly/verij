@@ -92,7 +92,7 @@ fn default_true() -> bool {
     true
 }
 
-/// Zellij options applied when creating a Verij host session.
+/// Zellij options structurally patched into generated Verij host configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct ZellijConfig {
@@ -329,18 +329,85 @@ impl Config {
 /// Resolves the config file path: `$XDG_CONFIG_HOME/verij/config.toml`
 /// or `~/.config/verij/config.toml`.
 pub fn config_path() -> Option<PathBuf> {
-    let base = if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        PathBuf::from(xdg)
-    } else {
-        let home = std::env::var("HOME").ok()?;
-        PathBuf::from(home).join(".config")
-    };
-    Some(base.join("verij").join("config.toml"))
+    config_dir().map(|path| path.join("config.toml"))
 }
 
-/// Resolves durable per-host attachment state beside the regular config file.
+/// Editable Verij configuration directory.
+pub fn config_dir() -> Option<PathBuf> {
+    xdg_dir("XDG_CONFIG_HOME", ".config").map(|path| path.join("verij"))
+}
+
+/// Durable Verij state directory, separate from editable configuration.
+pub fn state_dir() -> Option<PathBuf> {
+    xdg_dir("XDG_STATE_HOME", ".local/state").map(|path| path.join("verij"))
+}
+
+/// Disposable generated-file cache directory.
+pub fn cache_dir() -> Option<PathBuf> {
+    xdg_dir("XDG_CACHE_HOME", ".cache").map(|path| path.join("verij"))
+}
+
+/// Short-lived runtime directory for Workspace attachment markers.
+pub fn runtime_dir() -> PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("verij")
+}
+
+fn xdg_dir(variable: &str, fallback: &str) -> Option<PathBuf> {
+    std::env::var_os(variable)
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(fallback)))
+}
+
+/// Resolves durable per-host attachment state, migrating legacy config-adjacent state.
 pub fn hosts_path() -> Option<PathBuf> {
-    config_path().map(|path| path.with_file_name("hosts.toml"))
+    state_file_path("hosts.toml")
+}
+
+/// Resolves durable host registration state, migrating legacy config-adjacent state.
+pub fn host_registry_path() -> Option<PathBuf> {
+    state_file_path("host-registry.toml")
+}
+
+fn state_file_path(name: &str) -> Option<PathBuf> {
+    let destination = state_dir()?.join(name);
+    if destination.exists() {
+        return Some(destination);
+    }
+
+    let legacy = config_dir()?.join(name);
+    if !legacy.exists() {
+        return Some(destination);
+    }
+
+    match migrate_legacy_state_file(&legacy, &destination) {
+        Ok(()) => Some(destination),
+        Err(error) => {
+            eprintln!(
+                "[verij] Warning: could not migrate {} to {}: {error}; continuing with legacy state",
+                legacy.display(),
+                destination.display()
+            );
+            Some(legacy)
+        }
+    }
+}
+
+fn migrate_legacy_state_file(legacy: &std::path::Path, destination: &std::path::Path) -> anyhow::Result<()> {
+    let content = std::fs::read_to_string(legacy)?;
+    toml::from_str::<toml::Value>(&content)
+        .map_err(|error| anyhow::anyhow!("legacy TOML is invalid: {error}"))?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("State path has no parent"))?;
+    std::fs::create_dir_all(parent)?;
+    let temporary = destination.with_extension(format!("toml.tmp-{}", std::process::id()));
+    std::fs::write(&temporary, content)?;
+    std::fs::rename(&temporary, destination)?;
+    std::fs::remove_file(legacy)?;
+    Ok(())
 }
 
 /// Loads durable host attachment state. Missing or invalid files fall back to empty state.
@@ -470,7 +537,7 @@ pane_default = "Workspace"
 single_click_action = true
 
 [zellij]
-# Zellij options applied when creating a Verij host.
+# Zellij options patched into generated configuration for Verij hosts.
 pane_frame_style = "titles"
 focus_follows_mouse = true
 
@@ -530,6 +597,52 @@ sidebar_width = "30%"
 
         let cfg: Config = toml::from_str("[tui]\n").unwrap();
         assert!(cfg.tui.single_click_action);
+    }
+
+    #[test]
+    fn migrates_valid_legacy_state_without_data_loss() {
+        let root = std::env::temp_dir().join(format!(
+            "verij-state-migration-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let legacy = root.join("config/hosts.toml");
+        let destination = root.join("state/hosts.toml");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, "[hosts.work]\nlast_session = \"backend\"\n").unwrap();
+
+        migrate_legacy_state_file(&legacy, &destination).unwrap();
+
+        assert!(!legacy.exists());
+        assert_eq!(
+            std::fs::read_to_string(&destination).unwrap(),
+            "[hosts.work]\nlast_session = \"backend\"\n"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_invalid_legacy_state_without_removing_it() {
+        let root = std::env::temp_dir().join(format!(
+            "verij-invalid-state-migration-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let legacy = root.join("config/hosts.toml");
+        let destination = root.join("state/hosts.toml");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, "not valid = [").unwrap();
+
+        assert!(migrate_legacy_state_file(&legacy, &destination).is_err());
+        assert!(legacy.exists());
+        assert!(!destination.exists());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

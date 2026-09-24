@@ -76,17 +76,18 @@ verij attach [SESSION] [--create]
 verij ui
 verij config init
 verij config path
+verij config zellij [--stdout]
 ```
 
 Hosts use exact requested names: `verij start --session-name work` creates `work`. Verij registers hosts in `host-registry.toml` rather than identifying them by prefix. Press `R` in sidebar to rename current host. Rename inner sessions freely in Zellij, but rename hosts through Verij, not Zellij session manager.
 
 ## Configuration
 
-Config path is `~/.config/verij/config.toml`, or `$XDG_CONFIG_HOME/verij/config.toml` when `XDG_CONFIG_HOME` is set. `host-registry.toml` stores registered host names and stable marker keys; `hosts.toml` stores each host's last attached inner session.
+Editable configuration is at `~/.config/verij`, or `$XDG_CONFIG_HOME/verij`. Durable state is at `~/.local/state/verij`, or `$XDG_STATE_HOME/verij`: `host-registry.toml` stores registered host names and stable marker keys, while `hosts.toml` stores each host's last attached inner session. Existing state files beside `config.toml` migrate automatically on first access. Generated layouts and host Zellij config are cache files under `~/.cache/verij` or `$XDG_CACHE_HOME/verij`; Workspace markers stay under `$XDG_RUNTIME_DIR/verij` or `/tmp/verij`.
 
 First `verij start` (or `verij attach --create`) and `verij config init` create `~/.config/verij/verij.kdl` if missing. File starts from bundled host layout; edits are never overwritten. Builds do not write to your home directory.
 
-Verij reads this user layout when **creating a new host**, replacing `{{verij_bin}}` with its executable path and `{{sidebar_width}}` with `--sidebar-width`, then `[workspace].sidebar_width`, then `25%`. Keep placeholders inside KDL quotes. Verij writes rendered result to runtime cache; your editable source remains unchanged. `verij start --layout PATH` uses that file literally, bypassing template rendering. Editing template does not alter a running or resurrected host; use a new host name to see layout changes.
+Verij reads this user layout when **creating a new host**, replacing `{{verij_bin}}` with its executable path and `{{sidebar_width}}` with `--sidebar-width`, then `[workspace].sidebar_width`, then `25%`. Keep placeholders inside KDL quotes. Verij writes rendered result to cache; your editable source remains unchanged. `verij start --layout PATH` uses that file literally, bypassing template rendering. Editing template does not alter a running or resurrected host; use a new host name to see layout changes.
 
 To apply edited layout to an existing host name instead, first remove that host session with `zellij delete-session -f NAME`, then run `verij start --session-name NAME`. Verij keeps its host registration and last inner-session choice; Zellij recreates the host from edited template. Save any additional host-only panes before deleting the old host session.
 
@@ -104,7 +105,7 @@ pane_frame_style = "titles"
 focus_follows_mouse = true
 ```
 
-`[tui].single_click_action` defaults to `true`, attaching or entering a selected tree item on one click; set it to `false` to restore double-click actions. Every scalar `[zellij]` entry is passed to Zellij as an option when creating a host: snake_case keys become kebab-case flags, so `scroll_buffer_size = 5000` becomes `--scroll-buffer-size 5000`. Strings, booleans, and integers are supported. Verij defaults `pane_frame_style` to `titles` and `focus_follows_mouse` to `true`; `[zellij]` entries override them. All inner sessions (including those created or resurrected by Verij) inherit normal `~/.config/zellij/config.kdl` options and default layout without Verij overrides. `[host]` is replaced by `[tui]` and `[zellij]`; recreate a host to apply changed `[zellij]` settings.
+`[tui].single_click_action` defaults to `true`, attaching or entering a selected tree item on one click; set it to `false` to restore double-click actions. Every scalar `[zellij]` entry structurally replaces matching root node in a generated copy of effective Zellij config. Strings, booleans, and integers are supported. Verij defaults `pane_frame_style` to `titles` and `focus_follows_mouse` to `true`; `[zellij]` entries override them. This preserves themes, keybinds, plugin aliases, and unrelated Zellij config. Inspect generated KDL with `verij config zellij --stdout`, or write it and print cache path with `verij config zellij`. Host creation, attachment, and resurrection use `zellij --config <generated-path>`; inner sessions use normal Zellij config without Verij overrides. Changed `[zellij]` values take effect for new or resurrected hosts; restart-only options cannot be retroactively applied to already-live Zellij server.
 
 `pane_format` supports:
 
