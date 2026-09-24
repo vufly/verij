@@ -66,6 +66,59 @@ pub fn rename(old: &str, new: &str) -> Result<()> {
     Ok(())
 }
 
+/// Remove registered hosts and/or orphan attachments as one maintenance operation.
+/// Attachment writes are rolled back if the registry write fails.
+pub fn remove_records(names: &[String]) -> Result<()> {
+    let registry_path = path()?;
+    let attachments_path = crate::config::hosts_path().context("Cannot determine host state path")?;
+    let registry = load()?;
+    let attachments = crate::config::load_hosts_checked()?;
+    remove_records_at(&registry_path, &attachments_path, &crate::config::runtime_dir(),
+        registry, attachments, names)
+}
+
+fn remove_records_at(
+    registry_path: &Path,
+    attachments_path: &Path,
+    runtime_dir: &Path,
+    mut registry: Registry,
+    mut attachments: crate::config::HostsConfig,
+    names: &[String],
+) -> Result<()> {
+    let original_attachments = attachments.clone();
+    let mut marker_keys = Vec::new();
+    let mut registry_changed = false;
+    let mut attachments_changed = false;
+    for name in names {
+        if let Some(host) = registry.hosts.remove(name) {
+            marker_keys.push(host.marker_key);
+            registry_changed = true;
+        }
+        attachments_changed |= attachments.hosts.remove(name).is_some();
+    }
+    if attachments_changed {
+        crate::config::write_hosts(attachments_path, &attachments)?;
+    }
+    if registry_changed {
+        if let Err(error) = save_at(registry_path, &registry) {
+            if attachments_changed {
+                crate::config::write_hosts(attachments_path, &original_attachments)
+                    .context("Failed to restore attachment state after registry write failure")?;
+            }
+            return Err(error);
+        }
+    }
+    for key in marker_keys {
+        let marker = runtime_dir.join(format!("workspace-{key}.session"));
+        match std::fs::remove_file(&marker) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).with_context(|| format!("Cannot remove {}", marker.display())),
+        }
+    }
+    Ok(())
+}
+
 impl Registry {
     fn rename_entry(&mut self, old: &str, new: &str) -> Result<()> {
         if self.hosts.contains_key(new) {
@@ -86,11 +139,15 @@ pub fn validate_name(name: &str) -> Result<()> {
 
 fn save(registry: &Registry) -> Result<()> {
     let path = path()?;
+    save_at(&path, registry)
+}
+
+fn save_at(path: &Path, registry: &Registry) -> Result<()> {
     let parent = path.parent().context("Registry has no parent")?;
     std::fs::create_dir_all(parent)?;
     let temp = path.with_extension(format!("toml.tmp-{}", std::process::id()));
     std::fs::write(&temp, toml::to_string_pretty(registry)?)?;
-    std::fs::rename(&temp, &path).with_context(|| format!("Cannot replace {}", path.display()))
+    std::fs::rename(&temp, path).with_context(|| format!("Cannot replace {}", path.display()))
 }
 
 /// Avoid reparsing attachment TOML when only the last inner session changes.
@@ -162,5 +219,38 @@ mod tests {
         registry.rename_entry("🔷v", "v").unwrap();
         assert_eq!(registry.hosts["v"].marker_key, "🔷v");
         assert!(!registry.hosts.contains_key("🔷v"));
+    }
+
+    #[test]
+    fn removal_cleans_host_and_attachment_state_without_touching_other_hosts() {
+        let root = std::env::temp_dir().join(format!("verij-removal-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let registry_path = root.join("state/host-registry.toml");
+        let attachment_path = root.join("state/hosts.toml");
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        let mut registry = Registry::default();
+        for (name, key) in [("gone", "stable-1"), ("keep", "stable-2")] {
+            registry.hosts.insert(name.into(), Host { marker_key: key.into() });
+            std::fs::write(runtime_dir.join(format!("workspace-{key}.session")), "inner").unwrap();
+        }
+        let mut attachments = crate::config::HostsConfig::default();
+        for name in ["gone", "keep", "orphan"] {
+            attachments.hosts.insert(name.into(), crate::config::HostAttachment { last_session: "inner".into() });
+        }
+        save_at(&registry_path, &registry).unwrap();
+        crate::config::write_hosts(&attachment_path, &attachments).unwrap();
+
+        remove_records_at(&registry_path, &attachment_path, &runtime_dir, registry, attachments,
+            &["gone".into(), "orphan".into()]).unwrap();
+
+        let saved: Registry = toml::from_str(&std::fs::read_to_string(&registry_path).unwrap()).unwrap();
+        let saved_attachments: crate::config::HostsConfig =
+            toml::from_str(&std::fs::read_to_string(&attachment_path).unwrap()).unwrap();
+        assert_eq!(saved.hosts.keys().map(String::as_str).collect::<Vec<_>>(), ["keep"]);
+        assert_eq!(saved_attachments.hosts.keys().map(String::as_str).collect::<Vec<_>>(), ["keep"]);
+        assert!(!runtime_dir.join("workspace-stable-1.session").exists());
+        assert!(runtime_dir.join("workspace-stable-2.session").exists());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

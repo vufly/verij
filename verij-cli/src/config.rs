@@ -432,6 +432,17 @@ pub fn load_hosts() -> HostsConfig {
     }
 }
 
+/// Load attachment state for maintenance without silently replacing invalid state.
+pub fn load_hosts_checked() -> anyhow::Result<HostsConfig> {
+    let path = hosts_path().ok_or_else(|| anyhow::anyhow!("Cannot determine host state path"))?;
+    match std::fs::read_to_string(&path) {
+        Ok(text) => toml::from_str(&text)
+            .map_err(|error| anyhow::anyhow!("Invalid {}: {error}", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(HostsConfig::default()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 /// Returns the last inner session attached to a host, if one was recorded.
 pub fn last_host_session(host: &str) -> Option<String> {
     load_hosts()
@@ -472,7 +483,7 @@ pub fn rename_host_attachment(old: &str, new: &str) -> anyhow::Result<()> {
 }
 
 
-fn write_hosts(path: &std::path::Path, hosts: &HostsConfig) -> anyhow::Result<()> {
+pub(crate) fn write_hosts(path: &std::path::Path, hosts: &HostsConfig) -> anyhow::Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Host state path has no parent"))?;

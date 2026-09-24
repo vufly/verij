@@ -13,6 +13,7 @@ use std::path::PathBuf;
 mod actions;
 mod config;
 mod fs_watcher;
+mod host;
 mod layout;
 mod registry;
 mod session;
@@ -43,6 +44,48 @@ enum Commands {
 
     /// Attach to an existing Verij Host Session.
     Attach(AttachArgs),
+
+    /// List registered host sessions with Zellij status.
+    List {
+        /// Show only live hosts (combine filters to include multiple statuses).
+        #[arg(long)]
+        live: bool,
+        /// Show only exited hosts.
+        #[arg(long)]
+        exited: bool,
+        /// Show only missing hosts.
+        #[arg(long)]
+        missing: bool,
+    },
+
+    /// Show a registered host's last attached inner session.
+    Show {
+        name: String,
+        /// Show whether this host exists in Zellij.
+        #[arg(long)]
+        check: bool,
+    },
+
+    /// Delete a registered host and its Verij state.
+    Delete {
+        name: String,
+        /// Also delete its Zellij session (requires --force if live).
+        #[arg(long)]
+        zellij: bool,
+        /// Allow deleting a live Zellij host session (requires --zellij).
+        #[arg(long, requires = "zellij")]
+        force: bool,
+    },
+
+    /// Remove host records for sessions no longer present in Zellij.
+    Prune {
+        /// List records that would be removed without changing state.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Rename a live host session in Zellij and Verij state.
+    Rename { old: String, new: String },
 
     /// Launch the interactive TUI sidebar directly.
     ///
@@ -260,6 +303,11 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Start(args) => handle_start(args),
         Commands::Attach(args) => handle_attach(args),
+        Commands::List { live, exited, missing } => host::list(live, exited, missing),
+        Commands::Show { name, check } => host::show(&name, check),
+        Commands::Delete { name, zellij, force } => host::delete(&name, zellij, force),
+        Commands::Prune { dry_run } => host::prune(dry_run),
+        Commands::Rename { old, new } => host::rename(&old, &new),
         Commands::Ui => {
             if let Ok(host) = std::env::var("ZELLIJ_SESSION_NAME") {
                 if let Some(key) = registry::marker_key(&host)? {

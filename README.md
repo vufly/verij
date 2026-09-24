@@ -73,6 +73,11 @@ The CLI also supports:
 verij start [--session-name NAME] [--sidebar-width WIDTH]
 verij start --layout PATH
 verij attach [SESSION] [--create]
+verij list [--live] [--exited] [--missing]
+verij show NAME [--check]
+verij delete NAME [--zellij [--force]]
+verij prune [--dry-run]
+verij rename OLD NEW
 verij ui
 verij config init
 verij config path
@@ -80,6 +85,22 @@ verij config zellij [--stdout]
 ```
 
 Hosts use exact requested names: `verij start --session-name work` creates `work`. Verij registers hosts in `host-registry.toml` rather than identifying them by prefix. Press `R` in sidebar to rename current host. Rename inner sessions freely in Zellij, but rename hosts through Verij, not Zellij session manager.
+
+### Host management
+
+`verij list` displays every registered host with its Zellij status: `live`, `exited` (resurrectable), or `missing` (no matching session). Use `--live`, `--exited`, and/or `--missing` to filter; multiple filters can be combined. Status checks compare exact names and fail if Zellij cannot be queried. `verij show work` displays its last attached inner session; add `--check` to include Zellij status.
+
+If a host was deleted using Zellij, inspect and clean up its Verij state:
+
+```bash
+verij list --missing
+verij prune --dry-run
+verij prune
+```
+
+`verij prune` removes missing hosts' registration, attachment record, and runtime marker, as well as orphan attachment records for missing names. It preserves live and exited Zellij sessions. `verij delete work` removes one missing host's Verij state. To remove its Zellij session too, use `verij delete work --zellij` for an exited host, or `verij delete work --zellij --force` for a live host. Verij checks that an existing Zellij session is a host before deleting it; inner sessions are untouched. `verij rename OLD NEW` renames a live host and its Verij state, like sidebar `R`. Attach an exited host before renaming it.
+
+Run `verij delete --zellij` outside the host being deleted, so the command can finish clearing its Verij state after Zellij stops that session.
 
 ## Configuration
 

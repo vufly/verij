@@ -119,6 +119,8 @@ The record stores attachment intent. `/tmp/verij/states/` and `/tmp/verij/worksp
 
 Press `R` in sidebar to rename host: Verij invokes Zellij `rename-session`, updates host registry and attachment key, and retains runtime marker key. Direct host rename in Zellij session manager is unsupported; rename it back before using Verij rename. Existing local `🔷v` host was migrated to `v` outside the application; no migration logic is embedded in Verij.
 
+CLI host management uses the same registry as the sidebar. `verij list` reads registered hosts even when they have no attachment record, checks one Zellij inventory, and reports `live`, `exited`, or `missing`; `--live`, `--exited`, and `--missing` filter results and can be combined. `verij show NAME` displays host attachment state; `--check` includes Zellij status. `verij prune [--dry-run]` removes only missing host registrations and missing orphan attachments, retaining exited sessions for resurrection. `verij delete NAME` removes state for one missing host; `--zellij` also deletes an existing verified host in Zellij (and requires `--force` for a live host). Both cleanup paths remove durable attachment state and the runtime marker keyed by the host's registry record. Zellij query failures abort cleanup; `verij rename OLD NEW` uses the same live-host rename logic as `R`.
+
 ### Attach
 
 When no Workspace session is known, Verij focuses the right pane and writes a shell command equivalent to:

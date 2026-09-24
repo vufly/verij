@@ -67,16 +67,36 @@ pub fn session_status(name: &str) -> Result<SessionStatus> {
 
 /// Returns the status of every session known to Zellij in one command.
 pub fn session_statuses() -> Result<BTreeMap<String, SessionStatus>> {
+    checked_session_statuses()
+}
+
+/// Management commands must distinguish an empty inventory from a failed query.
+pub fn checked_session_statuses() -> Result<BTreeMap<String, SessionStatus>> {
     let output = Command::new("zellij")
         .args(["list-sessions", "-n"])
         .output()
         .context("Failed to execute 'zellij list-sessions'")?;
 
-    if !output.status.success() {
+    // Zellij versions differ in where they print the empty-inventory message
+    // and whether they return a successful exit code for it.
+    if String::from_utf8_lossy(&output.stdout).trim() == "No active zellij sessions found."
+        || String::from_utf8_lossy(&output.stderr).trim() == "No active zellij sessions found."
+    {
         return Ok(BTreeMap::new());
     }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("'zellij list-sessions' failed: {}", stderr.trim());
+    }
 
-    Ok(String::from_utf8_lossy(&output.stdout)
+    Ok(parse_session_statuses(&String::from_utf8_lossy(&output.stdout)))
+}
+
+fn parse_session_statuses(output: &str) -> BTreeMap<String, SessionStatus> {
+    if output.trim() == "No active zellij sessions found." {
+        return BTreeMap::new();
+    }
+    output
         .lines()
         .filter_map(|line| {
             let line = line.trim();
@@ -88,24 +108,40 @@ pub fn session_statuses() -> Result<BTreeMap<String, SessionStatus>> {
             };
             Some((name.to_string(), status))
         })
-        .collect())
+        .collect()
 }
 
 pub fn is_verij_host(name: &str) -> Result<bool> {
     if matches!(session_status(name)?, SessionStatus::Live) {
-        let output = Command::new("zellij")
-            .args(["--session", name, "action", "list-panes", "--all", "--json"])
-            .output()?;
-        if output.status.success() {
-            let panes: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)?;
-            return Ok(panes.iter().any(|pane| pane.get("pane_command")
-                .or_else(|| pane.get("terminal_command"))
-                .and_then(|v| v.as_str())
-                .is_some_and(|cmd| cmd.contains("verij ui"))));
+        if let Some(is_host) = live_host_panes(name)? {
+            return Ok(is_host);
         }
     }
     let Some(layout) = resurrection_layout_path(name) else { return Ok(false); };
     Ok(crate::registry::is_host_layout(&layout))
+}
+
+/// Deleting a live session requires live pane evidence: an old serialized
+/// layout cannot establish the identity of a new session that reused its name.
+pub fn is_verij_host_for_deletion(name: &str) -> Result<bool> {
+    if matches!(session_status(name)?, SessionStatus::Live) {
+        return Ok(live_host_panes(name)?.unwrap_or(false));
+    }
+    is_verij_host(name)
+}
+
+fn live_host_panes(name: &str) -> Result<Option<bool>> {
+    let output = Command::new("zellij")
+        .args(["--session", name, "action", "list-panes", "--all", "--json"])
+        .output()?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let panes: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)?;
+    Ok(Some(panes.iter().any(|pane| pane.get("pane_command")
+        .or_else(|| pane.get("terminal_command"))
+        .and_then(|v| v.as_str())
+        .is_some_and(|cmd| cmd.contains("verij ui")))))
 }
 
 pub fn rename_host(old: &str, new: &str) -> Result<()> {
@@ -488,7 +524,7 @@ fn parse_session_status(output: &str, name: &str) -> SessionStatus {
 #[cfg(test)]
 mod tests {
     use super::{
-        host_attach_args, host_start_args, parse_session_status, resurrection_command,
+        host_attach_args, host_start_args, parse_session_status, parse_session_statuses, resurrection_command,
         terminal_tabs_have_tiled_plugin, SessionStatus,
     };
     use serde_json::json;
@@ -517,6 +553,16 @@ mod tests {
             parse_session_status(output, "backend"),
             SessionStatus::Missing
         );
+    }
+
+    #[test]
+    fn inventory_includes_exited_sessions_and_exact_names() {
+        let statuses = parse_session_statuses("host [Created 1m ago]\nhost-old [Created 2m ago] (EXITED - attach to resurrect)\n");
+        assert_eq!(statuses.get("host"), Some(&SessionStatus::Live));
+        assert_eq!(statuses.get("host-old"), Some(&SessionStatus::Exited));
+        assert_eq!(statuses.get("missing"), None);
+        assert!(parse_session_statuses("").is_empty());
+        assert!(parse_session_statuses("No active zellij sessions found.\n").is_empty());
     }
 
     #[test]
