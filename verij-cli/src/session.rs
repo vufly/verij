@@ -66,6 +66,32 @@ pub fn session_status(name: &str) -> Result<SessionStatus> {
     ))
 }
 
+/// Returns the status of every session known to Zellij in one command.
+pub fn session_statuses() -> Result<BTreeMap<String, SessionStatus>> {
+    let output = Command::new("zellij")
+        .args(["list-sessions", "-n"])
+        .output()
+        .context("Failed to execute 'zellij list-sessions'")?;
+
+    if !output.status.success() {
+        return Ok(BTreeMap::new());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            let name = line.split_whitespace().next()?;
+            let status = if line.contains("(EXITED") {
+                SessionStatus::Exited
+            } else {
+                SessionStatus::Live
+            };
+            Some((name.to_string(), status))
+        })
+        .collect())
+}
+
 pub fn is_verij_host(name: &str) -> Result<bool> {
     if matches!(session_status(name)?, SessionStatus::Live) {
         let output = Command::new("zellij")

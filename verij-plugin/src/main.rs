@@ -377,6 +377,7 @@ impl State {
             tabs: self.tabs.clone(),
             active_pane: self.active_pane.clone(),
             connected_clients: self.connected_clients,
+            needs_resurrection: false,
         };
 
         let json = match serde_json::to_string_pretty(&snapshot) {

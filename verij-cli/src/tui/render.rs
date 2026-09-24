@@ -138,6 +138,7 @@ fn node_to_list_item(
             name,
             is_current: _,
             is_attached,
+            needs_resurrection,
             is_collapsed,
             active_tab,
             tab_count,
@@ -150,8 +151,10 @@ fn node_to_list_item(
                 Style::default().fg(fold_fg).add_modifier(Modifier::BOLD),
             ));
 
-            // Session name — red fg when attached (active in workspace pane), even when selected
-            let name_fg = if *is_attached {
+            // Exited sessions require resurrection before they can be attached.
+            let name_fg = if *needs_resurrection && !is_selected {
+                c(colors.muted)
+            } else if *is_attached {
                 c(colors.attached_fg)
             } else {
                 session_fg

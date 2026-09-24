@@ -36,6 +36,10 @@ pub struct SessionSnapshot {
     /// `Some(0)` means all clients have detached.
     #[serde(default)]
     pub connected_clients: Option<usize>,
+    /// True when Zellij reports this session as exited and it must be resurrected
+    /// before it can be attached. This is populated by the CLI, not the plugin.
+    #[serde(default, skip_serializing)]
+    pub needs_resurrection: bool,
 }
 
 impl SessionSnapshot {
@@ -84,6 +88,7 @@ mod tests {
             ],
             active_pane: None,
             connected_clients: None,
+            needs_resurrection: false,
         }];
 
         let json = serde_json::to_string(&snapshot).expect("serialize");

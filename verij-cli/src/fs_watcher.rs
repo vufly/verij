@@ -52,14 +52,14 @@ pub fn read_all_states(hosts: &HashSet<String>, unknown: &mut HashMap<String, bo
         return Vec::new();
     };
 
-    let live_sessions = crate::session::list_sessions().ok();
+    let session_statuses = crate::session::session_statuses().ok();
 
     let mut sessions = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|s| s.to_str()) == Some("json") {
             if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(snapshot) = serde_json::from_str::<SessionSnapshot>(&content) {
+                if let Ok(mut snapshot) = serde_json::from_str::<SessionSnapshot>(&content) {
                     // Filter and remove any registered host session states.
                     if hosts.contains(&snapshot.name) || *unknown.entry(snapshot.name.clone())
                         .or_insert_with(|| crate::session::is_verij_host(&snapshot.name).unwrap_or(false)) {
@@ -67,12 +67,14 @@ pub fn read_all_states(hosts: &HashSet<String>, unknown: &mut HashMap<String, bo
                         continue;
                     }
 
-                    // If session is no longer active in Zellij, prune the orphaned file
-                    if let Some(ref live) = live_sessions {
-                        if !live.contains(&snapshot.name) {
+                    // Keep EXITED sessions so the sidebar can resurrect them, but remove
+                    // snapshots for sessions Zellij no longer knows about.
+                    if let Some(ref statuses) = session_statuses {
+                        let Some(status) = statuses.get(&snapshot.name) else {
                             let _ = std::fs::remove_file(&path);
                             continue;
-                        }
+                        };
+                        snapshot.needs_resurrection = matches!(status, crate::session::SessionStatus::Exited);
                     }
 
                     sessions.push(snapshot);

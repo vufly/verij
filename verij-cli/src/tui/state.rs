@@ -23,6 +23,7 @@ pub enum TreeNode {
         name: String,
         is_current: bool,
         is_attached: bool,
+        needs_resurrection: bool,
         is_collapsed: bool,
         active_tab: Option<String>,
         tab_count: usize,
@@ -391,6 +392,7 @@ impl AppState {
                 name: session.name.clone(),
                 is_current: session.is_current,
                 is_attached,
+                needs_resurrection: session.needs_resurrection,
                 is_collapsed,
                 active_tab,
                 tab_count,
@@ -442,7 +444,7 @@ mod tests {
                     },
                 ],
                 active_pane: None,
-                connected_clients: None,
+                connected_clients: None, needs_resurrection: false,
             },
             SessionSnapshot {
                 name: "frontend".to_string(),
@@ -454,6 +456,7 @@ mod tests {
                 }],
                 active_pane: None,
                 connected_clients: None,
+                needs_resurrection: false,
             },
         ]
     }
@@ -464,7 +467,7 @@ mod tests {
         let mut sessions = make_test_sessions();
         sessions.push(SessionSnapshot {
             name: "_vj_main".to_string(), is_current: false,
-            tabs: vec![], active_pane: None, connected_clients: None,
+            tabs: vec![], active_pane: None, connected_clients: None, needs_resurrection: false,
         });
         state.reconcile(sessions);
 
@@ -499,6 +502,22 @@ mod tests {
             .filter(|n| n.is_workspace_active_tab())
             .count();
         assert_eq!(active_count, 1);
+    }
+
+    #[test]
+    fn test_resurrectable_session_is_marked_in_tree() {
+        let mut state = AppState::default();
+        let mut sessions = make_test_sessions();
+        sessions[0].needs_resurrection = true;
+        state.reconcile(sessions);
+
+        assert!(matches!(
+            state.nodes[0],
+            TreeNode::Session {
+                needs_resurrection: true,
+                ..
+            }
+        ));
     }
 
     #[test]
