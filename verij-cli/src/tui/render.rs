@@ -8,13 +8,11 @@
 ///   - Selected cursor row uses theme-neutral pair `bg=243, fg=0`.
 ///   - Attached/active Workspace session row uses `bg=1 (Red), fg=255` (configurable).
 ///   - Active tab of attached session uses same red badge.
-
-
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 
@@ -41,7 +39,9 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
     // Only allocate status bar row if user toggled help with '?' or an error exists
     let show_bottom_bar = state.show_help || state.error.is_some();
     let (list_area, status_area) = if show_bottom_bar {
-        let [top, bottom] = split_vertical(area, Constraint::Min(0), Constraint::Length(1));
+        let status_height = status_bar_height(area.width, state).min(area.height);
+        let [top, bottom] =
+            split_vertical(area, Constraint::Min(0), Constraint::Length(status_height));
         (top, Some(bottom))
     } else {
         (area, None)
@@ -124,7 +124,11 @@ fn node_to_list_item(
     let is_workspace_active_tab = node.is_workspace_active_tab();
 
     let (fold_fg, session_fg, muted_fg) = if is_selected {
-        (c(colors.selected_fg), c(colors.selected_fg), c(colors.selected_fg))
+        (
+            c(colors.selected_fg),
+            c(colors.selected_fg),
+            c(colors.selected_fg),
+        )
     } else {
         (c(colors.muted), c(colors.session), c(colors.muted))
     };
@@ -235,7 +239,11 @@ fn node_to_list_item(
     let line = Line::from(spans);
     let mut item = ListItem::new(line);
     if is_selected {
-        item = item.style(Style::default().bg(c(colors.selected_bg)).fg(c(colors.selected_fg)));
+        item = item.style(
+            Style::default()
+                .bg(c(colors.selected_bg))
+                .fg(c(colors.selected_fg)),
+        );
     } else if is_workspace_active_tab {
         item = item.style(
             Style::default()
@@ -251,8 +259,20 @@ fn node_to_list_item(
 // ---------------------------------------------------------------------------
 
 fn render_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
+    let bar = Paragraph::new(Line::from(status_bar_content(state))).wrap(Wrap { trim: true });
+    frame.render_widget(bar, area);
+}
+
+fn status_bar_height(width: u16, state: &AppState) -> u16 {
+    Paragraph::new(Line::from(status_bar_content(state)))
+        .wrap(Wrap { trim: true })
+        .line_count(width)
+        .max(1) as u16
+}
+
+fn status_bar_content(state: &AppState) -> Span<'static> {
     let colors = &state.config.colors;
-    let content = if let Some(err) = &state.error {
+    if let Some(err) = &state.error {
         Span::styled(
             format!(" ✗ {err}"),
             Style::default()
@@ -261,7 +281,15 @@ fn render_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
         )
     } else if state.input_mode != super::state::InputMode::Normal {
         Span::styled(
-            format!(" {}: {}█  (Enter: confirm, Esc: cancel)", if state.input_mode == super::state::InputMode::RenameHost { "Rename Host" } else { "New Session" }, state.input_buffer),
+            format!(
+                " {}: {}█  (Enter: confirm, Esc: cancel)",
+                if state.input_mode == super::state::InputMode::RenameHost {
+                    "Rename Host"
+                } else {
+                    "New Session"
+                },
+                state.input_buffer
+            ),
             Style::default()
                 .fg(c(colors.title))
                 .add_modifier(Modifier::BOLD),
@@ -271,17 +299,43 @@ fn render_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
             " j/k: nav  Enter: attach  n: new  R: rename host  ?: hide  q: quit",
             Style::default().fg(c(colors.muted)),
         )
-    };
-
-    let bar = Paragraph::new(Line::from(content));
-    frame.render_widget(bar, area);
+    }
 }
 
 /// Renders a centered modal dialog for typing a new inner session name.
 fn render_new_session_dialog(frame: &mut Frame, area: Rect, state: &AppState) {
     let colors = &state.config.colors;
-    let dialog_width = (area.width.saturating_sub(4)).min(45).max(28);
-    let dialog_height = 5;
+    let dialog_width = area.width.saturating_sub(4).min(45);
+    if dialog_width < 3 || area.height < 3 {
+        return;
+    }
+
+    let cursor_char = if (state.tick / 3) % 2 == 0 {
+        "█"
+    } else {
+        " "
+    };
+    let text = vec![
+        Line::from(vec![
+            Span::styled(" Name: ", Style::default().fg(c(colors.muted))),
+            Span::styled(
+                state.input_buffer.clone(),
+                Style::default()
+                    .fg(c(colors.title))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(cursor_char, Style::default().fg(c(colors.current_mark))),
+        ]),
+        Line::from(Span::styled(
+            " Enter: confirm   Esc: cancel",
+            Style::default().fg(c(colors.muted)),
+        )),
+    ];
+    let dialog_height = (Paragraph::new(text.clone())
+        .wrap(Wrap { trim: true })
+        .line_count(dialog_width.saturating_sub(2)) as u16)
+        .saturating_add(2)
+        .min(area.height);
     let x = (area.width.saturating_sub(dialog_width)) / 2;
     let y = (area.height.saturating_sub(dialog_height)) / 2;
     let dialog_area = Rect::new(x, y, dialog_width, dialog_height);
@@ -291,7 +345,11 @@ fn render_new_session_dialog(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let block = Block::default()
         .title(Span::styled(
-            if state.input_mode == super::state::InputMode::RenameHost { " Rename Host " } else { " New Workspace Session " },
+            if state.input_mode == super::state::InputMode::RenameHost {
+                " Rename Host "
+            } else {
+                " New Workspace Session "
+            },
             Style::default()
                 .fg(c(colors.title))
                 .add_modifier(Modifier::BOLD),
@@ -299,24 +357,7 @@ fn render_new_session_dialog(frame: &mut Frame, area: Rect, state: &AppState) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(c(colors.current_mark)));
 
-    let cursor_char = if (state.tick / 3) % 2 == 0 { "█" } else { " " };
-    let text = vec![
-        Line::from(vec![
-            Span::styled(" Name: ", Style::default().fg(c(colors.muted))),
-            Span::styled(
-                &state.input_buffer,
-                Style::default()
-                    .fg(c(colors.title))
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(cursor_char, Style::default().fg(c(colors.current_mark))),
-        ]),
-        Line::from(vec![
-            Span::styled(" Enter: create   Esc: cancel", Style::default().fg(c(colors.muted))),
-        ]),
-    ];
-
-    let paragraph = Paragraph::new(text).block(block);
+    let paragraph = Paragraph::new(text).wrap(Wrap { trim: true }).block(block);
     frame.render_widget(paragraph, dialog_area);
 }
 
