@@ -150,15 +150,15 @@ This distinction matters because an inner session may have other clients. A glob
 
 For a target different from the current Workspace session:
 
-1. TUI records the target as active.
-2. TUI sends `switch:<target>` to the current inner agent:
+1. If target is `EXITED`, Verij resurrects it first with `zellij attach --force-run-commands`, then detaches the temporary client. A live target needs no preparation.
+2. TUI records target as active and sends `switch:<target>` to current inner agent:
 
    ```bash
    zellij -s <old> pipe --name verij_control -- switch:<target>
    ```
 
 3. The inner agent calls `switch_session(Some(target))` through the Zellij plugin API.
-4. Zellij switches the attached client in place.
+4. Zellij switches the attached client in place without encountering an exited session or suspended commands.
 5. TUI focuses the host Workspace pane and renames it using `pane_format`.
 
 If there is no active Workspace session, Verij performs the initial attach fallback instead.

@@ -44,6 +44,7 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 - Separate `host-registry.toml` registers hosts even when they have no inner attachment.
 - Live and exited Zellij hosts and inner sessions are distinguished during attach.
 - Exited hosts and inner sessions can be resumed through Zellij session resurrection.
+- Switching to an exited inner session force-resurrects it before the native switch so saved commands start without an Enter prompt.
 - Resurrection sanitizes stale suspended-command flags and waits for visible layout plugins before detaching.
 - Host resurrection rewrites stale serialized Workspace-pane attach commands to the durable target.
 

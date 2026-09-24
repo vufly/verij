@@ -420,7 +420,6 @@ fn dispatch_action(state: &mut AppState) -> Result<()> {
     let tab_position = node.tab_position();
 
     let old_active = state.active_session.clone();
-    state.active_session = Some(target_session.clone());
 
     // Session switches can use current metadata immediately. Tab switches update
     // the name from the next filesystem snapshot after Zellij changes focus.
@@ -440,6 +439,7 @@ fn dispatch_action(state: &mut AppState) -> Result<()> {
     if let Err(e) = result {
         state.error = Some(e.to_string());
     } else {
+        state.active_session = Some(target_session);
         if workspace_pane_name.is_some() {
             state.workspace_pane_name = workspace_pane_name;
         }

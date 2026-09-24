@@ -142,6 +142,8 @@ Workspace attachment state is host-local. Verij persists the last inner session 
 
 When a host or remembered inner session is listed by Zellij as `EXITED`, `verij attach` uses Zellij session resurrection with `--force-run-commands`. Live sessions use the normal attach path. Multiple hosts keep independent remembered inner sessions while sharing the sidebar's global session tree.
 
+Selecting another `EXITED` inner session in the sidebar also force-resurrects it before the native in-place switch, so saved pane commands start automatically. Sessions already resurrected elsewhere with suspended commands retain that state until those panes are started manually.
+
 To preserve pane viewport and scrollback across resurrection, enable these Zellij options:
 
 ```kdl

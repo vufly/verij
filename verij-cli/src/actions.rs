@@ -146,6 +146,19 @@ pub fn switch_session(
             }
         }
         Some(old) => {
+            // Native switch_session resurrects an EXITED target without Zellij's
+            // --force-run-commands option. Restore it explicitly first so its
+            // saved commands run rather than waiting for Enter in each pane.
+            match crate::session::session_status(target_session)? {
+                crate::session::SessionStatus::Exited => {
+                    crate::session::resurrect_session(target_session)?;
+                }
+                crate::session::SessionStatus::Live => {}
+                crate::session::SessionStatus::Missing => {
+                    anyhow::bail!("Session '{target_session}' is no longer available");
+                }
+            }
+
             // The Inception Switch: trigger switch from inside the current session
             inception_switch(old, target_session)?;
 
