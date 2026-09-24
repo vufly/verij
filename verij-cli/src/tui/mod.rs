@@ -383,7 +383,15 @@ fn handle_mouse(
             let target_index = offset + visual_index;
 
             if target_index < state.nodes.len() {
+                let clicked_caret = mouse.column <= 1
+                    && matches!(state.nodes.get(target_index), Some(state::TreeNode::Session { .. }));
                 state.select_index(target_index);
+
+                if clicked_caret {
+                    state.toggle_collapse();
+                    *last_click = None;
+                    return Ok(());
+                }
 
                 // Check for double click within 400ms
                 let now = Instant::now();
