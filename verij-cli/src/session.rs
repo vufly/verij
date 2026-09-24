@@ -1,5 +1,6 @@
-use crate::config::PaneFrameStyle;
+use crate::config::ZellijOption;
 use anyhow::{bail, Context, Result};
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -159,8 +160,7 @@ pub fn start_host_session(
     session_name: &str,
     layout_path: &Path,
     no_attach: bool,
-    frame_style: PaneFrameStyle,
-    focus_follows_mouse: bool,
+    zellij_options: &BTreeMap<String, ZellijOption>,
 ) -> Result<()> {
     match session_status(session_name)? {
         SessionStatus::Live | SessionStatus::Exited => {
@@ -177,23 +177,29 @@ pub fn start_host_session(
         SessionStatus::Missing => {}
     }
 
-    let layout_str = layout_path.to_string_lossy();
-    let focus_follows_mouse = if focus_follows_mouse { "true" } else { "false" };
-
     // Use -n (--new-session-with-layout) with -s to always create and attach to a new named session
     // with the given layout. In Zellij CLI, passing -l with -s treats it as adding tabs to an
     // existing session, which fails if the session does not already exist.
-    exec_zellij([
-        "-s",
-        session_name,
-        "-n",
-        &layout_str,
-        "options",
-        "--pane-frame-style",
-        frame_style.as_str(),
-        "--focus-follows-mouse",
-        focus_follows_mouse,
-    ])
+    exec_zellij(host_start_args(session_name, layout_path, zellij_options))
+}
+
+fn host_start_args(
+    session_name: &str,
+    layout_path: &Path,
+    zellij_options: &BTreeMap<String, ZellijOption>,
+) -> Vec<String> {
+    let mut args = vec![
+        "-s".to_string(),
+        session_name.to_string(),
+        "-n".to_string(),
+        layout_path.to_string_lossy().into_owned(),
+        "options".to_string(),
+    ];
+    for (name, value) in zellij_options {
+        args.push(format!("--{}", name.replace('_', "-")));
+        args.push(value.to_string());
+    }
+    args
 }
 
 /// Attaches to an existing host session.
@@ -402,7 +408,10 @@ fn parse_session_status(output: &str, name: &str) -> SessionStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_session_status, SessionStatus};
+    use super::{host_start_args, parse_session_status, SessionStatus};
+    use crate::config::ZellijOption;
+    use std::collections::BTreeMap;
+    use std::path::Path;
 
     #[test]
     fn parses_live_exited_and_missing_sessions() {
@@ -445,6 +454,41 @@ mod tests {
         assert_eq!(
             super::rewrite_host_workspace_attach(layout, "new"),
             "layout {\n    pane command=\"zellij\" {\n        args \"attach\" \"--force-run-commands\" \"new\"\n    }\n}\n"
+        );
+    }
+
+    #[test]
+    fn builds_host_start_options_from_sorted_config_entries() {
+        let options = BTreeMap::from([
+            (
+                "focus_follows_mouse".to_string(),
+                ZellijOption::Boolean(true),
+            ),
+            (
+                "pane_frame_style".to_string(),
+                ZellijOption::String("titles".to_string()),
+            ),
+            (
+                "scroll_buffer_size".to_string(),
+                ZellijOption::Integer(5000),
+            ),
+        ]);
+
+        assert_eq!(
+            host_start_args("host", Path::new("/tmp/host.kdl"), &options),
+            vec![
+                "-s",
+                "host",
+                "-n",
+                "/tmp/host.kdl",
+                "options",
+                "--focus-follows-mouse",
+                "true",
+                "--pane-frame-style",
+                "titles",
+                "--scroll-buffer-size",
+                "5000",
+            ]
         );
     }
 }

@@ -157,6 +157,7 @@ fn handle_start(args: StartArgs) -> Result<()> {
     }
 
     let layout_path = layout_for_new_host(&args, &cfg, host_name)?;
+    let zellij_options = cfg.zellij.host_options();
 
     registry::register(host_name)?;
     session::restore_last_inner_session(host_name)?;
@@ -164,8 +165,7 @@ fn handle_start(args: StartArgs) -> Result<()> {
         host_name,
         &layout_path,
         args.no_attach,
-        cfg.host.pane_frame_style,
-        cfg.host.focus_follows_mouse,
+        &zellij_options,
     )
 }
 

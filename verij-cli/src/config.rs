@@ -11,6 +11,13 @@
 /// default_mode = "descend"   # "ask" | "fullscreen" | "descend"
 /// sidebar_width = "25%"
 ///
+/// [tui]
+/// single_click_action = true
+///
+/// [zellij]
+/// pane_frame_style = "titles"
+/// focus_follows_mouse = true
+///
 /// [colors]
 /// title        = 6   # Cyan
 /// session      = 4   # Blue
@@ -45,39 +52,69 @@ pub enum WorkspaceMode {
     Descend,
 }
 
-/// Zellij pane-frame style overridden only for Verij host sessions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PaneFrameStyle {
-    Full,
-    Titles,
-    None,
+/// A scalar value accepted by Zellij's `options` command.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum ZellijOption {
+    Boolean(bool),
+    Integer(i64),
+    String(String),
 }
 
-impl PaneFrameStyle {
-    pub fn as_str(self) -> &'static str {
+impl std::fmt::Display for ZellijOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Full => "full",
-            Self::Titles => "titles",
-            Self::None => "none",
+            Self::Boolean(value) => value.fmt(f),
+            Self::Integer(value) => value.fmt(f),
+            Self::String(value) => f.write_str(value),
         }
     }
 }
 
+/// Verij TUI behavior options.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
-pub struct HostConfig {
-    pub pane_frame_style: PaneFrameStyle,
-    /// Focus Host panes when mouse pointer enters them (default: true).
-    pub focus_follows_mouse: bool,
+pub struct TuiConfig {
+    /// Attach or enter selected tree item from a single mouse click (default: true).
+    #[serde(default = "default_true")]
+    pub single_click_action: bool,
 }
 
-impl Default for HostConfig {
+impl Default for TuiConfig {
     fn default() -> Self {
         Self {
-            pane_frame_style: PaneFrameStyle::Titles,
-            focus_follows_mouse: true,
+            single_click_action: true,
         }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Zellij options applied when creating a Verij host session.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ZellijConfig {
+    #[serde(flatten)]
+    pub options: BTreeMap<String, ZellijOption>,
+}
+
+impl ZellijConfig {
+    /// Merge Verij host defaults with user-supplied Zellij options.
+    pub fn host_options(&self) -> BTreeMap<String, ZellijOption> {
+        let mut options = BTreeMap::from([
+            (
+                "focus_follows_mouse".to_string(),
+                ZellijOption::Boolean(true),
+            ),
+            (
+                "pane_frame_style".to_string(),
+                ZellijOption::String("titles".to_string()),
+            ),
+        ]);
+        options.extend(self.options.clone());
+        options
     }
 }
 
@@ -237,7 +274,8 @@ fn render_conditionals(template: &str, values: &[(&str, Option<&str>)]) -> Strin
 #[serde(default)]
 pub struct Config {
     pub workspace: WorkspaceConfig,
-    pub host: HostConfig,
+    pub tui: TuiConfig,
+    pub zellij: ZellijConfig,
     pub colors: ColorConfig,
 }
 
@@ -427,11 +465,13 @@ pane_format = "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}"
 # Workspace pane name when no inner session is attached yet.
 pane_default = "Workspace"
 
-[host]
-# Host sidebar/Workspace pane frames; keeps host compact.
-pane_frame_style = "titles"
+[tui]
+# Attach or enter a tree item with one click instead of a double-click.
+single_click_action = true
 
-# Focus Host panes when mouse pointer enters them.
+[zellij]
+# Zellij options applied when creating a Verij host.
+pane_frame_style = "titles"
 focus_follows_mouse = true
 
 [colors]
@@ -466,8 +506,15 @@ mod tests {
         assert_eq!(cfg.colors.active_fg, 255);
         assert_eq!(cfg.colors.selected_bg, 15);
         assert_eq!(cfg.colors.selected_fg, 8);
-        assert_eq!(cfg.host.pane_frame_style, PaneFrameStyle::Titles);
-        assert!(cfg.host.focus_follows_mouse);
+        assert!(cfg.tui.single_click_action);
+        assert_eq!(
+            cfg.zellij.host_options()["pane_frame_style"],
+            ZellijOption::String("titles".to_string())
+        );
+        assert_eq!(
+            cfg.zellij.host_options()["focus_follows_mouse"],
+            ZellijOption::Boolean(true)
+        );
     }
 
     #[test]
@@ -480,17 +527,26 @@ sidebar_width = "30%"
         assert_eq!(cfg.workspace.sidebar_width, "30%");
         // defaults preserved for unset keys
         assert_eq!(cfg.colors.active_bg, 1);
+
+        let cfg: Config = toml::from_str("[tui]\n").unwrap();
+        assert!(cfg.tui.single_click_action);
     }
 
     #[test]
-    fn test_host_frame_style_override() {
+    fn test_zellij_options_override() {
         let cfg: Config = toml::from_str(
-            "[host]\npane_frame_style = 'none'\nfocus_follows_mouse = false\n",
+            "[tui]\nsingle_click_action = false\n\n[zellij]\npane_frame_style = 'none'\nfocus_follows_mouse = false\nscroll_buffer_size = 5000\n",
         )
         .unwrap();
-        assert_eq!(cfg.host.pane_frame_style, PaneFrameStyle::None);
-        assert!(!cfg.host.focus_follows_mouse);
-        assert!(toml::from_str::<Config>("[host]\npane_frame_style = 'invalid'\n").is_err());
+        let options = cfg.zellij.host_options();
+        assert!(!cfg.tui.single_click_action);
+        assert_eq!(
+            options["pane_frame_style"],
+            ZellijOption::String("none".to_string())
+        );
+        assert_eq!(options["focus_follows_mouse"], ZellijOption::Boolean(false));
+        assert_eq!(options["scroll_buffer_size"], ZellijOption::Integer(5000));
+        assert!(toml::from_str::<Config>("[zellij]\nmouse_mode = []\n").is_err());
     }
 
 

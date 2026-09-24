@@ -96,12 +96,15 @@ sidebar_width = "25%"
 pane_format = "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}"
 pane_default = "Workspace"
 
-[host]
+[tui]
+single_click_action = true
+
+[zellij]
 pane_frame_style = "titles"
 focus_follows_mouse = true
 ```
 
-`[host].pane_frame_style` overrides Zellij's frame style for the Verij host only; it accepts `full`, `titles`, or `none`. `[host].focus_follows_mouse` defaults to `true`, focusing the sidebar or Workspace pane when hovered. All inner sessions (including those created or resurrected by Verij) inherit normal `~/.config/zellij/config.kdl` options and default layout without Verij overrides. To give inner sessions full frames, set `pane_frame_style "full"` in Zellij config; the host remains `titles`. Existing hosts apply the new frame style when their sidebar restarts; recreate a host to apply a changed mouse-focus setting.
+`[tui].single_click_action` defaults to `true`, attaching or entering a selected tree item on one click; set it to `false` to restore double-click actions. Every scalar `[zellij]` entry is passed to Zellij as an option when creating a host: snake_case keys become kebab-case flags, so `scroll_buffer_size = 5000` becomes `--scroll-buffer-size 5000`. Strings, booleans, and integers are supported. Verij defaults `pane_frame_style` to `titles` and `focus_follows_mouse` to `true`; `[zellij]` entries override them. All inner sessions (including those created or resurrected by Verij) inherit normal `~/.config/zellij/config.kdl` options and default layout without Verij overrides. `[host]` is replaced by `[tui]` and `[zellij]`; recreate a host to apply changed `[zellij]` settings.
 
 `pane_format` supports:
 
@@ -126,8 +129,7 @@ Recent `tab_format` and `tab_default` keys remain accepted as compatibility alia
 | `h` / `Left` | Collapse or select parent |
 | `l` / `Right` | Expand or enter tab list |
 | `Enter` | Attach session or switch tab |
-| Mouse click | Select item |
-| Mouse double-click | Attach or switch |
+| Mouse click | Attach or switch (select only when `single_click_action = false`) |
 | `n`, `c`, `+` | Create inner session |
 | `R` | Rename current host session |
 | `?` | Toggle help |

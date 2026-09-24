@@ -4,7 +4,7 @@
 ///
 /// Handles:
 ///   1. Keyboard input (navigation, fold/unfold, actions, shortcuts).
-///   2. Mouse input (click to select, double-click to attach, wheel scroll).
+///   2. Mouse input (select/attach, caret folding, wheel scroll).
 ///   3. Session snapshot messages from the filesystem watcher (`/tmp/verij/states/`).
 ///   4. Tick-based spinner animation for empty/connecting states.
 ///   5. Dynamic terminal resize handling.
@@ -36,12 +36,6 @@ use state::{AppState, InputMode};
 
 /// Launch the Verij TUI.
 pub async fn run(config: Config) -> Result<()> {
-    // Override pane-frame style only in the host session.
-    let _ = std::process::Command::new("zellij")
-        .args(["action", "set-pane-frame-style", config.host.pane_frame_style.as_str()])
-        .stdin(std::process::Stdio::null())
-        .status();
-
     enable_raw_mode().context("Failed to enable raw mode")?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
@@ -363,7 +357,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
     Ok(false)
 }
 
-/// Process mouse events (click, double click, scroll wheel).
+/// Process mouse events (click, scroll wheel).
 fn handle_mouse(
     state: &mut AppState,
     mouse: MouseEvent,
@@ -389,6 +383,12 @@ fn handle_mouse(
 
                 if clicked_caret {
                     state.toggle_collapse();
+                    *last_click = None;
+                    return Ok(());
+                }
+
+                if state.config.tui.single_click_action {
+                    dispatch_action(state)?;
                     *last_click = None;
                     return Ok(());
                 }
