@@ -258,7 +258,7 @@ pub fn clear_workspace_session() -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 struct HostPaneInfo {
     id: u32,
     is_plugin: bool,
@@ -267,9 +267,8 @@ struct HostPaneInfo {
     title: String,
 }
 
-/// Returns title of pane immediately right of current TUI pane.
-/// Used to recover attachment state from hosts created before the marker existed.
-pub fn workspace_pane_title() -> Result<Option<String>> {
+/// Returns pane immediately right of current TUI pane.
+fn workspace_pane() -> Result<Option<HostPaneInfo>> {
     let output = Command::new("zellij")
         .args(["action", "list-panes", "--tab", "--json"])
         .output()
@@ -299,15 +298,22 @@ pub fn workspace_pane_title() -> Result<Option<String>> {
         .iter()
         .filter(|pane| !pane.is_plugin && pane.pane_x > current.pane_x)
         .min_by_key(|pane| pane.pane_x)
-        .map(|pane| pane.title.clone()))
+        .cloned())
 }
 
-/// Renames the currently focused pane in the host session.
-///
-/// The caller must focus the Workspace pane before invoking this action.
+/// Returns title of pane immediately right of current TUI pane.
+/// Used to recover attachment state from hosts created before the marker existed.
+pub fn workspace_pane_title() -> Result<Option<String>> {
+    Ok(workspace_pane()?.map(|pane| pane.title))
+}
+
+/// Renames host Workspace pane, explicitly targeting pane right of sidebar.
 pub fn rename_workspace_pane(name: &str) -> Result<()> {
+    let pane_id = workspace_pane()?
+        .map(|pane| pane.id.to_string())
+        .context("Failed to identify host Workspace pane")?;
     let status = Command::new("zellij")
-        .args(["action", "rename-pane", name])
+        .args(["action", "rename-pane", "--pane-id", &pane_id, name])
         .status()
         .context("Failed to rename workspace pane")?;
 
