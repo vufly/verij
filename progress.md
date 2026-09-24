@@ -9,9 +9,9 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 - `verij start` creates or attaches to an exact-name registered host session.
 - `verij attach` attaches to an existing host session or creates one with `--create`.
 - `verij ui` runs the Ratatui sidebar.
-- Generated host KDL embeds native CLI path, sidebar width, Verij pane, and Workspace pane; no host state-export plugin.
+- Host KDL comes from editable `~/.config/verij/verij.kdl`; runtime rendering inserts native CLI path and sidebar width, with no host state-export plugin.
 - Plugin path resolution supports CLI argument, environment variable, executable-relative, development, user, and system paths.
-- Config helpers provide `verij config init` and `verij config path`.
+- `verij config init` and first `verij start` create missing layout template without overwriting user edits; `verij config path` prints config path.
 - Host sessions override pane-frame style via `[host]` (default `titles`); inner sessions inherit Zellij's default config unchanged.
 
 ### Sidebar And Navigation

@@ -1,5 +1,9 @@
 use anyhow::{bail, Context, Result};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+
+const DEFAULT_LAYOUT: &str = include_str!("../../layouts/verij.kdl");
 
 // ---------------------------------------------------------------------------
 // Layout configuration
@@ -9,9 +13,6 @@ use std::path::{Path, PathBuf};
 pub struct LayoutConfig {
     pub verij_bin: String,
     pub sidebar_size: String,
-    pub sidebar_name: String,
-    pub workspace_name: String,
-    pub tab_name: String,
 }
 
 impl Default for LayoutConfig {
@@ -19,9 +20,6 @@ impl Default for LayoutConfig {
         Self {
             verij_bin: "verij".to_string(),
             sidebar_size: "25%".to_string(),
-            sidebar_name: "Verij".to_string(),
-            workspace_name: "Workspace".to_string(),
-            tab_name: "Verij Host".to_string(),
         }
     }
 }
@@ -146,43 +144,84 @@ pub fn get_cache_dir() -> Result<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
-// KDL generation
+// User-owned KDL template and runtime rendering
 // ---------------------------------------------------------------------------
 
-/// Generates a KDL layout string matching the Host Session structure.
-pub fn generate_kdl(config: &LayoutConfig) -> String {
-    format!(
-        r#"layout {{
-    default_tab_template {{
-        children
-    }}
-    tab name="{tab_name}" {{
-        pane split_direction="vertical" {{
-            pane size="{sidebar_size}" name="{sidebar_name}" {{
-                command "{verij_bin}"
-                args "ui"
-            }}
-            pane name="{workspace_name}" borderless=true
-        }}
-    }}
-}}
-"#,
-        tab_name = config.tab_name,
-        sidebar_size = config.sidebar_size,
-        sidebar_name = config.sidebar_name,
-        verij_bin = config.verij_bin,
-        workspace_name = config.workspace_name,
-    )
+/// User-owned host template; independent of the source checkout at runtime.
+pub fn user_layout_path() -> Result<PathBuf> {
+    Ok(crate::config::config_path()
+        .context("Cannot determine Verij config directory")?
+        .with_file_name("verij.kdl"))
 }
 
-/// Writes the generated KDL layout to the cache directory and returns its path.
-pub fn write_layout_file(config: &LayoutConfig) -> Result<PathBuf> {
+/// Install the bundled layout only when missing, preserving user edits.
+pub fn init_user_layout() -> Result<PathBuf> {
+    let path = user_layout_path()?;
+    if init_user_layout_at(&path)? {
+        eprintln!("[verij] Created host layout at {}", path.display());
+    }
+    Ok(path)
+}
+
+fn init_user_layout_at(path: &Path) -> Result<bool> {
+    let parent = path.parent().context("Layout path has no parent")?;
+    std::fs::create_dir_all(parent)?;
+    match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(mut file) => {
+            if let Err(error) = file.write_all(DEFAULT_LAYOUT.as_bytes()) {
+                drop(file);
+                let _ = std::fs::remove_file(path);
+                return Err(error).with_context(|| format!("Failed to initialize {}", path.display()));
+            }
+            Ok(true)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(error) => Err(error).with_context(|| format!("Failed to create {}", path.display())),
+    }
+}
+
+/// Insert runtime values into an editable KDL template without changing that template.
+pub fn render_layout(template: &str, config: &LayoutConfig) -> Result<String> {
+    let mut rendered = String::with_capacity(template.len());
+    let mut remaining = template;
+    while let Some(start) = remaining.find("{{") {
+        rendered.push_str(&remaining[..start]);
+        let placeholder = &remaining[start + 2..];
+        let Some(end) = placeholder.find("}}") else {
+            bail!("Unclosed Verij layout placeholder: {}", &remaining[start..]);
+        };
+        match &placeholder[..end] {
+            "verij_bin" => rendered.push_str(&escape_kdl_string(&config.verij_bin)),
+            "sidebar_width" => rendered.push_str(&escape_kdl_string(&config.sidebar_size)),
+            key => bail!("Unknown Verij layout placeholder: {{{{{key}}}}}"),
+        }
+        remaining = &placeholder[end + 2..];
+    }
+    rendered.push_str(remaining);
+    Ok(rendered)
+}
+
+fn escape_kdl_string(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
+/// Render user KDL into a cache file Zellij can load as a new host layout.
+pub fn write_layout_file(config: &LayoutConfig, session_name: &str) -> Result<PathBuf> {
+    crate::registry::validate_name(session_name)?;
+    let path = init_user_layout()?;
+    let template = std::fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read user layout {}", path.display()))?;
+    let content = render_layout(&template, config)?;
     let cache_dir = get_cache_dir()?;
     std::fs::create_dir_all(&cache_dir)
         .with_context(|| format!("Failed to create cache directory: {}", cache_dir.display()))?;
 
-    let layout_file = cache_dir.join("layout.kdl");
-    let content = generate_kdl(config);
+    let layout_file = cache_dir.join(format!("layout-{session_name}.kdl"));
     std::fs::write(&layout_file, content)
         .with_context(|| format!("Failed to write layout file: {}", layout_file.display()))?;
 
@@ -198,21 +237,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_generate_kdl_output() {
+    fn test_render_embedded_layout() {
         let config = LayoutConfig {
             verij_bin: "/usr/bin/verij".to_string(),
             sidebar_size: "30%".to_string(),
-            sidebar_name: "Tree".to_string(),
-            workspace_name: "Main".to_string(),
-            tab_name: "Workspace Host".to_string(),
         };
 
-        let kdl = generate_kdl(&config);
-        assert!(kdl.contains("tab name=\"Workspace Host\""));
-        assert!(kdl.contains("pane size=\"30%\" name=\"Tree\""));
+        let kdl = render_layout(DEFAULT_LAYOUT, &config).unwrap();
+        assert!(kdl.contains("tab name=\"Verij Host\""));
+        assert!(kdl.contains("pane size=\"30%\" name=\"Verij\""));
         assert!(kdl.contains("command \"/usr/bin/verij\""));
         assert!(kdl.contains("args \"ui\""));
-        assert!(kdl.contains("pane name=\"Main\" borderless=true"));
+        assert!(kdl.contains("pane name=\"Workspace\" borderless=true"));
         assert!(!kdl.contains("plugin location="));
         assert!(kdl.contains("default_tab_template {"));
     }
@@ -221,9 +257,6 @@ mod tests {
     fn test_default_config() {
         let config = LayoutConfig::default();
         assert_eq!(config.sidebar_size, "25%");
-        assert_eq!(config.sidebar_name, "Verij");
-        assert_eq!(config.workspace_name, "Workspace");
-        assert_eq!(config.tab_name, "Verij Host");
     }
 
     #[test]
@@ -238,19 +271,40 @@ mod tests {
     }
 
     #[test]
-    fn test_write_layout_file() {
-        let config = LayoutConfig {
-            verij_bin: "/test/bin/verij".to_string(),
-            sidebar_size: "20%".to_string(),
-            sidebar_name: "Sidebar".to_string(),
-            workspace_name: "Work".to_string(),
-            tab_name: "Test Tab".to_string(),
-        };
+    fn test_init_layout_preserves_user_edits() {
+        let path = std::env::temp_dir().join(format!(
+            "verij-layout-test-{}-{}.kdl",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(init_user_layout_at(&path).unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), DEFAULT_LAYOUT);
+        std::fs::write(&path, "pane size=\"{{sidebar_width}}\" name=\"Custom\"\n").unwrap();
+        assert!(!init_user_layout_at(&path).unwrap());
+        let edited = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(edited, "pane size=\"{{sidebar_width}}\" name=\"Custom\"\n");
+        assert_eq!(render_layout(&edited, &LayoutConfig::default()).unwrap(),
+            "pane size=\"25%\" name=\"Custom\"\n");
+        std::fs::remove_file(path).unwrap();
+    }
 
-        let path = write_layout_file(&config).expect("write_layout_file should succeed");
-        assert!(path.exists());
-        let content = std::fs::read_to_string(&path).expect("read layout file");
-        assert!(content.contains("pane size=\"20%\" name=\"Sidebar\""));
-        assert!(content.contains("tab name=\"Test Tab\""));
+    #[test]
+    fn test_template_escaping_and_unknown_placeholders() {
+        let config = LayoutConfig {
+            verij_bin: "some\\path\"quote".into(),
+            sidebar_size: "20%".into(),
+        };
+        assert_eq!(
+            render_layout("command \"{{verij_bin}}\"", &config).unwrap(),
+            "command \"some\\\\path\\\"quote\"");
+        assert!(render_layout("{{invalid}}", &config).is_err());
+        let config = LayoutConfig {
+            verij_bin: "{{sidebar_width}}".into(),
+            sidebar_size: "20%".into(),
+        };
+        assert_eq!(render_layout("{{verij_bin}}", &config).unwrap(), "{{sidebar_width}}");
     }
 }

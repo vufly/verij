@@ -51,6 +51,8 @@ Verij hosts use exact requested names, tracked in `host-registry.toml`. Generate
 
 The host layout needs no state-export plugin. Each inner session runs its own distributed agent.
 
+`layouts/verij.kdl` is embedded in CLI as the starter template. On first `verij start` / `verij attach --create` or `verij config init`, Verij creates the XDG-aware `verij.kdl` next to `config.toml` if missing. New host startup reads that user-owned template, escapes and substitutes `{{verij_bin}}` and `{{sidebar_width}}`, and passes a rendered cache file to Zellij. CLI width overrides TOML width; explicit `--layout` bypasses template rendering. Existing live or exited hosts retain their Zellij layout on attach/resurrection; changing the template affects only newly created hosts.
+
 ## Inner Sessions
 
 An inner session is an ordinary Zellij session such as `backend`, `frontend`, or `infra`. Its agent:

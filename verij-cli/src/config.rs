@@ -385,6 +385,7 @@ fn write_hosts(path: &std::path::Path, hosts: &HostsConfig) -> anyhow::Result<()
 /// Write a starter config file to `~/.config/verij/config.toml` if it does
 /// not already exist.  Used by `verij config init`.
 pub fn write_default_config() -> anyhow::Result<()> {
+    crate::layout::init_user_layout()?;
     let path = config_path()
         .ok_or_else(|| anyhow::anyhow!("Cannot determine config path (HOME not set?)"))?;
 

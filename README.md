@@ -71,6 +71,7 @@ The CLI also supports:
 
 ```bash
 verij start [--session-name NAME] [--sidebar-width WIDTH]
+verij start --layout PATH
 verij attach [SESSION] [--create]
 verij ui
 verij config init
@@ -82,6 +83,12 @@ Hosts use exact requested names: `verij start --session-name work` creates `work
 ## Configuration
 
 Config path is `~/.config/verij/config.toml`, or `$XDG_CONFIG_HOME/verij/config.toml` when `XDG_CONFIG_HOME` is set. `host-registry.toml` stores registered host names and stable marker keys; `hosts.toml` stores each host's last attached inner session.
+
+First `verij start` (or `verij attach --create`) and `verij config init` create `~/.config/verij/verij.kdl` if missing. File starts from bundled host layout; edits are never overwritten. Builds do not write to your home directory.
+
+Verij reads this user layout when **creating a new host**, replacing `{{verij_bin}}` with its executable path and `{{sidebar_width}}` with `--sidebar-width`, then `[workspace].sidebar_width`, then `25%`. Keep placeholders inside KDL quotes. Verij writes rendered result to runtime cache; your editable source remains unchanged. `verij start --layout PATH` uses that file literally, bypassing template rendering. Editing template does not alter a running or resurrected host; use a new host name to see layout changes.
+
+To apply edited layout to an existing host name instead, first remove that host session with `zellij delete-session -f NAME`, then run `verij start --session-name NAME`. Verij keeps its host registration and last inner-session choice; Zellij recreates the host from edited template. Save any additional host-only panes before deleting the old host session.
 
 ```toml
 [workspace]

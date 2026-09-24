@@ -37,9 +37,7 @@ struct Cli {
 enum Commands {
     /// Start the Verij Host Session.
     ///
-    /// Generates a dynamic KDL layout referencing the TUI sidebar and WASM
-    /// plugin, then launches Zellij. If the session already exists, automatically
-    /// attaches to it (unless --no-attach is specified).
+    /// Renders user-owned Verij layout, then starts or attaches host session.
     Start(StartArgs),
 
     /// Attach to an existing Verij Host Session.
@@ -58,9 +56,7 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ConfigCommands {
-    /// Write a starter config file to ~/.config/verij/config.toml.
-    ///
-    /// No-op if the file already exists.
+    /// Create missing config.toml and verij.kdl without overwriting user edits.
     Init,
 
     /// Print the path of the config file that would be loaded.
@@ -73,7 +69,7 @@ pub struct StartArgs {
     #[arg(short = 's', long, default_value = "verij")]
     pub session_name: String,
 
-    /// Path to a custom KDL layout file (overrides automatic generation).
+    /// Path to a literal KDL layout file (overrides user Verij template).
     #[arg(short = 'l', long)]
     pub layout: Option<PathBuf>,
 
@@ -81,9 +77,9 @@ pub struct StartArgs {
     #[arg(short = 'p', long)]
     pub plugin_path: Option<PathBuf>,
 
-    /// Width of the sidebar pane as a percentage (e.g. "25%").
-    #[arg(long, default_value = "25%")]
-    pub sidebar_width: String,
+    /// Override [workspace].sidebar_width for this new host (e.g. "25%").
+    #[arg(long)]
+    pub sidebar_width: Option<String>,
 
     /// Fail with an error if the host session already exists instead of attaching.
     #[arg(long)]
@@ -115,8 +111,29 @@ fn verify_host(name: &str) -> Result<()> {
     bail!("'{name}' is not a registered Verij host. Do not rename hosts with Zellij session manager; use Verij's Rename Host action.")
 }
 
+fn effective_sidebar_width(cli: Option<&str>, cfg: &config::Config) -> String {
+    cli.unwrap_or(&cfg.workspace.sidebar_width).to_string()
+}
+
+fn layout_for_new_host(args: &StartArgs, cfg: &config::Config, host_name: &str) -> Result<PathBuf> {
+    if let Some(custom) = &args.layout {
+        if !custom.exists() {
+            bail!("Specified layout file does not exist: {}", custom.display());
+        }
+        return Ok(custom.clone());
+    }
+
+    layout::resolve_plugin_path(args.plugin_path.as_deref())?;
+    let layout_config = layout::LayoutConfig {
+        verij_bin: layout::resolve_verij_bin(),
+        sidebar_size: effective_sidebar_width(args.sidebar_width.as_deref(), cfg),
+    };
+    layout::write_layout_file(&layout_config, host_name)
+}
+
 fn handle_start(args: StartArgs) -> Result<()> {
     let cfg = config::Config::load();
+    layout::init_user_layout()?;
     let host_name = args.session_name.as_str();
 
     match session::session_status(&host_name)? {
@@ -139,23 +156,7 @@ fn handle_start(args: StartArgs) -> Result<()> {
         session::SessionStatus::Missing => {}
     }
 
-    let layout_path = if let Some(custom) = args.layout {
-        if !custom.exists() {
-            bail!("Specified layout file does not exist: {}", custom.display());
-        }
-        custom
-    } else {
-        layout::resolve_plugin_path(args.plugin_path.as_deref())?;
-        let verij_bin = layout::resolve_verij_bin();
-
-        let layout_config = layout::LayoutConfig {
-            verij_bin,
-            sidebar_size: args.sidebar_width,
-            ..Default::default()
-        };
-
-        layout::write_layout_file(&layout_config)?
-    };
+    let layout_path = layout_for_new_host(&args, &cfg, host_name)?;
 
     registry::register(host_name)?;
     session::restore_last_inner_session(host_name)?;
@@ -168,7 +169,6 @@ fn handle_start(args: StartArgs) -> Result<()> {
 }
 
 fn handle_attach(args: AttachArgs) -> Result<()> {
-    let cfg = config::Config::load();
     let host_name = args.session_name.as_str();
     let status = session::session_status(&host_name)?;
 
@@ -184,7 +184,7 @@ fn handle_attach(args: AttachArgs) -> Result<()> {
             session_name: args.session_name,
             layout: None,
             plugin_path: None,
-            sidebar_width: cfg.workspace.sidebar_width.clone(),
+            sidebar_width: None,
             no_attach: false,
         })
     } else {
@@ -202,6 +202,43 @@ fn handle_attach(args: AttachArgs) -> Result<()> {
             args.session_name,
             args.session_name
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidebar_width_uses_cli_then_config_then_default() {
+        let defaults = config::Config::default();
+        assert_eq!(effective_sidebar_width(None, &defaults), "25%");
+        let config: config::Config = toml::from_str("[workspace]\nsidebar_width = '32%'\n").unwrap();
+        assert_eq!(effective_sidebar_width(None, &config), "32%");
+        assert_eq!(effective_sidebar_width(Some("18%"), &config), "18%");
+    }
+
+    #[test]
+    fn explicit_layout_bypasses_rendering_and_plugin_search() {
+        let path = std::env::temp_dir().join(format!(
+            "verij-literal-{}-{}.kdl",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, "layout { tab name=\"custom\" }\n").unwrap();
+        let args = StartArgs {
+            session_name: "test".into(),
+            layout: Some(path.clone()),
+            plugin_path: Some(PathBuf::from("/missing/verij_plugin.wasm")),
+            sidebar_width: Some("18%".into()),
+            no_attach: false,
+        };
+        assert_eq!(layout_for_new_host(&args, &config::Config::default(), "test").unwrap(), path);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "layout { tab name=\"custom\" }\n");
+        std::fs::remove_file(path).unwrap();
     }
 }
 

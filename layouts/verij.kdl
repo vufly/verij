@@ -1,14 +1,14 @@
 layout {
-    // Override the global default_tab_template so zjstatus is not appended to
-    // the host session tab (it belongs only in inner sessions via default.kdl).
+    // Verij renders placeholders when starting a new host session.
+    // Edit installed copy under $XDG_CONFIG_HOME/verij or ~/.config/verij.
     default_tab_template {
         children
     }
 
     tab name="Verij Host" {
         pane split_direction="vertical" {
-            pane size="25%" name="Verij" {
-                command "target/release/verij"
+            pane size="{{sidebar_width}}" name="Verij" {
+                command "{{verij_bin}}"
                 args "ui"
             }
             pane name="Workspace" borderless=true
