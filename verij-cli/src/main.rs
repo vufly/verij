@@ -5,6 +5,7 @@
 /// Dispatches CLI subcommands via clap:
 ///   - `verij start`  — launch a new Verij Host Session with dynamic layout.
 ///   - `verij attach` — attach to an existing Verij Host Session.
+///   - `verij recover` — restore a host session's complete layout.
 ///   - `verij ui`     — launch the Ratatui TUI sidebar (used inside host layout).
 use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
@@ -86,6 +87,11 @@ enum Commands {
 
     /// Rename a live host session in Zellij and Verij state.
     Rename { old: String, new: String },
+
+    /// Restore a live host's complete Verij layout.
+    ///
+    /// Without a host name, restores the host session this command runs inside.
+    Recover { name: Option<String> },
 
     /// Launch the interactive TUI sidebar directly.
     ///
@@ -308,6 +314,7 @@ async fn main() -> Result<()> {
         Commands::Delete { name, zellij, force } => host::delete(&name, zellij, force),
         Commands::Prune { dry_run } => host::prune(dry_run),
         Commands::Rename { old, new } => host::rename(&old, &new),
+        Commands::Recover { name } => host::recover(name.as_deref()),
         Commands::Ui => {
             if let Ok(host) = std::env::var("ZELLIJ_SESSION_NAME") {
                 if let Some(key) = registry::marker_key(&host)? {

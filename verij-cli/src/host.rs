@@ -171,6 +171,63 @@ pub fn rename(old: &str, new: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn recover(name: Option<&str>) -> Result<()> {
+    let name = match name {
+        Some(name) => name.to_owned(),
+        None => std::env::var("ZELLIJ_SESSION_NAME")
+            .context("Recover requires a host name outside a Zellij host session")?,
+    };
+    let marker_key = registry::marker_key(&name)?
+        .with_context(|| format!("Host '{name}' is not registered"))?;
+    if !matches!(session::session_status(&name)?, SessionStatus::Live) {
+        bail!("Host '{name}' must be live to recover its layout");
+    }
+
+    let config = config::Config::load();
+    let layout = crate::layout::write_layout_file(
+        &crate::layout::LayoutConfig {
+            verij_bin: crate::layout::resolve_verij_bin(),
+            sidebar_size: config.workspace.sidebar_width,
+        },
+        &name,
+    )?;
+    let marker = config::runtime_dir().join(format!("workspace-{marker_key}.session"));
+    let previous_marker = match std::fs::read(&marker) {
+        Ok(content) => {
+            std::fs::remove_file(&marker)
+                .with_context(|| format!("Cannot clear Workspace marker for host '{name}'"))?;
+            Some(content)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error).with_context(|| format!("Cannot read Workspace marker for host '{name}'")),
+    };
+
+    let status = match Command::new("zellij")
+        .args(["--session", &name, "action", "override-layout"])
+        .arg(&layout)
+        .status()
+    {
+        Ok(status) => status,
+        Err(error) => {
+            if let Some(content) = &previous_marker {
+                std::fs::write(&marker, content)
+                    .context("Failed to restore Workspace marker after layout recovery failed")?;
+            }
+            return Err(error).context("Failed to execute 'zellij action override-layout'");
+        }
+    };
+    if !status.success() {
+        if let Some(content) = &previous_marker {
+            std::fs::write(&marker, content)
+                .context("Failed to restore Workspace marker after layout recovery failed")?;
+        }
+        bail!("Zellij could not recover host '{name}' layout: {status}");
+    }
+
+    println!("Recovered host '{name}' layout");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

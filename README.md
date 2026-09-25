@@ -78,6 +78,7 @@ verij show NAME [--check]
 verij delete NAME [--zellij [--force]]
 verij prune [--dry-run]
 verij rename OLD NEW
+verij recover [HOST]
 verij ui
 verij config init
 verij config path
@@ -99,6 +100,8 @@ verij prune
 ```
 
 `verij prune` removes missing hosts' registration, attachment record, and runtime marker, as well as orphan attachment records for missing names. It preserves live and exited Zellij sessions. `verij delete work` removes one missing host's Verij state. To remove its Zellij session too, use `verij delete work --zellij` for an exited host, or `verij delete work --zellij --force` for a live host. Verij checks that an existing Zellij session is a host before deleting it; inner sessions are untouched. `verij rename OLD NEW` renames a live host and its Verij state, like sidebar `R`. Attach an exited host before renaming it.
+
+`verij recover` restores the complete layout of the live host session it runs inside. Use `verij recover HOST` from anywhere to restore that named live host. Recovery re-renders the current Verij host template and replaces the complete host layout, restoring Sidebar and Workspace panes but discarding additional host-only panes and tabs. It preserves the remembered inner session, while clearing its runtime Workspace attachment so the restored sidebar can reconnect safely.
 
 Run `verij delete --zellij` outside the host being deleted, so the command can finish clearing its Verij state after Zellij stops that session.
 
