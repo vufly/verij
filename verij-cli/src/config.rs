@@ -120,8 +120,8 @@ pub struct TreeRowStyles {
 }
 
 // These formats, rather than rendering branches, define the default appearance.
-pub const DEFAULT_SESSION_FORMAT: &str = "#{?selected,,#[fg=muted]}#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}";
-pub const DEFAULT_TAB_FORMAT: &str = "#{branch} #{?active,#{?selected,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#[fg=active_fg,bold]#{tab_name}#[default]},#{tab_name}}";
+pub const DEFAULT_SESSION_FORMAT: &str = "#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}";
+pub const DEFAULT_TAB_FORMAT: &str = "#{branch} #{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}";
 
 impl Default for TreeConfig {
     fn default() -> Self {
@@ -142,7 +142,7 @@ impl Default for TreeConfig {
             tab_styles: TreeRowStyles {
                 normal: "".into(),
                 selected: "fg=selected_fg,bg=selected_bg".into(),
-                active: "fg=active_fg,bg=active_bg".into(),
+                active: "".into(),
                 both: "fg=selected_fg,bg=selected_bg".into(),
             },
         }
@@ -618,8 +618,8 @@ single_click_action = true
 # Tree formats use #{variable}, #{?flag,then,else}, and #[fg=color,bg=color,bold].
 # Colors can reference keys in [colors]. See README for available variables.
 [tui.tree]
-session_format = '#{?selected,,#[fg=muted]}#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}'
-tab_format = '#{branch} #{?active,#{?selected,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#[fg=active_fg,bold]#{tab_name}#[default]},#{tab_name}}'
+session_format = '#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}'
+tab_format = '#{branch} #{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}'
 fold_collapsed = "▷"
 fold_expanded = "▽"
 branch_first = "├" # first of multiple tabs; a single tab uses branch_last
@@ -635,7 +635,7 @@ both = "fg=selected_fg,bg=selected_bg"
 [tui.tree.tab_styles]
 normal = ""
 selected = "fg=selected_fg,bg=selected_bg"
-active = "fg=active_fg,bg=active_bg"
+active = ""
 both = "fg=selected_fg,bg=selected_bg"
 
 [zellij]
@@ -694,6 +694,7 @@ mod tests {
         assert_eq!(starter.tui.tree.session_format, defaults.tui.tree.session_format);
         assert_eq!(starter.tui.tree.tab_format, defaults.tui.tree.tab_format);
         assert_eq!(starter.tui.tree.branch_first, defaults.tui.tree.branch_first);
+        assert_eq!(starter.tui.tree.tab_styles.active, defaults.tui.tree.tab_styles.active);
         assert_eq!(starter.tui.tree.tab_styles.both, defaults.tui.tree.tab_styles.both);
 
         let partial: Config = toml::from_str("[tui.tree]\nbranch_first = '╞'\n").unwrap();

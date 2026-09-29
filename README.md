@@ -186,7 +186,7 @@ Conditions: `selected` (sidebar cursor), `active` (attached session or its activ
 [tui.tree.tab_styles]
 normal = ""
 selected = "fg=selected_fg,bg=selected_bg"
-active = "fg=active_fg,bg=active_bg"
+active = ""
 both = "fg=selected_fg,bg=selected_bg"
 ```
 

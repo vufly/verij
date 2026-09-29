@@ -638,6 +638,8 @@ mod tests {
         );
         let selected = output(&formatter, &expanded, &snap, true, false, false, false);
         assert_eq!(selected.base.bg, Some(Color::Indexed(15)));
+        assert_eq!(selected.spans[0].style.fg, Some(Color::Indexed(8)));
+        assert_eq!(selected.spans[0].style.bg, Some(Color::Indexed(15)));
         assert_eq!(
             selected
                 .spans
@@ -650,12 +652,10 @@ mod tests {
         );
 
         let collapsed = session(true, false);
-        assert_eq!(
-            content(&output(
-                &formatter, &collapsed, &snap, false, false, false, false
-            )),
-            "▷ backend [editor] (3 tabs)"
-        );
+        let collapsed_row = output(&formatter, &collapsed, &snap, false, false, false, false);
+        assert_eq!(content(&collapsed_row), "▷ backend [editor] (3 tabs)");
+        assert_eq!(collapsed_row.spans[0].style.fg, None);
+        assert_eq!(collapsed_row.spans[0].style.bg, None);
         let attached = session(true, true);
         let attached_row = output(&formatter, &attached, &snap, false, true, false, false);
         assert_eq!(content(&attached_row), "▷ backend  [editor]  (3 tabs)");
@@ -802,8 +802,18 @@ mod tests {
             *is_workspace_active = true;
         }
         let active_row = output(&formatter, &active, &snap, false, true, true, false);
-        assert_eq!(content(&active_row), "╞ editor");
-        assert_eq!(active_row.base.bg, Some(Color::Indexed(1)));
+        assert_eq!(content(&active_row), "╞  editor ");
+        assert_eq!(active_row.base.bg, None);
+        assert_eq!(active_row.spans[0].style.bg, None);
+        assert_eq!(active_row.spans[0].style.fg, None);
+        let badge = active_row
+            .spans
+            .iter()
+            .find(|span| span.content == "editor")
+            .unwrap();
+        assert_eq!(badge.style.fg, Some(Color::Indexed(255)));
+        assert_eq!(badge.style.bg, Some(Color::Indexed(1)));
+        assert!(badge.style.add_modifier.contains(Modifier::BOLD));
         let both = output(&formatter, &active, &snap, true, true, true, false);
         assert_eq!(content(&both), "╞  editor ");
         assert_eq!(both.base.bg, Some(Color::Indexed(15)));
