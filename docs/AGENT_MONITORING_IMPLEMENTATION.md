@@ -95,20 +95,23 @@ Do not register a blanket `PreToolUse` hook returning `allow` merely to observe 
 
 **Deliverable:** supported-state/capability matrix and real payload fixtures. Explicit question detection must be verified before advertising complete Needs input coverage; if no neutral signal exists, document the limitation and conservative Unknown handling rather than invent a terminal-text heuristic.
 
-### G4. Magy pane-backed review lifecycle
+### G4. Magy pane-backed watch lifecycle
 
-Verify both interactive launch and reviewed execution in Magy:
+Verify both `pane_start` interactive launch and `watch_start` execution in Magy:
 
 - Resolve identity inside the new pane, not from the launching MCP server.
-- Confirm lifecycle hooks run in headless reviews and how profile sync installs them.
-- Distinguish Agy execution completion from the review runner's final process exit.
-- Verify the recorded pane ID/session/run identity against the actual pane.
+- Validate Magy's `watch_id` (`watch_<hex>`), `state.json` session/pane ID, `runner_pid`/`runner_create_time`, and `MAGY_WATCH_ID`/`MAGY_RUN_ID` bindings against the actual Zellij pane. Do not treat a custom `mux_cmd` PID as a Zellij terminal ID.
+- Verify watch `pty.log` streaming NDJSON (`init`, `step_update`, `result`) and final `state.json` status (`completed`, `failed`, `cancelled`) as sources for activity and outcome. Tool-level `ERROR` is not necessarily a failed run; final `result` and watch state decide. A stream `result` describes Agy execution; Magy's watch may still fail during final Git snapshot/diff processing.
+- Distinguish Agy execution completion from the watch runner's final process exit and Magy's detached monitor closing its pane.
+- Check whether Agy lifecycle hooks add any needed signals in headless mode; watch monitoring must work without an interactive status-line callback.
 - Verify synthetic homes use the same reporter executable and runtime directory.
 - Ensure pane-less detached runs cannot register against an inherited parent pane.
 
-Magy's current implementation creates review panes around a runner and records run/pane metadata. If hooks alone cannot establish ownership or final lifecycle, add a small optional Magy bridge using the same Verij protocol. Such a change belongs to the Magy repository and must be explicitly tracked as a dependency; it is not already provided by this design.
+Magy's `watches.py` persists watch state under its `watches/<watch_id>/` directory; `watch_runner.py` writes NDJSON to `pty.log`, records runner identity and conversation ID, and `watch_monitor.py` finalizes state and closes the pane. Prefer reading these existing records or binding a small observer in Verij. If a new Magy runner hook is required for reliable live pane ownership or outcome, track that change explicitly as a dependency in the Magy repository.
 
-**Deliverable:** a working headless review observation path, including cancellation and auto-close cleanup.
+An observer should discover the effective Magy state directory without assuming it shares Verij's runtime path, watch new `state.json` records, and tail only the bound watch's NDJSON from a saved byte offset. Reconcile startup and log rotation/truncation without replaying a completion twice. Do not read `request.json` (it contains prompts) for identity or display. Track a watch only while its live Zellij pane matches the recorded session and pane ID; on terminal watch state, runner exit, or pane auto-close, remove the row when pane/process absence is confirmed. `pane_start` without a watch ID continues through the normal interactive Agy adapter.
+
+**Deliverable:** a working Zellij-backed watch observation path, including cancellation and auto-close cleanup.
 
 ## 3. Identity Model
 
@@ -140,13 +143,13 @@ Allocate a new `AgentInstanceId` for each process/run lifetime and bind it to:
 - `PaneKey`.
 - Agent kind (`opencode` or `agy`).
 - Process PID and start token, or an equivalent verified runner-owned identity.
-- Optional runner identity such as a Magy review ID.
+- Optional runner identity such as a Magy `watch_id`.
 
 Changing conversations within one live TUI need not replace the pane row or process instance. Starting another process in the same terminal must create a new instance. Native child conversations do not become new pane instances.
 
 Environment variables `ZELLIJ_SESSION_NAME` and `ZELLIJ_PANE_ID` are candidate locators. Validate them against the pane's real process tree or a verified runner binding before accepting observations. This prevents inherited environment in detached descendants or shared servers from creating false rows.
 
-Process ancestry alone is also insufficient: an agent tool can launch another agent with inherited environment while redirecting its input/output away from the pane. Establish that the monitored TUI belongs to the pane's terminal/foreground job, or that a trusted pane-backed runner explicitly owns and renders the run. Use the latter path for Magy reviews. The persistent process or runner is the liveness owner, never a short-lived report subprocess.
+Process ancestry alone is also insufficient: an agent tool can launch another agent with inherited environment while redirecting its input/output away from the pane. Establish that the monitored TUI belongs to the pane's terminal/foreground job, or that a trusted pane-backed runner explicitly owns and renders the run. Use the latter path for Magy watches. The persistent process or runner is the liveness owner, never a short-lived report subprocess.
 
 Session rename can leave old environment values in a process. Use the established runtime binding and current inventory to resolve the new name instead of rejecting a valid instance or writing under the old name forever.
 
@@ -299,7 +302,8 @@ Use a pure, testable reducer for normalized execution facts. Keep host-local pre
 | Pane location/title/existence | Current Zellij inventory. |
 | Agent-process existence | Verified process/runner liveness. |
 | Interactive Agy current activity and permission dialog | Current UI callback snapshot. |
-| Agy execution outcome | Verified lifecycle stop, qualified by turn and `fullyIdle`; runner outcome where needed. |
+| Interactive Agy execution outcome | Verified lifecycle stop, qualified by turn and `fullyIdle`. |
+| Magy watched-run activity/outcome | Bound watch runner's `pty.log` NDJSON and watch `state.json`, validated against the live Zellij pane. |
 | OpenCode current work/input/outcome | Verified events plus current-state reconciliation for the locally bound conversation family. |
 | Completion acknowledgement | Host-local acknowledgement store only. |
 
@@ -504,11 +508,11 @@ Existing configurations remain valid. `config init` should write the complete ne
 4. **Exact pane navigation:** implement client-scoped, cancellable navigation and verify tiled/floating/stacked/cross-session targets before wiring click actions.
 5. **Three-level TUI:** add nodes, folds, stable selection, formatting, status animation, and parent summaries using fixture records first.
 6. **OpenCode adapter:** support the verified installed API, recovery mid-turn, family filtering, and local pane binding.
-7. **Agy and Magy integration:** compose interactive callback, install neutral hooks, cover headless review identity/outcomes and synthetic homes.
+7. **Agy and Magy integration:** compose interactive callback, install neutral hooks, and bind Zellij-backed Magy watches to their NDJSON/state and synthetic homes.
 8. **Setup/diagnostics/documentation:** make installation repeatable, advertise supported versions/capabilities, and update user-facing controls/configuration docs.
 9. **Acceptance verification:** run focused automated checks and the live matrix below. Record any upstream limitations accurately.
 
-The feature is complete only when both MVP agents and pane-backed Magy reviews pass the applicable scenarios. A tree fed solely by synthetic records or process-name detection is not a completed monitoring feature.
+The feature is complete only when both MVP agents and Zellij-backed Magy watches pass the applicable scenarios. A tree fed solely by synthetic records or process-name detection is not a completed monitoring feature.
 
 ## 11. Verification
 
@@ -555,8 +559,8 @@ Adapter fixtures should come from the installed versions and include documented 
 | Target moves or closes during navigation | Follow verified move, or report unavailable target without false acknowledgement. |
 | Quit agent back to its shell | Agent child disappears; session/tab remain. |
 | Magy interactive profile | Status/title updates work with synthetic home. |
-| Magy headless review | Review pane appears and reports lifecycle without requiring TUI callback. |
-| Review completes and pane auto-closes | Node disappears; no retained completion tombstone. |
+| Magy `watch_start` in Zellij | Watched pane appears and reports working/outcome from bound NDJSON/state without requiring TUI callback. |
+| Watched run completes or is cancelled and pane auto-closes | Node disappears; no retained completion tombstone. |
 | Pane-less detached Magy run | No false child on launcher pane. |
 | Restart sidebar while agent runs | Correct current state and host acknowledgement recover. |
 | Rename inner session or reload plugin | No duplicate/ghost agent rows and navigation uses current session name. |

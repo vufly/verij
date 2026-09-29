@@ -10,7 +10,7 @@ This document records the agreed MVP behavior for coding agent monitoring in Ver
 |---|---|
 | Hierarchy | Extend the sidebar to **Session → Tab → Agent pane**. |
 | Row ownership | Each agent row represents an actual Zellij terminal pane containing a supported agent. |
-| MVP agents | OpenCode and Antigravity CLI (`agy`), including Magy interactive sessions and pane-backed review runs. |
+| MVP agents | OpenCode and Antigravity CLI (`agy`), including Magy interactive panes (`pane_start`) and Zellij-backed watched runs (`watch_start`). |
 | Installation | Install adapters once, then launch agents normally. A Verij-specific agent launcher is not required. |
 | Activation | Click or Enter attaches the correct inner session, reveals and focuses the target pane, and transfers keyboard focus to the host Workspace pane. |
 | Hidden panes | Floating panes and collapsed stack members remain discoverable and must be revealed when activated. |
@@ -29,8 +29,8 @@ The MVP monitors live, local, pane-backed agents across Verij's inner Zellij ses
 The MVP includes:
 
 - Normal interactive `opencode` and `agy` invocations after adapter installation.
-- Magy interactive Agy panes, including their profile-specific environments.
-- Magy review runs that execute in user-facing panes, even though Agy runs in print/headless mode inside those panes.
+- Magy interactive Agy panes (`pane_start`), including their profile-specific environments.
+- Magy watched runs (`watch_start`) displayed in Zellij floating panes, even though Agy runs in print/headless mode inside those panes.
 - Initial state recovery when the sidebar starts after an agent.
 - Live status, title, pane-movement, and process-exit updates.
 - Host-local completion acknowledgement and exact pane navigation.
@@ -299,7 +299,7 @@ Inner verij-plugin ── session/tab/pane snapshots ──┐
 OpenCode bridge ──┐                                ▼
                  ├─ native reporter ── agent records ── watcher/reducer ── tree
 Agy callbacks ───┤                                ▲
-Magy run data ───┘                                │
+Magy watch data ──┘                                │
                                       host-local acknowledgements
 ```
 
@@ -349,7 +349,7 @@ Use the current documented structured interfaces:
 - The interactive status-line callback exposes `agent_state`, `tool_confirmation_pending`, `conversation_id`, and `task_count`.
 - Lifecycle hooks expose invocation and execution-stop information, including `terminationReason`, `error`, and `fullyIdle`.
 
-The interactive callback supplies current activity and permission-wait state. Lifecycle hooks supplement successful completion and failures and cover print/headless execution in a pane. Agy's callback command must compose with an existing user status-line command rather than silently replace it.
+The interactive callback supplies current activity and permission-wait state. Lifecycle hooks supplement successful completion and failures for interactive Agy; they may also help with other print/headless execution in a pane. Magy watched runs use their bound NDJSON stream and watch state as the primary source. Agy's callback command must compose with an existing user status-line command rather than silently replace it.
 
 Mapping constraints:
 
@@ -361,13 +361,13 @@ Mapping constraints:
 
 ### 8.3 Magy
 
-Magy interactive panes use the Agy adapter, with pane association resolved in the newly created pane rather than in the MCP server that launched it.
+Magy `pane_start` panes use the Agy adapter, with pane association resolved in the newly created pane rather than in the MCP server that launched it.
 
-Magy review panes run Agy headlessly inside a user-facing runner pane. Their monitoring must not depend on an interactive status-line callback. Use verified lifecycle hooks and, where needed, a small explicit runner bridge for pane identity, process start/exit, and run outcome.
+Magy `watch_start` runs Agy headlessly inside a user-facing floating Zellij pane. Its runner already stores `watch_id`, session, pane ID, runner PID/start time, and outcome in Magy's watch state; it records Agy `stream-json` events in `pty.log` while rendering human-readable progress in the pane. Use the verified watch/pane binding and stream/state to derive working and final outcome. Agy hooks can supplement this path but the watch must not depend on an interactive status-line callback. A custom `mux_cmd` that does not create a Zellij pane is outside this Zellij tree.
 
 Magy changes `$HOME` for account isolation. Adapter installation and runtime discovery must work across those profile homes. Prefer an absolute reporter executable path and a shared per-user runtime location; do not create separate agent registries under each synthetic home.
 
-A completed review pane normally closes automatically. Its row is removed immediately once closure is confirmed. The Done badge can be transient or unobservable in that case; this is intentional. Review history and results remain with Magy.
+A completed watched-run pane normally closes automatically. Its row is removed immediately once closure is confirmed. The Done badge can be transient or unobservable in that case; this is intentional. Watch history and results remain with Magy.
 
 ## 9. Failure and Compatibility Behavior
 
