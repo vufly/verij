@@ -2,6 +2,8 @@
 
 This document describes the current Verij implementation: Zellij host sessions, a Ratatui sidebar, distributed WASM agents in inner sessions, filesystem state synchronization, native in-place session switching, and durable host-local attachment recovery.
 
+The approved, not-yet-implemented extension for coding agent monitoring is documented in [Agent Monitoring Design](AGENT_MONITORING.md) and its [implementation guide](AGENT_MONITORING_IMPLEMENTATION.md). It adds agent-pane children under tabs, adapter-reported status, exact pane navigation, and host-local completion acknowledgement.
+
 ## Design
 
 Verij separates host orchestration from inner-session state:

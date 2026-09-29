@@ -80,6 +80,7 @@ make dev
 
 ## Roadmap
 
+- Implement the approved [agent monitoring design](docs/AGENT_MONITORING.md) for OpenCode, Agy, and Magy pane-backed reviews. The [implementation guide](docs/AGENT_MONITORING_IMPLEMENTATION.md) defines adapter contracts, three-level tree behavior, pane navigation, and acceptance checks.
 - Validate live host rename after restarting existing sidebar with new binary; local `🔷v` → `v` migration was done once outside the product.
 - Add end-to-end coverage for host resurrection and inner-session resurrection.
 - Add coverage for manual Workspace detach, multiple inner clients, multiple hosts, and custom layouts.
