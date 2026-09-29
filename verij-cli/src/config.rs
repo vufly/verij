@@ -78,18 +78,86 @@ pub struct TuiConfig {
     /// Attach or enter selected tree item from a single mouse click (default: true).
     #[serde(default = "default_true")]
     pub single_click_action: bool,
+    /// Session/tab row templates, glyphs and state styles.
+    pub tree: TreeConfig,
 }
 
 impl Default for TuiConfig {
     fn default() -> Self {
         Self {
             single_click_action: true,
+            tree: TreeConfig::default(),
         }
     }
 }
 
 fn default_true() -> bool {
     true
+}
+
+/// Tmux-like session and tab row formatting.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct TreeConfig {
+    pub session_format: String,
+    pub tab_format: String,
+    pub fold_collapsed: String,
+    pub fold_expanded: String,
+    pub branch_first: String,
+    pub branch_middle: String,
+    pub branch_last: String,
+    pub session_styles: TreeRowStyles,
+    pub tab_styles: TreeRowStyles,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct TreeRowStyles {
+    pub normal: String,
+    pub selected: String,
+    pub active: String,
+    pub both: String,
+}
+
+// These formats, rather than rendering branches, define the default appearance.
+pub const DEFAULT_SESSION_FORMAT: &str = "#{?selected,,#[fg=muted]}#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}";
+pub const DEFAULT_TAB_FORMAT: &str = "#{branch} #{?active,#{?selected,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#[fg=active_fg,bold]#{tab_name}#[default]},#{tab_name}}";
+
+impl Default for TreeConfig {
+    fn default() -> Self {
+        Self {
+            session_format: DEFAULT_SESSION_FORMAT.into(),
+            tab_format: DEFAULT_TAB_FORMAT.into(),
+            fold_collapsed: "▷".into(),
+            fold_expanded: "▽".into(),
+            branch_first: "├".into(),
+            branch_middle: "├".into(),
+            branch_last: "└".into(),
+            session_styles: TreeRowStyles {
+                normal: "".into(),
+                selected: "fg=selected_fg,bg=selected_bg".into(),
+                active: "".into(),
+                both: "fg=selected_fg,bg=selected_bg".into(),
+            },
+            tab_styles: TreeRowStyles {
+                normal: "".into(),
+                selected: "fg=selected_fg,bg=selected_bg".into(),
+                active: "fg=active_fg,bg=active_bg".into(),
+                both: "fg=selected_fg,bg=selected_bg".into(),
+            },
+        }
+    }
+}
+
+impl Default for TreeRowStyles {
+    fn default() -> Self {
+        Self {
+            normal: String::new(),
+            selected: String::new(),
+            active: String::new(),
+            both: String::new(),
+        }
+    }
 }
 
 /// Zellij options structurally patched into generated Verij host configuration.
@@ -547,6 +615,29 @@ pane_default = "Workspace"
 # Attach or enter a tree item with one click instead of a double-click.
 single_click_action = true
 
+# Tree formats use #{variable}, #{?flag,then,else}, and #[fg=color,bg=color,bold].
+# Colors can reference keys in [colors]. See README for available variables.
+[tui.tree]
+session_format = '#{?selected,,#[fg=muted]}#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}'
+tab_format = '#{branch} #{?active,#{?selected,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#[fg=active_fg,bold]#{tab_name}#[default]},#{tab_name}}'
+fold_collapsed = "▷"
+fold_expanded = "▽"
+branch_first = "├" # first of multiple tabs; a single tab uses branch_last
+branch_middle = "├"
+branch_last = "└"
+
+[tui.tree.session_styles]
+normal = ""
+selected = "fg=selected_fg,bg=selected_bg"
+active = ""
+both = "fg=selected_fg,bg=selected_bg"
+
+[tui.tree.tab_styles]
+normal = ""
+selected = "fg=selected_fg,bg=selected_bg"
+active = "fg=active_fg,bg=active_bg"
+both = "fg=selected_fg,bg=selected_bg"
+
 [zellij]
 # Zellij options patched into generated configuration for Verij hosts.
 pane_frame_style = "titles"
@@ -585,6 +676,7 @@ mod tests {
         assert_eq!(cfg.colors.selected_bg, 15);
         assert_eq!(cfg.colors.selected_fg, 8);
         assert!(cfg.tui.single_click_action);
+        assert_eq!(cfg.tui.tree.branch_first, "├");
         assert_eq!(
             cfg.zellij.host_options()["pane_frame_style"],
             ZellijOption::String("titles".to_string())
@@ -593,6 +685,20 @@ mod tests {
             cfg.zellij.host_options()["focus_follows_mouse"],
             ZellijOption::Boolean(true)
         );
+    }
+
+    #[test]
+    fn starter_tree_config_matches_defaults() {
+        let starter: Config = toml::from_str(DEFAULT_CONFIG_TOML).unwrap();
+        let defaults = Config::default();
+        assert_eq!(starter.tui.tree.session_format, defaults.tui.tree.session_format);
+        assert_eq!(starter.tui.tree.tab_format, defaults.tui.tree.tab_format);
+        assert_eq!(starter.tui.tree.branch_first, defaults.tui.tree.branch_first);
+        assert_eq!(starter.tui.tree.tab_styles.both, defaults.tui.tree.tab_styles.both);
+
+        let partial: Config = toml::from_str("[tui.tree]\nbranch_first = '╞'\n").unwrap();
+        assert_eq!(partial.tui.tree.branch_first, "╞");
+        assert_eq!(partial.tui.tree.branch_middle, "├");
     }
 
     #[test]

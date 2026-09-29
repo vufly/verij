@@ -10,6 +10,7 @@
 ///   5. Dynamic terminal resize handling.
 pub mod render;
 pub mod state;
+pub mod tree_format;
 
 use anyhow::{Context, Result};
 use crossterm::{
@@ -36,6 +37,8 @@ use state::{AppState, InputMode};
 
 /// Launch the Verij TUI.
 pub async fn run(config: Config) -> Result<()> {
+    // Validate formats before entering the alternate screen so warnings remain visible.
+    let state = AppState::with_config(config);
     enable_raw_mode().context("Failed to enable raw mode")?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
@@ -47,7 +50,7 @@ pub async fn run(config: Config) -> Result<()> {
     // inside Zellij during a resize. Clearing backend directly needs no query.
     terminal.backend_mut().clear()?;
 
-    let result = event_loop(&mut terminal, config).await;
+    let result = event_loop(&mut terminal, state).await;
 
     // --- Restore terminal (always runs, even on error) ---
     disable_raw_mode().ok();
@@ -66,9 +69,8 @@ pub async fn run(config: Config) -> Result<()> {
 // Event loop
 // ---------------------------------------------------------------------------
 
-async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, config: Config) -> Result<()> {
+async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut state: AppState) -> Result<()> {
     let (tx, mut rx) = mpsc::channel(16);
-    let mut state = AppState::with_config(config);
     state.plugin_path = crate::layout::resolve_plugin_path(None).ok();
 
     // Spawn filesystem watcher background task targeting /tmp/verij/states/
@@ -373,8 +375,9 @@ fn handle_mouse(
             let target_index = offset + visual_index;
 
             if target_index < state.nodes.len() {
-                let clicked_caret = mouse.column <= 1
-                    && matches!(state.nodes.get(target_index), Some(state::TreeNode::Session { .. }));
+                let clicked_caret = state.fold_hitboxes.get(target_index)
+                    .and_then(|range| range.as_ref())
+                    .is_some_and(|range| range.contains(&mouse.column));
                 state.select_index(target_index);
 
                 if clicked_caret {
@@ -454,4 +457,29 @@ fn dispatch_action(state: &mut AppState) -> Result<()> {
     state.sync_list_state();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::widgets::ListState;
+    use verij_types::SessionSnapshot;
+
+    #[test]
+    fn mouse_fold_uses_scrolled_row_and_rendered_marker_columns() {
+        let mut state = AppState::default();
+        state.reconcile(["first", "second"].into_iter().map(|name| SessionSnapshot {
+            name: name.into(), is_current: false, tabs: vec![], active_pane: None,
+            connected_clients: None, needs_resurrection: false,
+        }).collect());
+        state.list_state = ListState::default().with_offset(1);
+        state.fold_hitboxes = vec![Some(0..2), Some(4..7)];
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 5, row: 0, modifiers: KeyModifiers::empty(),
+        };
+        handle_mouse(&mut state, click, &mut None).unwrap();
+        assert!(state.collapsed.contains("second"));
+        assert!(!state.collapsed.contains("first"));
+    }
 }

@@ -124,6 +124,14 @@ pane_default = "Workspace"
 [tui]
 single_click_action = true
 
+[tui.tree]
+# Optional: customize the two navigable row types.
+# session_format = '#{fold_marker} #{session_name}#{?has_tabs, (#{tab_count}),}'
+# tab_format = '#{branch} #{tab_name}'
+# branch_first = "├"
+# branch_middle = "├"
+# branch_last = "└"
+
 [zellij]
 pane_frame_style = "titles"
 focus_follows_mouse = true
@@ -141,6 +149,48 @@ focus_follows_mouse = true
 Default format renders cleanly as `session`, `session | tab`, `session | pane`, or `session | tab | pane` without dangling separators. Conditional sections are simple and non-nested.
 
 Recent `tab_format` and `tab_default` keys remain accepted as compatibility aliases, but names now apply to the Workspace pane.
+
+### Sidebar tree formatting
+
+`[tui.tree]` controls the sidebar's **session** and **tab** rows. It is independent of `[workspace].pane_format`; each row stays one navigable item, and collapsing still hides its tab rows. `verij config init` writes the complete default templates and styles, which reproduce the built-in appearance. Any omitted setting uses its default.
+
+Formats support this tmux-like subset (not the full tmux format language):
+
+| Syntax | Meaning |
+|---|---|
+| `#{session_name}` | Insert a variable as literal text |
+| `#{?collapsed,yes,no}` | Conditional on a boolean flag; nested conditionals work |
+| `#[fg=session,bold]` | Change foreground and make following text bold |
+| `#[bg=active_bg,fg=active_fg]` | Set background and foreground |
+| `#[default]` | Reset subsequent text to the current row's base style |
+
+Conditional commas inside a nested `#{...}` or `#[...]` do not split branches. Escape a literal comma in a branch as `\,`, a closing brace as `\}`, and a backslash as `\\`; `##` prints `#`. TOML literal strings (`'...'`) make these escapes easiest to write. Styles accept `fg` / `bg` as names from `[colors]`, ANSI indices (`0`–`255`), or `default`; modifiers are `bold`, `dim`, `italic`, `underline`, and `reverse`. `#[default]` restores the *row base*, including selection background. Invalid formats/styles report a warning on startup and fall back to the corresponding default.
+
+| Variable | Where / meaning |
+|---|---|
+| `session_name` | Session name; also available on tab rows |
+| `tab_name` | Tab name (tab rows) |
+| `tab_position` / `tab_number` | Tab's zero-based Zellij position / one-based display number |
+| `tab_count` | Number of tabs in session |
+| `active_tab_name` | Active tab name within session, even when session is not attached |
+| `fold_marker` | Configured folded or unfolded glyph (session rows) |
+| `branch` | Configured first, middle or last tab glyph (tab rows) |
+
+Conditions: `selected` (sidebar cursor), `active` (attached session or its active tab), `attached` (session attached in this host), `collapsed`, `expanded`, `first_tab`, `last_tab`, `exited` (needs resurrection), `has_tabs`, and `has_active_tab`. On a single-tab session, both `first_tab` and `last_tab` are true and `branch` uses `branch_last`. A background session can have an `active_tab_name` without `active` being true.
+
+`fold_collapsed`, `fold_expanded`, `branch_first`, `branch_middle`, and `branch_last` configure glyphs separately. By default first and middle tabs both use `├`, last tab uses `└`. Clicking the rendered `#{fold_marker}` (plus following space) toggles folding, even when a custom template moves it; omitting it disables mouse folding but keyboard folding remains available.
+
+`[tui.tree.session_styles]` and `[tui.tree.tab_styles]` each have `normal`, `selected`, `active`, and `both` (selected + active) row-base styles. For example:
+
+```toml
+[tui.tree.tab_styles]
+normal = ""
+selected = "fg=selected_fg,bg=selected_bg"
+active = "fg=active_fg,bg=active_bg"
+both = "fg=selected_fg,bg=selected_bg"
+```
+
+Inline style directives affect text spans on top of the chosen row base. Changing existing `[colors]` entries also changes default tree styles that reference those names. Templates and glyphs must produce one line per row; line breaks in snapshot names render as spaces.
 
 ## TUI Controls
 

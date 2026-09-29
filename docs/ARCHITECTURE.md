@@ -233,6 +233,10 @@ pane_format = "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}"
 
 The formatter emits no dangling separator when an active tab or pane has no title. Conditional blocks are simple and non-nested.
 
+## Sidebar Row Formatting
+
+`[tui.tree]` supplies session and tab row formats, first/middle/last branch and fold glyphs, and separate row-base styles for normal, selected, active and both states. The tmux-like `#{variable}` / `#{?flag,yes,no}` / `#[style]` parser compiles once before the TUI starts; malformed settings individually fall back to defaults. Formats operate on flattened `TreeNode`s without changing navigation or folding. The renderer records the cell range of `#{fold_marker}` for each row so mouse folding follows moved or wide glyphs even with a scrolled list. These formats do not affect Workspace pane naming; see README for full syntax and variables.
+
 ## Crate Responsibilities
 
 ```text

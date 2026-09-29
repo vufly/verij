@@ -1,13 +1,7 @@
 /// verij-cli/src/tui/render.rs
 ///
-/// Ratatui rendering: draws the 2-level session/tab tree with folding, badges,
-/// scrolling viewport, animated spinner empty state, and status bar.
-///
-/// Color design:
-///   - ANSI 0-15 palette to honor user terminal themes (configurable via config.toml).
-///   - Selected cursor row uses theme-neutral pair `bg=243, fg=0`.
-///   - Attached/active Workspace session row uses `bg=1 (Red), fg=255` (configurable).
-///   - Active tab of attached session uses same red badge.
+/// Ratatui rendering: draws the 2-level session/tab tree from compiled user
+/// templates, plus the scrolling viewport, animated empty state, and status bar.
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -63,7 +57,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
 // ---------------------------------------------------------------------------
 
 fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
-    let colors = state.config.colors.clone();
+    let colors = &state.config.colors;
     let spinner_frames = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
     // Build list items (edge-to-edge compact UI without wasted border space)
@@ -81,12 +75,16 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
             ),
         ]))]
     } else {
-        state
+        let mut hitboxes = Vec::with_capacity(state.nodes.len());
+        let items = state
             .nodes
             .iter()
             .enumerate()
             .map(|(i, node)| {
-                // Determine if this Tab node is the last sibling within its session
+                // Determine first and last tab in display order (position need not be dense).
+                let is_first_tab = matches!(node, TreeNode::Tab { .. })
+                    && i > 0
+                    && matches!(state.nodes.get(i - 1), Some(TreeNode::Session { .. }));
                 let is_last_tab = if let TreeNode::Tab { session_name, .. } = node {
                     // Look ahead to next node; if next is Tab with same session, not last
                     let next_is_same_session = state.nodes.get(i + 1).map(|next| matches!(next, TreeNode::Tab { session_name: ns, .. } if ns == session_name)).unwrap_or(false);
@@ -94,167 +92,33 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
                 } else {
                     false
                 };
-                node_to_list_item(node, i == state.cursor, is_last_tab, &colors)
+                let session_index = match node {
+                    TreeNode::Session { session_index, .. } | TreeNode::Tab { session_index, .. } => *session_index,
+                };
+                let (item, hitbox) = state.tree_formatter.render(
+                    node,
+                    state.sessions.get(session_index),
+                    i == state.cursor,
+                    state.active_session.as_deref() == Some(node.session_name()),
+                    is_first_tab,
+                    is_last_tab,
+                );
+                hitboxes.push(hitbox);
+                item
             })
-            .collect()
+            .collect();
+        state.fold_hitboxes = hitboxes;
+        items
     };
 
     // Ensure list state selects current cursor
     state.sync_list_state();
 
-    // highlight_style is intentionally left at default (no-op) so that span-level
-    // background colours (e.g. bg=1 on the active-tab name) are not clobbered by
-    // the list widget's selection overlay.  Selection styling is applied at the
-    // ListItem level inside node_to_list_item instead.
+    // No List selection overlay: each templated row supplies its own base and spans.
     let list = List::new(items);
 
     // Stateful rendering handles viewport scrolling
     frame.render_stateful_widget(list, area, &mut state.list_state);
-}
-
-/// Convert a `TreeNode` into a styled `ListItem`.
-fn node_to_list_item(
-    node: &TreeNode,
-    is_selected: bool,
-    is_last_tab: bool,
-    colors: &crate::config::ColorConfig,
-) -> ListItem<'static> {
-    let mut spans = Vec::new();
-
-    let is_workspace_active_tab = node.is_workspace_active_tab();
-
-    let (fold_fg, session_fg, muted_fg) = if is_selected {
-        (
-            c(colors.selected_fg),
-            c(colors.selected_fg),
-            c(colors.selected_fg),
-        )
-    } else {
-        (c(colors.muted), c(colors.session), c(colors.muted))
-    };
-
-    match node {
-        TreeNode::Session {
-            name,
-            is_current: _,
-            is_attached,
-            needs_resurrection,
-            is_collapsed,
-            active_tab,
-            tab_count,
-            ..
-        } => {
-            // Fold marker
-            let fold_icon = if *is_collapsed { "▷ " } else { "▽ " };
-            spans.push(Span::styled(
-                fold_icon,
-                Style::default().fg(fold_fg).add_modifier(Modifier::BOLD),
-            ));
-
-            // Exited sessions require resurrection before they can be attached.
-            let name_fg = if *needs_resurrection && !is_selected {
-                c(colors.muted)
-            } else if *is_attached {
-                c(colors.attached_fg)
-            } else {
-                session_fg
-            };
-            spans.push(Span::styled(
-                name.clone(),
-                Style::default().fg(name_fg).add_modifier(Modifier::BOLD),
-            ));
-
-            // Tab activity indicator on session row (when collapsed)
-            if *is_collapsed {
-                if let Some(tab) = active_tab {
-                    spans.push(Span::raw(" "));
-                    if *is_attached {
-                        // Attached in workspace pane: highlight active tab badge in active colors
-                        spans.push(Span::styled(
-                            format!(" [{tab}] "),
-                            Style::default()
-                                .bg(c(colors.active_bg))
-                                .fg(c(colors.active_fg))
-                                .add_modifier(Modifier::BOLD),
-                        ));
-                    } else {
-                        // Background session: muted active tab name
-                        spans.push(Span::styled(
-                            format!("[{tab}]"),
-                            Style::default().fg(muted_fg),
-                        ));
-                    }
-                }
-                if *tab_count > 0 {
-                    spans.push(Span::raw(" "));
-                    spans.push(Span::styled(
-                        format!("({tab_count} tabs)"),
-                        Style::default().fg(muted_fg),
-                    ));
-                }
-            } else if *tab_count > 0 {
-                spans.push(Span::raw(" "));
-                spans.push(Span::styled(
-                    format!("({tab_count})"),
-                    Style::default().fg(muted_fg),
-                ));
-            }
-        }
-        TreeNode::Tab {
-            name,
-            is_workspace_active,
-            ..
-        } => {
-            // Indent using box drawing characters
-            let indent = if is_last_tab { "└ " } else { "├ " };
-            spans.push(Span::raw(indent));
-
-            if *is_workspace_active {
-                if is_selected {
-                    // Line is selected (bg=selected), but tab name specifically gets active colors
-                    spans.push(Span::styled(
-                        format!(" {name} "),
-                        Style::default()
-                            .bg(c(colors.active_bg))
-                            .fg(c(colors.active_fg))
-                            .add_modifier(Modifier::BOLD),
-                    ));
-                } else {
-                    // Active tab of Workspace session, not selected: active fg, bold
-                    spans.push(Span::styled(
-                        name.clone(),
-                        Style::default()
-                            .fg(c(colors.active_fg))
-                            .add_modifier(Modifier::BOLD),
-                    ));
-                }
-            } else {
-                let text_fg = if is_selected {
-                    c(colors.selected_fg)
-                } else {
-                    Color::Reset
-                };
-                spans.push(Span::styled(name.clone(), Style::default().fg(text_fg)));
-            }
-        }
-    }
-
-    let line = Line::from(spans);
-    let mut item = ListItem::new(line);
-    if is_selected {
-        item = item.style(
-            Style::default()
-                .bg(c(colors.selected_bg))
-                .fg(c(colors.selected_fg)),
-        );
-    } else if is_workspace_active_tab {
-        item = item.style(
-            Style::default()
-                .bg(c(colors.active_bg))
-                .fg(c(colors.active_fg)),
-        );
-    }
-    item
 }
 
 // ---------------------------------------------------------------------------

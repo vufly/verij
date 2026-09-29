@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use verij_types::SessionSnapshot;
 
 use crate::config::{Config, WorkspaceMode};
+use super::tree_format::TreeFormatter;
 
 // ---------------------------------------------------------------------------
 // Tree node model
@@ -57,6 +58,7 @@ impl TreeNode {
     }
 
     /// True if this node is the active tab of the currently attached workspace session.
+    #[cfg(test)]
     pub fn is_workspace_active_tab(&self) -> bool {
         match self {
             TreeNode::Tab {
@@ -114,6 +116,12 @@ pub struct AppState {
     /// Ratatui list state managing scroll offset and selected item.
     pub list_state: ListState,
 
+    /// Compiled row templates; never reparse while drawing frames.
+    pub tree_formatter: TreeFormatter,
+
+    /// Fold-marker cell ranges, indexed by navigable row after each draw.
+    pub fold_hitboxes: Vec<Option<std::ops::Range<u16>>>,
+
     /// Animation / event tick counter for spinners.
     pub tick: usize,
 
@@ -127,8 +135,10 @@ pub struct AppState {
 impl AppState {
     /// Build a new `AppState` with the given config.
     pub fn with_config(config: Config) -> Self {
+        let tree_formatter = TreeFormatter::new(&config.tui.tree, &config.colors);
         Self {
             config,
+            tree_formatter,
             ..Self::default()
         }
     }
