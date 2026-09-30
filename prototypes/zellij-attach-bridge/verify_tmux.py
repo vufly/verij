@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import time
 
-from verify import control
+from verify import completion_control, control
 
 
 def main():
@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--binary", required=True, type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--scratch-dir", type=Path, help="Parent for disposable probe files; defaults to durable prototype .scratch directory")
+    parser.add_argument("--completion", action="store_true", help="Use correlated screen results and verify passive focus queries")
     args = parser.parse_args()
     binary = str(args.binary.resolve(strict=True))
     report = {"binary": binary, "input_transport": "tmux send-keys through outer display terminal", "checks": []}
@@ -102,10 +103,25 @@ def main():
             print(f"bound {host_session}/{host['host_pane']} -> inner client {record['client_id']}", flush=True)
             return {"record": record, "record_path": path, "host": host, "mux_pane": pane}
         socket_path = Path(sockets) / "contract_version_1" / "inner"
+        sequences = {}
+        def completed(child, pane, query_only=False):
+            record = child["record"]
+            generation = record["connection_id"]
+            sequence = 0 if query_only else sequences.get(generation, 0) + 1
+            if not query_only:
+                sequences[generation] = sequence
+            result = completion_control(socket_path, record, pane, sequence, query_only)
+            with (root / "completion-results.ndjson").open("a") as fixture:
+                fixture.write(json.dumps(result) + "\n")
+            return result
         def focus_map():
             return {int(line.split()[0]): line.split()[1] for line in action("inner", "list-clients").splitlines()[1:] if line.strip()}
         def target(child, pane):
-            assert control(socket_path, child["record"], pane) == ["verij:accepted"]
+            if args.completion:
+                result = completed(child, pane)
+                assert result["status"] == "focused" and result["focused_pane_id"] == pane and not result["focused_is_plugin"], result
+            else:
+                assert control(socket_path, child["record"], pane) == ["verij:accepted"]
             wait(lambda: focus_map().get(child["record"]["client_id"]) == f"terminal_{pane}")
         def send(child, token, pane):
             run([*mux, "send-keys", "-t", child["mux_pane"], "-l", token])
@@ -126,6 +142,18 @@ def main():
             send(a, "outer-a-one", 1)
             send(b, "outer-b-zero", 0)
             report["checks"].append({"real_host_identity_and_independent_keyboard_focus": True})
+            if args.completion:
+                before = focus_map()
+                current = completed(a, 1, query_only=True)
+                other = completed(a, 0, query_only=True)
+                assert current["status"] == "focused" and current["tab_id"] == 0, current
+                assert other["status"] == "not_focused" and other["focused_pane_id"] == 1, other
+                missing = completed(a, 2**32 - 1)
+                assert missing["status"] == "pane_missing" and missing["focused_pane_id"] == 1, missing
+                assert focus_map() == before
+                send(a, "outer-completion-missing-stayed", 1)
+                report["checks"].append({"nested_correlated_focus_completion": True,
+                                         "nested_passive_query_does_not_focus": True, "nested_missing_target_failure": True})
             floating = action("inner", "new-pane", "--floating", "--", "python3", str(receiver), str(root / "input2"))
             assert floating == "terminal_2", floating
             target(a, 2)
@@ -154,6 +182,9 @@ def main():
             target(c, 0)
             before = focus_map()
             assert control(socket_path, stale, 1) == ["verij:rejected"]
+            if args.completion:
+                stale_result = completion_control(socket_path, stale, 1, 1)
+                assert stale_result["status"] == "stale_attachment", stale_result
             assert focus_map() == before
             target(c, 1)
             send(c, "outer-reconnected", 1)

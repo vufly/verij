@@ -31,6 +31,15 @@ python3 prototypes/zellij-attach-bridge/verify.py \
 python3 prototypes/zellij-attach-bridge/verify.py \
   --binary ../zellij/target/debug/zellij --nested --lifecycle \
   --scratch-dir ../artifacts/scratch --output ../artifacts/lifecycle-nested-results.json
+
+# Correlated execution results and passive effective-focus queries.
+python3 prototypes/zellij-attach-bridge/verify.py \
+  --binary ../zellij/target/debug/zellij --placements --lifecycle --completion \
+  --scratch-dir ../artifacts/scratch --output ../artifacts/completion-direct-results.json
+
+python3 prototypes/zellij-attach-bridge/verify_tmux.py \
+  --binary ../zellij/target/debug/zellij --completion \
+  --scratch-dir ../artifacts/scratch --output ../artifacts/completion-tmux-results.json
 ```
 
 Run from the workspace's Verij worktree. The Zellij worktree is on its own `agent-monitoring` branch, based on the exact upstream commit above. Source, patch, builds and saved evidence are durable under `~/repos/workspaces/verij-agent-monitoring`; no `/tmp/opencode` checkout is required. Use a clean exact-tag checkout when applying the patch elsewhere; do not reapply to an already-patched checkout. Each probe retains its isolated config/XDG/identity/input files and `results.json` beneath `--scratch-dir` (or the prototype's ignored `.scratch/` default), so interrupted or failed experiments remain inspectable. Only short-lived sockets use a private `/tmp/vj-sock-*` directory because Unix socket paths have a length limit. Probes target only those private sockets and clean their own clients and sessions. Some earlier starts timed out; failures are reported rather than interpreted as successful focus. Historical JSON results retain original `/tmp` binary paths as provenance, not current instructions.
@@ -47,6 +56,14 @@ The nested probes create two actual disposable host Zellij sessions, replace eac
 6. `verij:accepted` means dispatch accepted, **not effective focus confirmed**. The harness checks per-client `list-clients` and actual receiver input after dispatch. Missing panes, queued invalidation, and other execution failures require a production completion/query contract.
 
 The prototype bypasses last-active-client CLI routing for this dedicated request. It does not change existing CLI action routing or the Verij plugin. The small raw-protobuf helper in `verify.py` is a test client, not a public integration API.
+
+### Correlated completion/query extension — 2026-10-01
+
+The saved patch now also carries an experimental `VerijPaneRequest`/`VerijPaneResult` path. See [the completion contract](COMPLETION_CONTRACT.md) for field definitions, sequence policy, response statuses, connection cleanup and remaining limitations. A request echoes its correlation ID, generation, target, sequence and query flag; execution returns the actual visible-layer focus and stable tab ID or an explicit failure. Read-only queries do not reveal/focus another target. Display and control-connection generations plus a per-display navigation high-water mark are checked at dispatch/execution/delivery as appropriate; no response is proof of whole-host Workspace keyboard focus.
+
+[Direct completion results](completion-direct-results.json) pass the placement+lifecycle matrix, including hidden-layer/fullscreen/collapsed-stack passive queries, missing targets, stale generations and older/duplicate requests. [Real nested tmux completion results](completion-tmux-results.json) pass the keyboard placement/reconnect matrix. The initial asynchronous-route prototype closed its control socket before the screen could reply; that failed run remains at workspace `artifacts/completion-direct-results.json` and was fixed by retaining the route until helper EOF. Five focused Rust tests, build and web-feature compile check pass. Screen registry locks are released before native focus can send to the bounded server queue.
+
+The legacy dispatch-only path remains intentionally available for historical comparisons; its missing-target acceptance remains a limitation of that path. Production controller sequencing/restart recovery, actual paused-screen races and whole-host visits still need verification. Shared native stack expansion is unchanged.
 
 ## Reviewed results
 
@@ -93,7 +110,7 @@ Two concrete limitations were independently reproduced:
 
 - Have a reviewer observe keyboard forwarding through two host Workspace panes and verify sidebar-versus-Workspace visits. Automated outer keyboard checks now pass under the explicit Descend test configuration; this does not exercise every user nested-session policy or host geometry.
 - Stabilize nested host startup/reconnect and rerun the full placement+lifecycle combination. Verify hidden stack-list members, cross-session transitions, mirroring, plugin reload, resurrection, and superseded-navigation races. Cross-tab, rename and first reattachment after zero clients have the limited observations above.
-- Add a production request/completion contract and demonstrate execution-time generation validation under disconnect/reconnect races, rather than relying on acceptance replies.
+- Review the new prototype completion/query contract and demonstrate actual paused-screen disconnect/supersession races, coordinated sequence recovery and whole-host confirmation before selecting a production API. Legacy acceptance must not be used as confirmation.
 - Decide how the bridge would be maintained/distributed. The new protobuf tags are experimental; this is not an upstream-approved protocol extension or a supported mixed-version deployment.
 - Validate private identity-directory ownership, boot-qualified process birth identity, abrupt exits, and wrapper lifecycle in the eventual integration.
 - Finish OpenCode semantic event-family/status checks and Agy input/background/interactive checks described in `docs/AGENT_MONITORING_IMPLEMENTATION.md`.

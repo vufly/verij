@@ -1,0 +1,23 @@
+{
+  "binary": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/zellij/target/debug/zellij",
+  "input_transport": "tmux send-keys through outer display terminal",
+  "checks": [
+    {
+      "real_host_identity_and_independent_keyboard_focus": true
+    },
+    {
+      "nested_correlated_focus_completion": true,
+      "nested_passive_query_does_not_focus": true,
+      "nested_missing_target_failure": true
+    },
+    {
+      "nested_float_fullscreen_stack_keyboard": true
+    },
+    {
+      "nested_reconnect_stale_token_rejected": true
+    }
+  ],
+  "artifacts_dir": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-mux-l3o13005",
+  "status": "PASS",
+  "private_tmux_and_zellij_cleanup_requested": true
+}

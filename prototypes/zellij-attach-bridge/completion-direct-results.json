@@ -1,0 +1,89 @@
+{
+  "checks": [
+    {
+      "distinct_display_identity": true,
+      "ids": [
+        1,
+        2
+      ]
+    },
+    {
+      "live_boot_qualified_client_and_server_birth": true,
+      "private_directory_and_record_modes": "0700/0600"
+    },
+    {
+      "independent_tiled_focus_and_input": true,
+      "focus": {
+        "1": "terminal_1",
+        "2": "terminal_0"
+      },
+      "input_transport": "display PTY keyboard"
+    },
+    {
+      "correlated_screen_execution_result": true,
+      "read_only_effective_focus_query": true,
+      "pane_and_tab_zero_preserved": true,
+      "missing_target_failed_at_execution": true,
+      "older_and_duplicate_navigation_rejected": true,
+      "zero_navigation_sequence_rejected": true
+    },
+    {
+      "hidden_float_revealed_with_input": true
+    },
+    {
+      "target_from_other_fullscreen_pane": true
+    },
+    {
+      "ordinary_stack_member_focus_and_input": true
+    },
+    {
+      "queries_respect_hidden_float_fullscreen_and_collapsed_stack": true
+    },
+    {
+      "reused_id_new_generation": true,
+      "stale_focus_rejected": true,
+      "clean_detach_invalidated": true
+    },
+    {
+      "unmirrored_stack_expansion_changes_other_client": true,
+      "other_client_keyboard_confirmed_in_expanded_member": true
+    },
+    {
+      "cross_tab_client_specific_focus_and_input": true,
+      "target_pane": 3,
+      "other_client_focus_after_return": "terminal_0"
+    },
+    {
+      "rename_preserves_server_birth_and_attachment_generation": true,
+      "focus_and_input_after_rename": true
+    },
+    {
+      "missing_target_acceptance_is_not_completion": true,
+      "reply": [
+        "verij:accepted"
+      ],
+      "focus_unchanged": true
+    },
+    {
+      "legacy_missing_acceptance_replaced_by_typed_failure": true
+    },
+    {
+      "abrupt_death_leaves_attached_record": true,
+      "independent_process_liveness_detects_death": true,
+      "stale_generation_rejected_before_and_after_reuse": true
+    },
+    {
+      "zero_client_server_lifetime_preserved": true,
+      "zero_client_old_target_rejected": true,
+      "first_reattachment_focus_and_input": true
+    }
+  ],
+  "binary": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/zellij/target/debug/zellij",
+  "limitations": [
+    "Native stack expansion moves other clients focused in the same stack, even with mirror_session=false.",
+    "Legacy focus dispatch still accepts a nonexistent pane; use the new correlated request path for execution outcome."
+  ],
+  "artifacts_dir": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-bridge-4qa84al0",
+  "status": "PASS",
+  "all_clients_exited": true
+}

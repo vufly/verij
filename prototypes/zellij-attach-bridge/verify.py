@@ -19,6 +19,7 @@ import subprocess
 import tempfile
 import termios
 import time
+import uuid
 
 
 def process_identity(pid):
@@ -79,9 +80,8 @@ def fields(data):
     return result
 
 
-def control(socket_path, record, pane_id):
-    payload = integer(1, record["client_id"]) + blob(2, record["connection_id"].encode()) + integer(3, pane_id)
-    wire = blob(29, payload)
+def exchange(socket_path, wire, reply_field):
+    deadline = time.monotonic() + 5
     with socket.socket(socket.AF_UNIX) as connection:
         connection.settimeout(5)
         connection.connect(str(socket_path))
@@ -89,6 +89,10 @@ def control(socket_path, record, pane_id):
         def exact(length):
             data = bytearray()
             while len(data) < length:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("control result deadline expired")
+                connection.settimeout(remaining)
                 chunk = connection.recv(length - len(data))
                 if not chunk:
                     raise RuntimeError("control socket closed without response")
@@ -99,8 +103,33 @@ def control(socket_path, record, pane_id):
             if length > 1024 * 1024:
                 raise ValueError("control response too large")
             for field, value in fields(exact(length)):
-                if field == 5:  # ServerToClientMsg.Log
-                    return [line.decode() for number, line in fields(value) if number == 1]
+                if field == reply_field:
+                    return value
+
+
+def control(socket_path, record, pane_id):
+    payload = integer(1, record["client_id"]) + blob(2, record["connection_id"].encode()) + integer(3, pane_id)
+    return [line.decode() for number, line in fields(exchange(socket_path, blob(29, payload), 5)) if number == 1]
+
+
+def completion_control(socket_path, record, pane_id, sequence=0, query_only=False):
+    request_id = uuid.uuid4().hex
+    payload = (blob(1, request_id.encode()) + integer(2, record["client_id"])
+               + blob(3, record["connection_id"].encode()) + integer(4, pane_id)
+               + integer(5, sequence) + integer(6, int(query_only)))
+    reply = dict(fields(exchange(socket_path, blob(30, payload), 21)))
+    echoed = dict(fields(reply[1]))
+    assert echoed[1].decode() == request_id
+    assert echoed[2] == record["client_id"]
+    assert echoed[3].decode() == record["connection_id"]
+    assert echoed.get(4, 0) == pane_id
+    assert echoed.get(5, 0) == sequence
+    assert bool(echoed.get(6, 0)) == query_only
+    assert reply[6] == record["server_pid"], "completion must identify the bound server"
+    return {"request_id": request_id, "client_id": record["client_id"],
+            "sequence": sequence, "query_only": query_only, "requested_pane": pane_id,
+            "status": reply[2].decode(), "focused_pane_id": reply.get(3),
+            "focused_is_plugin": bool(reply.get(4, 0)), "tab_id": reply.get(5)}
 
 
 def main():
@@ -112,6 +141,7 @@ def main():
     parser.add_argument("--host-injected-input", action="store_true", help="Diagnostic: write to the actual host pane instead of simulating outer keyboard input")
     parser.add_argument("--placements", action="store_true", help="Also exercise floating, fullscreen and ordinary stack targets")
     parser.add_argument("--lifecycle", action="store_true", help="Also exercise cross-tab focus, rename, missing targets, abrupt death and zero-client reattachment")
+    parser.add_argument("--completion", action="store_true", help="Use correlated execution results and test read-only queries/superseded requests")
     args = parser.parse_args()
     binary = args.binary.resolve(strict=True)
     report = {"checks": [], "binary": str(binary), "limitations": []}
@@ -151,6 +181,17 @@ def main():
             "os.execvpe(sys.argv[3],sys.argv[3:],env)\n"
         )
         base = [str(binary), "--config", str(config)]
+        sequences = {}
+        def completed(record, pane, query_only=False, sequence=None):
+            generation = record["connection_id"]
+            if sequence is None:
+                sequence = 0 if query_only else sequences.get(generation, 0) + 1
+            if not query_only:
+                sequences[generation] = max(sequence, sequences.get(generation, 0))
+            result = completion_control(socket_path, record, pane, sequence, query_only)
+            with (root / "completion-results.ndjson").open("a") as fixture:
+                fixture.write(json.dumps(result) + "\n")
+            return result
         def action(*parts):
             result = subprocess.run([*base, "-s", name, "action", *parts], env=env, capture_output=True, text=True, timeout=8)
             if result.returncode or result.stdout.startswith(("Session '", "Please specify")):
@@ -249,8 +290,12 @@ def main():
                     result[int(words[0])] = words[1]
             return result
         def target(child, pane):
-            reply = control(socket_path, child["record"], pane)
-            assert reply == ["verij:accepted"], reply
+            if args.completion:
+                reply = completed(child["record"], pane)
+                assert reply["status"] == "focused" and reply["focused_pane_id"] == pane and not reply["focused_is_plugin"], reply
+            else:
+                reply = control(socket_path, child["record"], pane)
+                assert reply == ["verij:accepted"], reply
             wait(lambda: focus_map().get(child["record"]["client_id"]) == f"terminal_{pane}")
             print(f"focused client {child['record']['client_id']} -> pane {pane}", flush=True)
         def send(child, token, pane):
@@ -294,6 +339,32 @@ def main():
             send(a, "swapped-a", 1)
             send(b, "swapped-b", 0)
             report["checks"].append({"independent_tiled_focus_and_input": True, "focus": focus_map(), "input_transport": "host-pane CLI injection" if args.host_injected_input and args.nested else "display PTY keyboard"})
+            if args.completion:
+                report["stage"] = "correlated completion and query"
+                before = focus_map()
+                current = completed(a["record"], 1, query_only=True)
+                assert current["status"] == "focused" and current["focused_pane_id"] == 1, current
+                assert current["tab_id"] == 0, current
+                other = completed(a["record"], 0, query_only=True)
+                assert other["status"] == "not_focused" and other["focused_pane_id"] == 1, other
+                assert focus_map() == before, "queries must not change any client focus"
+                missing = completed(a["record"], 2**32 - 1)
+                assert missing["status"] == "pane_missing" and missing["focused_pane_id"] == 1, missing
+                assert focus_map() == before
+                send(a, "completion-missing-stayed", 1)
+                latest_sequence = sequences[a["record"]["connection_id"]]
+                old = completed(a["record"], 0, sequence=latest_sequence - 1)
+                duplicate = completed(a["record"], 0, sequence=latest_sequence)
+                assert old["status"] == duplicate["status"] == "superseded", (old, duplicate)
+                invalid = completed(a["record"], 0, sequence=0)
+                assert invalid["status"] == "invalid_request", invalid
+                assert focus_map() == before
+                send(a, "completion-superseded-stayed", 1)
+                target(a, 0)
+                send(a, "completion-fresh-zero", 0)
+                report["checks"].append({"correlated_screen_execution_result": True, "read_only_effective_focus_query": True,
+                                         "pane_and_tab_zero_preserved": True, "missing_target_failed_at_execution": True,
+                                         "older_and_duplicate_navigation_rejected": True, "zero_navigation_sequence_rejected": True})
             if args.placements:
                 floating = action("new-pane", "--floating", "--", "python3", str(receiver), str(root / "pane2-input"))
                 assert floating == "terminal_2", floating
@@ -301,6 +372,11 @@ def main():
                 send(a, "float-visible", 2)
                 keys(a, b"\x1bf")  # Alt+f: hide floating layer in client A
                 wait(lambda: focus_map().get(a["record"]["client_id"]) != "terminal_2")
+                if args.completion:
+                    before = focus_map()
+                    hidden = completed(a["record"], 2, query_only=True)
+                    assert hidden["status"] == "not_focused" and hidden["focused_pane_id"] != 2, hidden
+                    assert focus_map() == before
                 target(a, 2)
                 send(a, "float-revealed", 2)
                 target(a, 0)
@@ -308,15 +384,25 @@ def main():
                 report["checks"].append({"hidden_float_revealed_with_input": True})
                 keys(a, b"\x10f")  # Ctrl+p, f: fullscreen current tiled pane
                 wait(lambda: any(p["id"] == 0 and not p["is_plugin"] and p["is_fullscreen"] for p in json.loads(action("list-panes", "--all", "--json"))))
+                if args.completion:
+                    hidden = completed(a["record"], 1, query_only=True)
+                    assert hidden["status"] == "not_focused" and hidden["focused_pane_id"] == 0, hidden
                 target(a, 1)
                 send(a, "fullscreen-other-target", 1)
                 report["checks"].append({"target_from_other_fullscreen_pane": True})
                 action("stack-panes", "--", "terminal_0", "terminal_1")
                 target(a, 0)
                 send(a, "stack-member-zero", 0)
+                if args.completion:
+                    before = focus_map()
+                    collapsed = completed(a["record"], 1, query_only=True)
+                    assert collapsed["status"] == "not_focused" and collapsed["focused_pane_id"] == 0, collapsed
+                    assert focus_map() == before
                 target(a, 1)
                 send(a, "stack-member-one", 1)
                 report["checks"].append({"ordinary_stack_member_focus_and_input": True})
+                if args.completion:
+                    report["checks"].append({"queries_respect_hidden_float_fullscreen_and_collapsed_stack": True})
             stale = dict(a["record"])
             report["stage"] = "clean detach record invalidation"
             if args.host_injected_input and args.nested:
@@ -333,6 +419,9 @@ def main():
             before = focus_map()
             reply = control(socket_path, stale, 1)
             assert reply == ["verij:rejected"], reply
+            if args.completion:
+                old_result = completed(stale, 1)
+                assert old_result["status"] == "stale_attachment", old_result
             assert focus_map() == before
             target(c, 1)
             send(c, "reconnected-a", 1)
@@ -400,7 +489,11 @@ def main():
                 send(c, "missing-target-did-not-focus", cross_pane)
                 assert focus_map() == before
                 report["checks"].append({"missing_target_acceptance_is_not_completion": True, "reply": missing_reply, "focus_unchanged": True})
-                report["limitations"].append("A valid generation with a nonexistent pane is accepted at dispatch; no execution completion/failure response exists.")
+                if args.completion:
+                    failure = completed(c["record"], 2**32 - 1)
+                    assert failure["status"] == "pane_missing" and failure["focused_pane_id"] == cross_pane, failure
+                    report["checks"].append({"legacy_missing_acceptance_replaced_by_typed_failure": True})
+                report["limitations"].append("Legacy focus dispatch still accepts a nonexistent pane; use the new correlated request path for execution outcome.")
 
                 abrupt = dict(c["record"])
                 report["stage"] = "abrupt client death and ID reuse"
@@ -412,12 +505,16 @@ def main():
                     c["process"].wait(timeout=4)
                 assert json.loads(c["record_path"].read_text())["attached"], "SIGKILL should leave a stale published record"
                 assert control(socket_path, abrupt, 0) == ["verij:rejected"]
+                if args.completion:
+                    assert completed(abrupt, 0)["status"] == "stale_attachment"
                 d = attach("host-after-abrupt")
                 assert d["record"]["client_id"] == abrupt["client_id"]
                 assert d["record"]["connection_id"] != abrupt["connection_id"]
                 target(d, 0)
                 before = focus_map()
                 assert control(socket_path, abrupt, cross_pane) == ["verij:rejected"]
+                if args.completion:
+                    assert completed(abrupt, cross_pane)["status"] == "stale_attachment"
                 assert focus_map() == before
                 send(d, "after-abrupt-reuse", 0)
                 report["checks"].append({"abrupt_death_leaves_attached_record": True, "independent_process_liveness_detects_death": True, "stale_generation_rejected_before_and_after_reuse": True})
@@ -430,6 +527,8 @@ def main():
                 assert process_identity(d["record"]["server_pid"]) == server_birth
                 empty_before = focus_map()
                 assert control(socket_path, d["record"], 0) == ["verij:rejected"]
+                if args.completion:
+                    assert completed(d["record"], 0)["status"] == "stale_attachment"
                 assert focus_map() == empty_before
                 e = attach("host-first-after-zero")
                 assert e["record"]["client_id"] == 1
