@@ -1,8 +1,10 @@
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
@@ -14,18 +16,7 @@ use std::os::unix::process::CommandExt;
 
 /// List all active Zellij session names.
 pub fn list_sessions() -> Result<Vec<String>> {
-    let output = match std::process::Command::new("zellij")
-        .args(["list-sessions", "-s", "-n"])
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            bail!(
-                "'zellij' command not found in PATH. Please install Zellij (https://zellij.dev)."
-            );
-        }
-        Err(e) => return Err(e).context("Failed to execute 'zellij list-sessions'"),
-    };
+    let output = query_zellij(Command::new("zellij").args(["list-sessions", "-s", "-n"]))?;
 
     if !output.status.success() {
         return Ok(Vec::new());
@@ -50,10 +41,7 @@ pub enum SessionStatus {
 
 /// Returns whether Zellij knows a session as live, exited/resurrectable, or missing.
 pub fn session_status(name: &str) -> Result<SessionStatus> {
-    let output = Command::new("zellij")
-        .args(["list-sessions", "-n"])
-        .output()
-        .context("Failed to execute 'zellij list-sessions'")?;
+    let output = query_zellij(Command::new("zellij").args(["list-sessions", "-n"]))?;
 
     if !output.status.success() {
         return Ok(SessionStatus::Missing);
@@ -72,10 +60,7 @@ pub fn session_statuses() -> Result<BTreeMap<String, SessionStatus>> {
 
 /// Management commands must distinguish an empty inventory from a failed query.
 pub fn checked_session_statuses() -> Result<BTreeMap<String, SessionStatus>> {
-    let output = Command::new("zellij")
-        .args(["list-sessions", "-n"])
-        .output()
-        .context("Failed to execute 'zellij list-sessions'")?;
+    let output = query_zellij(Command::new("zellij").args(["list-sessions", "-n"]))?;
 
     // Zellij versions differ in where they print the empty-inventory message
     // and whether they return a successful exit code for it.
@@ -131,9 +116,8 @@ pub fn is_verij_host_for_deletion(name: &str) -> Result<bool> {
 }
 
 fn live_host_panes(name: &str) -> Result<Option<bool>> {
-    let output = Command::new("zellij")
-        .args(["--session", name, "action", "list-panes", "--all", "--json"])
-        .output()?;
+    let output = query_zellij(Command::new("zellij")
+        .args(["--session", name, "action", "list-panes", "--all", "--json"]))?;
     if !output.status.success() {
         return Ok(None);
     }
@@ -159,10 +143,7 @@ pub fn rename_host(old: &str, new: &str) -> Result<()> {
     if !matches!(session_status(old)?, SessionStatus::Live) {
         bail!("Host '{old}' must be live to rename; attach it first");
     }
-    let status = Command::new("zellij")
-        .args(["--session", old, "action", "rename-session", new])
-        .status().context("Failed to invoke Zellij rename-session")?;
-    if !status.success() { bail!("Zellij could not rename '{old}' to '{new}': {status}"); }
+    zellij_action(&["--session", old, "action", "rename-session", new])?;
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
         if matches!(session_status(new)?, SessionStatus::Live) { break; }
@@ -172,7 +153,7 @@ pub fn rename_host(old: &str, new: &str) -> Result<()> {
         bail!("Zellij did not report renamed host '{new}'");
     }
     if let Err(error) = crate::registry::rename(old, new) {
-        let _ = Command::new("zellij").args(["--session", new, "action", "rename-session", old]).status();
+        let _ = zellij_action(&["--session", new, "action", "rename-session", old]);
         return Err(error);
     }
     std::env::set_var("ZELLIJ_SESSION_NAME", new);
@@ -183,6 +164,128 @@ pub fn rename_host(old: &str, new: &str) -> Result<()> {
 // ---------------------------------------------------------------------------
 // Process execution
 // ---------------------------------------------------------------------------
+
+const QUERY_TIMEOUT: Duration = Duration::from_secs(3);
+const CLIENT_EXIT_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn wait_until(child: &mut Child, deadline: Instant) -> std::io::Result<Option<ExitStatus>> {
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        if Instant::now() >= deadline {
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Drain both pipes concurrently: large pane inventories can fill stdout before
+/// Zellij exits. The deadline covers process exit and inherited pipe handles.
+fn query_zellij(command: &mut Command) -> Result<Output> {
+    let description = format!("{command:?}");
+    let deadline = Instant::now() + QUERY_TIMEOUT;
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("Failed to execute {description}"))?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let (send, receive) = mpsc::channel();
+    fn drain(
+        mut pipe: impl Read + Send + 'static,
+        send: mpsc::Sender<(bool, std::io::Result<Vec<u8>>)>,
+        is_stdout: bool,
+    ) {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let result = pipe.read_to_end(&mut bytes).map(|_| bytes);
+            let _ = send.send((is_stdout, result));
+        });
+    }
+    drain(stdout, send.clone(), true);
+    drain(stderr, send, false);
+    let status = match wait_until(&mut child, deadline) {
+        Ok(Some(status)) => status,
+        result => {
+            let _ = child.kill();
+            let _ = child.wait();
+            result?;
+            bail!(
+                "Zellij command timed out after {}s: {description}",
+                QUERY_TIMEOUT.as_secs()
+            );
+        }
+    };
+    let mut output = Output {
+        status,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    };
+    for _ in 0..2 {
+        let (is_stdout, bytes) = receive
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .with_context(|| format!("Timed out reading Zellij command output: {description}"))?;
+        if is_stdout {
+            output.stdout = bytes?;
+        } else {
+            output.stderr = bytes?;
+        }
+    }
+    Ok(output)
+}
+
+/// Sidebar actions must never inherit stdout/stderr: any printed diagnostic
+/// changes terminal cells and cursor behind Ratatui's back. Return failures so
+/// the event loop can render them in its status bar instead.
+pub fn zellij_action(args: &[&str]) -> Result<()> {
+    let output = query_zellij(Command::new("zellij").args(args))?;
+    if !output.status.success() {
+        let diagnostic = [
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        ].into_iter().filter(|text| !text.is_empty()).collect::<Vec<_>>().join("; ");
+        bail!(
+            "Zellij {} failed ({}): {}",
+            args.join(" "),
+            output.status,
+            diagnostic,
+        );
+    }
+    Ok(())
+}
+
+/// Own the temporary PTY client even if readiness checks return an error.
+/// util-linux script forwards SIGTERM to its client and reaps it; use SIGKILL
+/// only as a final fallback when script itself fails to exit.
+struct ResurrectionClient(Child);
+
+impl ResurrectionClient {
+    fn finish(&mut self) -> Result<()> {
+        if wait_until(&mut self.0, Instant::now() + CLIENT_EXIT_TIMEOUT)?.is_some() {
+            return Ok(());
+        }
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(self.0.id() as libc::pid_t, libc::SIGTERM);
+        }
+        #[cfg(not(unix))]
+        self.0.kill()?;
+        if wait_until(&mut self.0, Instant::now() + Duration::from_secs(1))?.is_none() {
+            self.0.kill()?;
+            self.0.wait()?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for ResurrectionClient {
+    fn drop(&mut self) {
+        let _ = self.finish();
+    }
+}
 
 /// Replaces the current process with Zellij, or spawns and waits if exec is unavailable.
 pub fn exec_zellij<I, S>(args: I) -> Result<()>
@@ -265,7 +368,6 @@ pub fn attach_session(session_name: &str, host_config_path: &Path) -> Result<()>
         let last_session = crate::config::last_host_session(session_name);
         prepare_resurrection_layout(session_name)?;
         prepare_host_workspace_layout(session_name, last_session.as_deref())?;
-        resurrect_session_with_config(session_name, Some(host_config_path))?;
     }
     exec_zellij(host_attach_args(session_name, host_config_path))
 }
@@ -275,6 +377,7 @@ fn host_attach_args(session_name: &str, host_config_path: &Path) -> Vec<String> 
         "--config".to_string(),
         host_config_path.to_string_lossy().into_owned(),
         "attach".to_string(),
+        "--force-run-commands".to_string(),
         session_name.to_string(),
     ]
 }
@@ -282,10 +385,6 @@ fn host_attach_args(session_name: &str, host_config_path: &Path) -> Vec<String> 
 /// Resurrects an exited session through a short-lived fake PTY, then detaches it.
 /// This makes its panes and plugins available before a host Workspace pane attaches.
 pub fn resurrect_session(session_name: &str) -> Result<()> {
-    resurrect_session_with_config(session_name, None)
-}
-
-fn resurrect_session_with_config(session_name: &str, host_config_path: Option<&Path>) -> Result<()> {
     if !matches!(session_status(session_name)?, SessionStatus::Exited) {
         return Ok(());
     }
@@ -295,17 +394,24 @@ fn resurrect_session_with_config(session_name: &str, host_config_path: Option<&P
         .and_then(|path| std::fs::read_to_string(path).ok())
         .is_some_and(|layout| layout.contains("zjstatus"));
 
-    let command = resurrection_command(session_name, host_config_path);
-    let mut fake_client = Command::new("script")
-        .args(["-q", "-c", &command, "/dev/null"])
-        .env_remove("ZELLIJ")
-        .env_remove("ZELLIJ_SESSION_NAME")
-        .env_remove("ZELLIJ_PANE_ID")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .with_context(|| format!("Failed to resurrect session '{session_name}'"))?;
+    // script's stdin is /dev/null, so it cannot inherit the caller's viewport.
+    // Supply a real size before Zellij restores split panes and status plugins.
+    let (columns, rows) = crossterm::terminal::size().ok()
+        .filter(|(columns, rows)| *columns > 0 && *rows > 0)
+        .unwrap_or((120, 40));
+    let command = format!("stty rows {rows} cols {columns}; exec {}", resurrection_command(session_name));
+    let mut fake_client = ResurrectionClient(
+        Command::new("script")
+            .args(["-q", "-e", "-c", &command, "/dev/null"])
+            .env_remove("ZELLIJ")
+            .env_remove("ZELLIJ_SESSION_NAME")
+            .env_remove("ZELLIJ_PANE_ID")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .with_context(|| format!("Failed to resurrect session '{session_name}'"))?,
+    );
 
     // The first status pane can appear before the remaining serialized tabs
     // restore. Detaching then leaves those tabs without their status plugin.
@@ -313,8 +419,11 @@ fn resurrect_session_with_config(session_name: &str, host_config_path: Option<&P
     let mut stable_since = None;
     let mut layout_ready = false;
     while Instant::now() < deadline {
+        if let Some(status) = fake_client.0.try_wait()? {
+            bail!("Resurrection client for '{session_name}' exited before its layout was ready: {status}");
+        }
         let ready = matches!(session_status(session_name)?, SessionStatus::Live)
-            && (!expects_zjstatus || session_tabs_have_tiled_plugin(session_name));
+            && (!expects_zjstatus || session_tabs_have_tiled_plugin(session_name)?);
         if ready {
             let since = stable_since.get_or_insert_with(Instant::now);
             if !expects_zjstatus || since.elapsed() >= Duration::from_millis(1200) {
@@ -327,14 +436,9 @@ fn resurrect_session_with_config(session_name: &str, host_config_path: Option<&P
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    let detach_status = Command::new("zellij")
-        .args(["-s", session_name, "action", "detach"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .context("Failed to detach resurrection client")?;
-    let _ = fake_client.wait();
+    let detach_status = query_zellij(Command::new("zellij")
+        .args(["-s", session_name, "action", "detach"]))?.status;
+    fake_client.finish()?;
 
     if !detach_status.success() {
         bail!("Failed to detach resurrection client for '{session_name}'");
@@ -362,12 +466,9 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "'\\''"))
 }
 
-fn resurrection_command(session_name: &str, host_config_path: Option<&Path>) -> String {
-    let config_flag = host_config_path
-        .map(|path| format!(" --config {}", shell_quote(&path.to_string_lossy())))
-        .unwrap_or_default();
+fn resurrection_command(session_name: &str) -> String {
     format!(
-        "zellij{config_flag} attach --force-run-commands {}",
+        "zellij attach --force-run-commands {}",
         shell_quote(session_name)
     )
 }
@@ -421,8 +522,8 @@ fn resurrection_layout_path(session_name: &str) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-fn session_tabs_have_tiled_plugin(session_name: &str) -> bool {
-    let Ok(output) = Command::new("zellij")
+fn session_tabs_have_tiled_plugin(session_name: &str) -> Result<bool> {
+    let output = query_zellij(Command::new("zellij")
         .args([
             "--session",
             session_name,
@@ -430,21 +531,17 @@ fn session_tabs_have_tiled_plugin(session_name: &str) -> bool {
             "list-panes",
             "--all",
             "--json",
-        ])
-        .output()
-    else {
-        return false;
-    };
+        ]))?;
 
     if !output.status.success() {
-        return false;
+        return Ok(false);
     }
 
     let Ok(panes) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout) else {
-        return false;
+        return Ok(false);
     };
 
-    terminal_tabs_have_tiled_plugin(&panes)
+    Ok(terminal_tabs_have_tiled_plugin(&panes))
 }
 
 fn terminal_tabs_have_tiled_plugin(panes: &[serde_json::Value]) -> bool {
@@ -530,6 +627,18 @@ mod tests {
     use serde_json::json;
     use std::path::Path;
 
+    #[cfg(unix)]
+    #[test]
+    fn captures_large_query_output_without_blocking_on_full_pipes() {
+        let output = super::query_zellij(std::process::Command::new("sh").args([
+            "-c",
+            "i=0; while [ \"$i\" -lt 128 ]; do printf '%01024d' 0; printf '%01024d' 0 >&2; i=$((i+1)); done",
+        ])).unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), 128 * 1024);
+        assert_eq!(output.stderr.len(), 128 * 1024);
+    }
+
     #[test]
     fn parses_live_exited_and_missing_sessions() {
         let output = "backend [Created 1m ago]\nold [Created 2m ago] (EXITED - attach to resurrect)\n";
@@ -600,14 +709,10 @@ mod tests {
         );
         assert_eq!(
             host_attach_args("host", config),
-            vec!["--config", "/tmp/verij/host-config.kdl", "attach", "host"]
+            vec!["--config", "/tmp/verij/host-config.kdl", "attach", "--force-run-commands", "host"]
         );
         assert_eq!(
-            resurrection_command("host", Some(config)),
-            "zellij --config '/tmp/verij/host-config.kdl' attach --force-run-commands 'host'"
-        );
-        assert_eq!(
-            resurrection_command("inner", None),
+            resurrection_command("inner"),
             "zellij attach --force-run-commands 'inner'"
         );
     }

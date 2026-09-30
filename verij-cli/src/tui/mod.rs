@@ -114,6 +114,26 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut s
             }
         }
 
+        if state.action_pending {
+            state.action_pending = false;
+            if let Some(node) = state.selected_node() {
+                let restoring = matches!(node, state::TreeNode::Session { needs_resurrection: true, .. });
+                state.progress = Some(format!(
+                    "{} '{}'…",
+                    if restoring { "Restoring session" } else { "Switching to" },
+                    node.session_name(),
+                ));
+                state.error = None;
+                // Actions synchronously wait for Zellij. Flush the message before
+                // dispatch so it stays visible throughout resurrection.
+                terminal.draw(|frame| render::render(frame, &mut state))?;
+                let result = dispatch_action(&mut state);
+                state.progress = None;
+                result?;
+                needs_render = true;
+            }
+        }
+
         // Drain pending session updates from the filesystem watcher
         loop {
             match rx.try_recv() {
@@ -346,7 +366,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
 
         // Action: The Inception Switch
         KeyCode::Enter => {
-            dispatch_action(state)?;
+            state.action_pending = true;
         }
 
         _ => {}
@@ -387,7 +407,7 @@ fn handle_mouse(
                 }
 
                 if state.config.tui.single_click_action {
-                    dispatch_action(state)?;
+                    state.action_pending = true;
                     *last_click = None;
                     return Ok(());
                 }
@@ -398,7 +418,7 @@ fn handle_mouse(
                     if prev_idx == target_index
                         && now.duration_since(prev_time) < Duration::from_millis(400)
                     {
-                        dispatch_action(state)?;
+                        state.action_pending = true;
                         *last_click = None;
                         return Ok(());
                     }
@@ -464,6 +484,27 @@ mod tests {
     use super::*;
     use ratatui::widgets::ListState;
     use verij_types::SessionSnapshot;
+
+    #[test]
+    fn exited_session_click_queues_action_so_progress_can_render_first() {
+        let mut state = AppState::default();
+        state.reconcile(vec![SessionSnapshot {
+            name: "exited".into(), is_current: false, tabs: vec![],
+            active_pane: None, connected_clients: None, needs_resurrection: true,
+        }]);
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 5, row: 0, modifiers: KeyModifiers::empty(),
+        };
+        handle_mouse(&mut state, click, &mut None).unwrap();
+        assert!(state.action_pending);
+        assert_eq!(state.selected_node().unwrap().session_name(), "exited");
+        assert!(state.active_session.is_none(), "switch must wait until after progress draw");
+
+        state.action_pending = false;
+        handle_key(&mut state, KeyEvent::new(KeyCode::Enter, KeyModifiers::empty())).unwrap();
+        assert!(state.action_pending);
+    }
 
     #[test]
     fn mouse_fold_uses_scrolled_row_and_rendered_marker_columns() {

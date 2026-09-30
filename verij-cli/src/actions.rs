@@ -65,12 +65,7 @@ pub fn create_inner_session(
     };
 
     // Detach the fake client — the session stays alive, layout already applied.
-    let _ = Command::new("zellij")
-        .args(["-s", new_session_name, "action", "detach"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    let _ = crate::session::zellij_action(&["-s", new_session_name, "action", "detach"]);
 
     // Wait for `script` to exit after zellij detaches (prevents zombie processes).
     let _ = fake_client.wait();
@@ -91,8 +86,7 @@ pub fn create_inner_session(
     if !state_file.exists() {
         if let Some(path) = plugin_path {
             let plugin_url = format!("file:{}", path.display());
-            let _ = Command::new("zellij")
-                .args([
+            let _ = crate::session::zellij_action(&[
                     "-s",
                     new_session_name,
                     "action",
@@ -100,8 +94,7 @@ pub fn create_inner_session(
                     "--floating",
                     "--no-focus",
                     &plugin_url,
-                ])
-                .status();
+                ]);
         }
     }
 
@@ -317,19 +310,8 @@ pub fn rename_workspace_pane(name: &str) -> Result<()> {
     let pane_id = workspace_pane()?
         .map(|pane| format!("terminal_{}", pane.id))
         .context("Failed to identify host Workspace pane")?;
-    let status = Command::new("zellij")
-        .args(["action", "rename-pane", "--pane-id", &pane_id, name])
-        .status()
-        .context("Failed to rename workspace pane")?;
-
-    if !status.success() {
-        eprintln!(
-            "[verij-cli] Warning: rename-pane '{}' exited with status: {}",
-            name, status
-        );
-    }
-
-    Ok(())
+    crate::session::zellij_action(&["action", "rename-pane", "--pane-id", &pane_id, name])
+        .context("Failed to rename workspace pane")
 }
 
 /// Executes "The Inception Switch":
@@ -337,8 +319,7 @@ pub fn rename_workspace_pane(name: &str) -> Result<()> {
 pub fn inception_switch(old_active_session: &str, new_selected_session: &str) -> Result<()> {
     let payload = format!("switch:{}", new_selected_session);
 
-    let status = Command::new("zellij")
-        .args([
+    crate::session::zellij_action(&[
             "-s",
             old_active_session,
             "pipe",
@@ -347,63 +328,31 @@ pub fn inception_switch(old_active_session: &str, new_selected_session: &str) ->
             "--",
             &payload,
         ])
-        .status()
         .with_context(|| {
             format!(
                 "Failed to dispatch Inception Switch pipe to session '{}'",
                 old_active_session
             )
-        })?;
-
-    if !status.success() {
-        eprintln!(
-            "[verij-cli] Warning: Inception Switch command exited with status: {}",
-            status
-        );
-    }
-
-    Ok(())
+        })
 }
 
 /// Re-focuses the right pane: `zellij action move-focus right`.
 pub fn re_focus_right_pane() -> Result<()> {
-    let status = Command::new("zellij")
-        .args(["action", "move-focus", "right"])
-        .status()
-        .context("Failed to execute `zellij action move-focus right`")?;
-
-    if !status.success() {
-        eprintln!(
-            "[verij-cli] Warning: `zellij action move-focus right` exited with status: {}",
-            status
-        );
-    }
-
-    Ok(())
+    crate::session::zellij_action(&["action", "move-focus", "right"])
+        .context("Failed to execute `zellij action move-focus right`")
 }
 
 /// Switch to a specific tab within the named session:
 /// `zellij --session <target> action go-to-tab <position + 1>`.
 pub fn switch_tab(session_name: &str, tab_position: usize) -> Result<()> {
     let tab_arg = (tab_position + 1).to_string();
-    let status = Command::new("zellij")
-        .args(["--session", session_name, "action", "go-to-tab", &tab_arg])
-        .status()
+    crate::session::zellij_action(&["--session", session_name, "action", "go-to-tab", &tab_arg])
         .with_context(|| {
             format!(
                 "Failed to navigate to tab {} in session '{}'",
                 tab_position, session_name
             )
-        })?;
-
-    if !status.success() {
-        eprintln!(
-            "[verij-cli] Warning: `zellij action go-to-tab` exited with status: {}",
-            status
-        );
-    }
-
-    Ok(())
+        })
 }
 
 /// Initial attach fallback when no session was previously active in the right pane:
@@ -430,31 +379,20 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
         shell_quote(target_session),
         shell_quote(target_session),
     );
-    let _ = Command::new("zellij")
-        .args(["action", "move-focus", "right"])
-        .stdin(std::process::Stdio::null())
-        .status();
+    let _ = crate::session::zellij_action(&["action", "move-focus", "right"]);
 
-    let status = Command::new("zellij")
-        .args(["action", "write-chars", &attach_cmd])
-        .stdin(std::process::Stdio::null())
-        .status()
+    let result = crate::session::zellij_action(&["action", "write-chars", &attach_cmd])
         .with_context(|| {
             format!(
                 "Failed to send initial attach command for session '{}'",
                 target_session
             )
-        })?;
+        });
 
-    if !status.success() {
+    if result.is_err() {
         let _ = clear_workspace_session();
-        eprintln!(
-            "[verij-cli] Warning: initial attach write-chars exited with status: {}",
-            status
-        );
     }
-
-    Ok(())
+    result
 }
 
 fn shell_quote(value: &str) -> String {

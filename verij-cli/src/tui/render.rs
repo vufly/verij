@@ -30,8 +30,8 @@ fn c(idx: u8) -> Color {
 pub fn render(frame: &mut Frame, state: &mut AppState) {
     let area = frame.area();
 
-    // Only allocate status bar row if user toggled help with '?' or an error exists
-    let show_bottom_bar = state.show_help || state.error.is_some();
+    // Allocate status rows for help, an error, or an in-progress action.
+    let show_bottom_bar = state.show_help || state.error.is_some() || state.progress.is_some();
     let (list_area, status_area) = if show_bottom_bar {
         let status_height = status_bar_height(area.width, state).min(area.height);
         let [top, bottom] =
@@ -139,7 +139,12 @@ fn status_bar_height(width: u16, state: &AppState) -> u16 {
 
 fn status_bar_content(state: &AppState) -> Span<'static> {
     let colors = &state.config.colors;
-    if let Some(err) = &state.error {
+    if let Some(progress) = &state.progress {
+        Span::styled(
+            format!(" ⠋ {progress}"),
+            Style::default().fg(c(colors.spinner)),
+        )
+    } else if let Some(err) = &state.error {
         Span::styled(
             format!(" ✗ {err}"),
             Style::default()
@@ -239,4 +244,36 @@ fn split_vertical(area: Rect, top: Constraint, bottom: Constraint) -> [Rect; 2] 
         .split(area);
 
     [chunks[0], chunks[1]]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, Terminal};
+    use verij_types::SessionSnapshot;
+
+    #[test]
+    fn wrapped_progress_status_is_removed_without_leaving_text_in_tree() {
+        for width in [22, 40] {
+            let mut state = AppState::default();
+            state.reconcile(vec![SessionSnapshot {
+                name: "exited-session".into(), is_current: false, tabs: vec![],
+                active_pane: None, connected_clients: None, needs_resurrection: true,
+            }]);
+            let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
+            terminal.draw(|frame| render(frame, &mut state)).unwrap();
+            let original = terminal.backend().buffer().clone();
+
+            state.progress = Some("Restoring session 'exited-session'…".into());
+            terminal.draw(|frame| render(frame, &mut state)).unwrap();
+            let screen: String = terminal.backend().buffer().content.iter()
+                .map(|cell| cell.symbol()).collect();
+            assert!(screen.contains("Restoring"), "{screen}");
+            assert!(screen.contains("exited-session"), "{screen}");
+
+            state.progress = None;
+            terminal.draw(|frame| render(frame, &mut state)).unwrap();
+            assert_eq!(terminal.backend().buffer(), &original);
+        }
+    }
 }

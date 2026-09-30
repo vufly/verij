@@ -37,3 +37,6 @@ notify = "8"
 
 # Shared types
 verij-types = { path = "../verij-types" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

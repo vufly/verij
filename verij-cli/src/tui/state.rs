@@ -128,6 +128,12 @@ pub struct AppState {
     /// Non-fatal error message to display in the status bar, if any.
     pub error: Option<String>,
 
+    /// Action queued by input, dispatched after drawing its progress status.
+    pub action_pending: bool,
+
+    /// In-progress action message rendered inside the sidebar's status bar.
+    pub progress: Option<String>,
+
     /// Whether the keyboard shortcut help bar is displayed at the bottom (toggled by '?').
     pub show_help: bool,
 }
