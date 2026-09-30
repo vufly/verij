@@ -1,0 +1,36 @@
+{
+  "checks": [
+    {
+      "distinct_display_identity": true,
+      "ids": [
+        1,
+        2
+      ]
+    },
+    {
+      "independent_tiled_focus_and_input": true,
+      "focus": {
+        "1": "terminal_1",
+        "2": "terminal_0"
+      },
+      "input_transport": "display PTY keyboard"
+    },
+    {
+      "hidden_float_revealed_with_input": true
+    },
+    {
+      "target_from_other_fullscreen_pane": true
+    },
+    {
+      "ordinary_stack_member_focus_and_input": true
+    },
+    {
+      "reused_id_new_generation": true,
+      "stale_focus_rejected": true,
+      "clean_detach_invalidated": true
+    }
+  ],
+  "binary": "/tmp/opencode/zellij-v0.45.1/target/debug/zellij",
+  "status": "PASS",
+  "all_clients_exited": true
+}

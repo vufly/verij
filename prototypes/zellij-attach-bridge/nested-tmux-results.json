@@ -1,0 +1,17 @@
+{
+  "binary": "/tmp/opencode/zellij-v0.45.1/target/debug/zellij",
+  "input_transport": "tmux send-keys through outer display terminal",
+  "checks": [
+    {
+      "real_host_identity_and_independent_keyboard_focus": true
+    },
+    {
+      "nested_float_fullscreen_stack_keyboard": true
+    },
+    {
+      "nested_reconnect_stale_token_rejected": true
+    }
+  ],
+  "status": "PASS",
+  "private_tmux_and_zellij_cleanup_requested": true
+}

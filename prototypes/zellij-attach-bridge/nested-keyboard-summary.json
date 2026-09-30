@@ -1,0 +1,13 @@
+{
+  "kind": "reviewed diagnostic summary, not generated harness output",
+  "command": "python3 prototypes/zellij-attach-bridge/verify.py --binary /tmp/opencode/zellij-v0.45.1/target/debug/zellij --nested",
+  "host_pane_to_inner_client_identity": "observed for two actual host sessions",
+  "addressed_inner_client_focus": "observed: client 1 on terminal_0, client 2 on terminal_1",
+  "outer_display_pty_keyboard_to_inner_receiver": "timed out; neither receiver file received input",
+  "diagnostic_host_pane_cli_input": "passed in separate --host-injected-input run",
+  "resolution": "explicit nested_session_handling descend in private outer host configuration",
+  "outer_keyboard_after_resolution": "passed in both outer-display PTY and private tmux-backed terminal tests",
+  "current_evidence": ["nested-keyboard-results.json", "nested-tmux-results.json"],
+  "h0_effective_nested_keyboard_focus": "automated checks passed for tested geometry and Descend policy; human review pending",
+  "all_probe_clients_exited": true
+}

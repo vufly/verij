@@ -1,0 +1,768 @@
+diff --git a/zellij-client/src/attachment_identity.rs b/zellij-client/src/attachment_identity.rs
+new file mode 100644
+index 0000000..da4a8a8
+--- /dev/null
++++ b/zellij-client/src/attachment_identity.rs
+@@ -0,0 +1,75 @@
++//! Experimental local-only host wrapper handoff. Each attachment owns a unique
++//! record, so exiting an older connection cannot erase a replacement's record.
++use std::fs::OpenOptions;
++use std::io::{self, Write};
++use std::path::PathBuf;
++
++pub(crate) struct AttachmentRecord {
++    path: PathBuf,
++    value: serde_json::Value,
++}
++
++impl AttachmentRecord {
++    pub(crate) fn publish(
++        client_id: u16,
++        connection_id: String,
++        server_pid: u32,
++    ) -> io::Result<Self> {
++        let directory = PathBuf::from(
++            std::env::var_os("VERIJ_ZELLIJ_IDENTITY_DIR")
++                .ok_or_else(|| io::Error::other("no identity directory"))?,
++        );
++        if !directory.is_absolute() || !directory.is_dir() {
++            return Err(io::Error::other(
++                "identity directory must exist and be absolute",
++            ));
++        }
++        if connection_id.is_empty()
++            || !connection_id
++                .bytes()
++                .all(|b| b.is_ascii_hexdigit() || b == b'-')
++        {
++            return Err(io::Error::other("invalid connection token"));
++        }
++        let path = directory.join(format!("{}-{}.json", std::process::id(), connection_id));
++        let value = serde_json::json!({
++            "schema_version": 1, "client_id": client_id, "connection_id": connection_id,
++            "client_pid": std::process::id(), "server_pid": server_pid, "attached": true,
++        });
++        let record = Self { path, value };
++        record.write()?;
++        Ok(record)
++    }
++
++    fn write(&self) -> io::Result<()> {
++        let temporary = self.path.with_extension("tmp");
++        let result = (|| {
++            let mut options = OpenOptions::new();
++            options.write(true).create_new(true);
++            #[cfg(unix)]
++            {
++                use std::os::unix::fs::OpenOptionsExt;
++                options.mode(0o600);
++            }
++            let mut file = options.open(&temporary)?;
++            writeln!(file, "{}", self.value)?;
++            file.sync_all()?;
++            std::fs::rename(&temporary, &self.path)
++        })();
++        if result.is_err() {
++            let _ = std::fs::remove_file(temporary);
++        }
++        result
++    }
++}
++
++impl Drop for AttachmentRecord {
++    fn drop(&mut self) {
++        self.value["attached"] = serde_json::json!(false);
++        // Abrupt process death can leave attached=true. Host wrapper MUST check
++        // client/server process birth tokens and server generation before use.
++        if let Err(error) = self.write() {
++            log::warn!("Could not invalidate attachment record: {error}");
++        }
++    }
++}
+diff --git a/zellij-client/src/lib.rs b/zellij-client/src/lib.rs
+index ef41e96..6bf3745 100644
+--- a/zellij-client/src/lib.rs
++++ b/zellij-client/src/lib.rs
+@@ -7,6 +7,7 @@ mod os_input_output_unix;
+ #[path = "os_input_output_windows.rs"]
+ mod os_input_output_windows;
+ 
++mod attachment_identity;
+ pub mod cli_client;
+ mod command_is_executing;
+ mod input_handler;
+@@ -181,6 +182,11 @@ pub(crate) enum ClientInstruction {
+     UnblockInputThread,
+     Exit(ExitReason),
+     Connected,
++    VerijAttachmentIdentity {
++        client_id: ClientId,
++        connection_id: String,
++        server_pid: u32,
++    },
+     Log(Vec<String>),
+     LogError(Vec<String>),
+     SwitchSession(ConnectToSession),
+@@ -209,6 +215,15 @@ impl From<ServerToClientMsg> for ClientInstruction {
+             ServerToClientMsg::Render { content } => ClientInstruction::Render(content),
+             ServerToClientMsg::UnblockInputThread => ClientInstruction::UnblockInputThread,
+             ServerToClientMsg::Connected => ClientInstruction::Connected,
++            ServerToClientMsg::VerijAttachmentIdentity {
++                client_id,
++                connection_id,
++                server_pid,
++            } => ClientInstruction::VerijAttachmentIdentity {
++                client_id,
++                connection_id,
++                server_pid,
++            },
+             ServerToClientMsg::Log { lines } => ClientInstruction::Log(lines),
+             ServerToClientMsg::LogError { lines } => ClientInstruction::LogError(lines),
+             ServerToClientMsg::SwitchSession { connect_to_session } => {
+@@ -251,6 +266,7 @@ impl From<&ClientInstruction> for ClientContext {
+             ClientInstruction::Render(_) => ClientContext::Render,
+             ClientInstruction::UnblockInputThread => ClientContext::UnblockInputThread,
+             ClientInstruction::Connected => ClientContext::Connected,
++            ClientInstruction::VerijAttachmentIdentity { .. } => ClientContext::Connected,
+             ClientInstruction::Log(_) => ClientContext::Log,
+             ClientInstruction::LogError(_) => ClientContext::LogError,
+             ClientInstruction::SwitchSession(..) => ClientContext::SwitchSession,
+@@ -1178,6 +1194,9 @@ pub fn start_client(
+ 
+     os_input.connect_to_server(&*ipc_pipe);
+     os_input.send_to_server(first_msg);
++    if std::env::var_os("VERIJ_ZELLIJ_IDENTITY_DIR").is_some() {
++        os_input.send_to_server(ClientToServerMsg::VerijRequestIdentity);
++    }
+ 
+     let mut command_is_executing = CommandIsExecuting::new();
+ 
+@@ -1390,6 +1409,7 @@ pub fn start_client(
+     };
+ 
+     let mut exit_msg = String::new();
++    let mut attachment_record = None;
+     let mut synchronised_output = match os_input.env_variable("TERM").as_deref() {
+         Some("alacritty") => Some(SyncOutput::DCS),
+         _ => None,
+@@ -1403,6 +1423,20 @@ pub fn start_client(
+         err_ctx.add_call(ContextType::Client((&client_instruction).into()));
+ 
+         match client_instruction {
++            ClientInstruction::VerijAttachmentIdentity {
++                client_id,
++                connection_id,
++                server_pid,
++            } => {
++                match attachment_identity::AttachmentRecord::publish(
++                    client_id,
++                    connection_id,
++                    server_pid,
++                ) {
++                    Ok(record) => attachment_record = Some(record),
++                    Err(error) => log::warn!("Could not publish attachment identity: {error}"),
++                }
++            },
+             ClientInstruction::Exit(reason) => {
+                 os_input.send_to_server(ClientToServerMsg::ClientExited);
+ 
+@@ -1598,6 +1632,7 @@ pub fn start_client(
+     }
+ 
+     nested_reannounce.stop();
++    drop(attachment_record);
+ 
+     router_thread.join().unwrap();
+ 
+diff --git a/zellij-client/src/web_client/server_listener.rs b/zellij-client/src/web_client/server_listener.rs
+index 585f317..3b468c2 100644
+--- a/zellij-client/src/web_client/server_listener.rs
++++ b/zellij-client/src/web_client/server_listener.rs
+@@ -182,6 +182,8 @@ pub fn zellij_server_listener(
+                         match msg.map(|m| m.0) {
+                             Some(ServerToClientMsg::UnblockInputThread) => {},
+                             Some(ServerToClientMsg::Connected) => {},
++                            // Local attachment handoff is not a web-client API.
++                            Some(ServerToClientMsg::VerijAttachmentIdentity { .. }) => {},
+                             Some(ServerToClientMsg::CliPipeOutput { .. } ) => {},
+                             Some(ServerToClientMsg::UnblockCliPipeInput { .. } ) => {},
+                             Some(ServerToClientMsg::StartWebServer { .. } ) => {},
+diff --git a/zellij-server/src/lib.rs b/zellij-server/src/lib.rs
+index c86de12..8ad49c8 100644
+--- a/zellij-server/src/lib.rs
++++ b/zellij-server/src/lib.rs
+@@ -81,6 +81,9 @@ use zellij_utils::{
+ 
+ pub type ClientId = u16;
+ 
++#[cfg(test)]
++mod verij_bridge_tests;
++
+ /// Instructions related to server-side application
+ #[derive(Debug, Clone)]
+ pub enum ServerInstruction {
+@@ -105,6 +108,8 @@ pub enum ServerInstruction {
+     ),
+     AttachWatcherClient(ClientId, Size, bool), // bool -> is_web_client
+     ConnStatus(ClientId),
++    VerijRequestIdentity(ClientId),
++    VerijFocusPane(ClientId, ClientId, String, u32),
+     Log(Vec<String>, ClientId, Option<NotificationEnd>),
+     LogError(Vec<String>, ClientId, Option<NotificationEnd>),
+     SwitchSession(ConnectToSession, ClientId, Option<NotificationEnd>),
+@@ -159,6 +164,8 @@ impl From<&ServerInstruction> for ServerContext {
+             ServerInstruction::AttachClient(..) => ServerContext::AttachClient,
+             ServerInstruction::AttachWatcherClient(..) => ServerContext::AttachClient,
+             ServerInstruction::ConnStatus(..) => ServerContext::ConnStatus,
++            ServerInstruction::VerijRequestIdentity(..) => ServerContext::ConnStatus,
++            ServerInstruction::VerijFocusPane(..) => ServerContext::ConnStatus,
+             ServerInstruction::Log(..) => ServerContext::Log,
+             ServerInstruction::LogError(..) => ServerContext::LogError,
+             ServerInstruction::SwitchSession(..) => ServerContext::SwitchSession,
+@@ -629,6 +636,7 @@ macro_rules! send_to_client {
+ 
+ #[derive(Clone, Debug, PartialEq)]
+ pub(crate) struct SessionState {
++    attachment_generations: HashMap<ClientId, String>,
+     clients: HashMap<ClientId, Option<(Size, bool)>>, // bool -> is_web_client
+     pipes: HashMap<String, ClientId>,                 // String => pipe_id
+     watchers: HashMap<ClientId, bool>, // watcher clients (read-only observers) bool -> is_web_client
+@@ -645,6 +653,7 @@ pub(crate) struct SessionState {
+ impl SessionState {
+     pub fn new() -> Self {
+         SessionState {
++            attachment_generations: HashMap::new(),
+             clients: HashMap::new(),
+             pipes: HashMap::new(),
+             watchers: HashMap::new(),
+@@ -669,11 +678,20 @@ impl SessionState {
+             }
+         }
+         self.clients.insert(next_client_id, None);
++        self.attachment_generations
++            .insert(next_client_id, uuid::Uuid::new_v4().to_string());
+         next_client_id
+     }
+     pub fn associate_pipe_with_client(&mut self, pipe_id: String, client_id: ClientId) {
+         self.pipes.insert(pipe_id, client_id);
+     }
++    fn verij_identity(&self, client_id: ClientId) -> Option<&String> {
++        if matches!(self.clients.get(&client_id), Some(Some((_, false)))) {
++            self.attachment_generations.get(&client_id)
++        } else {
++            None
++        }
++    }
+     /// Remove a client and return any host-query tokens that had
+     /// been dispatched to this client and were still awaiting a
+     /// reply. Callers must synthesize an empty reply for each token
+@@ -681,6 +699,7 @@ impl SessionState {
+     /// `Screen`'s in-flight slot releases and any queued forwards
+     /// can proceed.
+     pub fn remove_client(&mut self, client_id: ClientId) -> Vec<u32> {
++        self.attachment_generations.remove(&client_id);
+         self.clients.remove(&client_id);
+         self.pipes.retain(|_p_id, c_id| c_id != &client_id);
+         self.clear_last_active_client(client_id);
+@@ -1618,6 +1637,67 @@ pub fn start_server_impl(
+                 let _ = os_input.send_to_client(client_id, ServerToClientMsg::Connected);
+                 remove_client!(client_id, os_input, session_state, session_data);
+             },
++            ServerInstruction::VerijRequestIdentity(client_id) => {
++                let state = session_state.read().unwrap();
++                if let Some(connection_id) = state.verij_identity(client_id) {
++                    if let Some(data) = session_data.read().unwrap().as_ref() {
++                        let _ = data.senders.send_to_screen(
++                            ScreenInstruction::VerijSetClientGeneration(
++                                client_id,
++                                connection_id.clone(),
++                            ),
++                        );
++                    }
++                    let _ = os_input.send_to_client(
++                        client_id,
++                        ServerToClientMsg::VerijAttachmentIdentity {
++                            client_id,
++                            connection_id: connection_id.clone(),
++                            server_pid: std::process::id(),
++                        },
++                    );
++                }
++            },
++            ServerInstruction::VerijFocusPane(requester, target, generation, pane_id) => {
++                let state = session_state.read().unwrap();
++                let bound = state.verij_identity(target) == Some(&generation);
++                let accepted = bound
++                    && session_data
++                        .read()
++                        .unwrap()
++                        .as_ref()
++                        .map(|data| {
++                            data.senders
++                                .send_to_screen(ScreenInstruction::VerijFocusPane(
++                                    PaneId::Terminal(pane_id),
++                                    target,
++                                    generation.clone(),
++                                ))
++                                .is_ok()
++                        })
++                        .unwrap_or(false);
++                // Receipt is not effective-focus confirmation. The caller must
++                // observe the addressed display client after dispatch.
++                let _ = os_input.send_to_client(
++                    requester,
++                    ServerToClientMsg::Log {
++                        lines: vec![if accepted {
++                            "verij:accepted"
++                        } else {
++                            "verij:rejected"
++                        }
++                        .to_owned()],
++                    },
++                );
++                drop(state);
++                let _ = os_input.send_to_client(
++                    requester,
++                    ServerToClientMsg::Exit {
++                        exit_reason: ExitReason::Normal,
++                    },
++                );
++                remove_client!(requester, os_input, session_state, session_data);
++            },
+             ServerInstruction::Log(
+                 lines_to_log,
+                 client_id,
+diff --git a/zellij-server/src/route.rs b/zellij-server/src/route.rs
+index 7ee9e0d..9b300fc 100644
+--- a/zellij-server/src/route.rs
++++ b/zellij-server/src/route.rs
+@@ -2686,6 +2686,13 @@ pub(crate) fn route_thread_main(
+                             let _ = to_server.send(ServerInstruction::ConnStatus(client_id));
+                             should_break = true;
+                         },
++                        ClientToServerMsg::VerijRequestIdentity => {
++                            to_server.send(ServerInstruction::VerijRequestIdentity(client_id)).with_context(err_context)?;
++                        },
++                        ClientToServerMsg::VerijFocusPane { target_client_id, connection_id, pane_id } => {
++                            to_server.send(ServerInstruction::VerijFocusPane(client_id, target_client_id, connection_id, pane_id)).with_context(err_context)?;
++                            should_break = true;
++                        },
+                         ClientToServerMsg::DetachSession { client_ids } => {
+                             let _ =
+                                 to_server.send(ServerInstruction::DetachSession(client_ids, None));
+diff --git a/zellij-server/src/screen.rs b/zellij-server/src/screen.rs
+index 0f6c5c9..636ef12 100644
+--- a/zellij-server/src/screen.rs
++++ b/zellij-server/src/screen.rs
+@@ -751,6 +751,8 @@ pub enum ScreenInstruction {
+     UnsuppressPane(PaneId, bool), // bool -> should float if hidden
+     UnsuppressOrExpandPane(PaneId, bool), // bool -> should float if hidden
+     FocusPaneWithId(PaneId, bool, bool, ClientId, Option<NotificationEnd>), // bools:
++    VerijSetClientGeneration(ClientId, String),
++    VerijFocusPane(PaneId, ClientId, String),
+     // should_float_if_hidden,
+     // should_be_in_place_if_hidden
+     RenamePane(PaneId, Vec<u8>, Option<NotificationEnd>),
+@@ -1192,6 +1194,8 @@ impl From<&ScreenInstruction> for ScreenContext {
+             ScreenInstruction::UnsuppressPane(..) => ScreenContext::UnsuppressPane,
+             ScreenInstruction::UnsuppressOrExpandPane(..) => ScreenContext::UnsuppressOrExpandPane,
+             ScreenInstruction::FocusPaneWithId(..) => ScreenContext::FocusPaneWithId,
++            ScreenInstruction::VerijSetClientGeneration(..) => ScreenContext::FocusPaneWithId,
++            ScreenInstruction::VerijFocusPane(..) => ScreenContext::FocusPaneWithId,
+             ScreenInstruction::RenamePane(..) => ScreenContext::RenamePane,
+             ScreenInstruction::RenameActivePane(..) => ScreenContext::RenameActivePane,
+             ScreenInstruction::RenameTab(..) => ScreenContext::RenameTab,
+@@ -1631,6 +1635,7 @@ pub(crate) struct Screen {
+     client_notification_protocols: HashMap<ClientId, NotificationProtocol>,
+     host_notification_protocol: HostNotificationProtocol,
+     client_host_terminal_env: HashMap<ClientId, BTreeMap<String, String>>,
++    verij_client_generations: HashMap<ClientId, String>,
+ }
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+@@ -1838,6 +1843,7 @@ impl Screen {
+             client_notification_protocols: HashMap::new(),
+             host_notification_protocol: HostNotificationProtocol::default(),
+             client_host_terminal_env: HashMap::new(),
++            verij_client_generations: HashMap::new(),
+         }
+     }
+ 
+@@ -5191,6 +5197,7 @@ impl Screen {
+         self.client_host_focused.remove(&client_id);
+         self.client_notification_protocols.remove(&client_id);
+         self.client_host_terminal_env.remove(&client_id);
++        self.verij_client_generations.remove(&client_id);
+         self.revert_fit_disabled_without_reference_client()
+             .with_context(err_context)?;
+         if let Some(prev_tab_id) = previously_active_tab_id {
+@@ -11197,6 +11204,30 @@ pub(crate) fn screen_thread_main(
+                     }
+                 }
+             },
++            ScreenInstruction::VerijSetClientGeneration(client_id, generation) => {
++                // The initial tab finishes asynchronously. Store the server-
++                // verified generation now; require connected presence at focus.
++                screen
++                    .verij_client_generations
++                    .insert(client_id, generation);
++            },
++            ScreenInstruction::VerijFocusPane(pane_id, client_id, generation) => {
++                // Revalidate on the screen thread, not merely when enqueuing.
++                // An attachment can be replaced while focus is queued.
++                if screen.verij_client_generations.get(&client_id) == Some(&generation)
++                    && screen.connected_clients.borrow().contains_key(&client_id)
++                    && screen
++                        .tabs
++                        .values()
++                        .any(|tab| tab.has_pane_with_pid(&pane_id))
++                {
++                    screen.focus_pane_with_id(pane_id, false, false, client_id)?;
++                    screen.clear_bell_for_pane_id(pane_id, client_id);
++                    screen.reconcile_single_pane_focus(client_id);
++                    screen.sync_scroll_mode_on_focus(client_id)?;
++                    screen.log_and_report_session_state()?;
++                }
++            },
+             ScreenInstruction::RenamePane(
+                 pane_id,
+                 new_name,
+diff --git a/zellij-server/src/verij_bridge_tests.rs b/zellij-server/src/verij_bridge_tests.rs
+new file mode 100644
+index 0000000..9dfa4e9
+--- /dev/null
++++ b/zellij-server/src/verij_bridge_tests.rs
+@@ -0,0 +1,43 @@
++use super::{SessionState, Size};
++
++#[test]
++fn verij_generation_invalidates_reused_client_id_and_excludes_cli() {
++    let mut state = SessionState::new();
++    let id = state.new_client();
++    assert!(
++        state.verij_identity(id).is_none(),
++        "CLI/unattached socket is not a display"
++    );
++    state.set_client_data(
++        id,
++        Size {
++            rows: 50,
++            cols: 160,
++        },
++        false,
++    );
++    let first = state.verij_identity(id).unwrap().clone();
++    state.remove_client(id);
++    assert!(state.verij_identity(id).is_none());
++    let reused = state.new_client();
++    assert_eq!(id, reused);
++    state.set_client_data(
++        reused,
++        Size {
++            rows: 50,
++            cols: 160,
++        },
++        false,
++    );
++    assert_ne!(state.verij_identity(reused).unwrap(), &first);
++    let web = state.new_client();
++    state.set_client_data(
++        web,
++        Size {
++            rows: 50,
++            cols: 160,
++        },
++        true,
++    );
++    assert!(state.verij_identity(web).is_none());
++}
+diff --git a/zellij-utils/assets/prost_ipc/client_server_contract.rs b/zellij-utils/assets/prost_ipc/client_server_contract.rs
+index a50f86a..910c30e 100644
+--- a/zellij-utils/assets/prost_ipc/client_server_contract.rs
++++ b/zellij-utils/assets/prost_ipc/client_server_contract.rs
+@@ -3068,7 +3068,7 @@ impl ThemeHue {
+ #[allow(clippy::derive_partial_eq_without_eq)]
+ #[derive(Clone, PartialEq, ::prost::Message)]
+ pub struct ClientToServerMsg {
+-    #[prost(oneof="client_to_server_msg::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
++    #[prost(oneof="client_to_server_msg::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
+     pub message: ::core::option::Option<client_to_server_msg::Message>,
+ }
+ /// Nested message and enum types in `ClientToServerMsg`.
+@@ -3130,6 +3130,10 @@ pub mod client_to_server_msg {
+         SetMobileRenderPreferences(super::SetMobileRenderPreferencesMsg),
+         #[prost(message, tag="27")]
+         HostTerminalFocusChanged(super::HostTerminalFocusChangedMsg),
++        #[prost(message, tag="28")]
++        VerijRequestIdentity(super::VerijRequestIdentityMsg),
++        #[prost(message, tag="29")]
++        VerijFocusPane(super::VerijFocusPaneMsg),
+     }
+ }
+ #[allow(clippy::derive_partial_eq_without_eq)]
+@@ -3138,6 +3142,17 @@ pub struct DetachSessionMsg {
+     #[prost(uint32, repeated, tag="1")]
+     pub client_ids: ::prost::alloc::vec::Vec<u32>,
+ }
++#[derive(Clone, PartialEq, ::prost::Message)]
++pub struct VerijRequestIdentityMsg {}
++#[derive(Clone, PartialEq, ::prost::Message)]
++pub struct VerijFocusPaneMsg {
++    #[prost(uint32, tag="1")]
++    pub target_client_id: u32,
++    #[prost(string, tag="2")]
++    pub connection_id: ::prost::alloc::string::String,
++    #[prost(uint32, tag="3")]
++    pub pane_id: u32,
++}
+ #[allow(clippy::derive_partial_eq_without_eq)]
+ #[derive(Clone, PartialEq, ::prost::Message)]
+ pub struct TerminalPixelDimensionsMsg {
+@@ -3347,7 +3362,7 @@ impl HostTerminalThemeIndication {
+ #[allow(clippy::derive_partial_eq_without_eq)]
+ #[derive(Clone, PartialEq, ::prost::Message)]
+ pub struct ServerToClientMsg {
+-    #[prost(oneof="server_to_client_msg::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19")]
++    #[prost(oneof="server_to_client_msg::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20")]
+     pub message: ::core::option::Option<server_to_client_msg::Message>,
+ }
+ /// Nested message and enum types in `ServerToClientMsg`.
+@@ -3393,6 +3408,8 @@ pub mod server_to_client_msg {
+         EmitNestedSessionFrame(super::EmitNestedSessionFrameMsg),
+         #[prost(message, tag="19")]
+         MobileState(super::MobileStateMsg),
++        #[prost(message, tag="20")]
++        VerijAttachmentIdentity(super::VerijAttachmentIdentityMsg),
+     }
+ }
+ #[allow(clippy::derive_partial_eq_without_eq)]
+@@ -3401,6 +3418,15 @@ pub struct RenderMsg {
+     #[prost(string, tag="1")]
+     pub content: ::prost::alloc::string::String,
+ }
++#[derive(Clone, PartialEq, ::prost::Message)]
++pub struct VerijAttachmentIdentityMsg {
++    #[prost(uint32, tag="1")]
++    pub client_id: u32,
++    #[prost(string, tag="2")]
++    pub connection_id: ::prost::alloc::string::String,
++    #[prost(uint32, tag="3")]
++    pub server_pid: u32,
++}
+ /// Empty message
+ #[allow(clippy::derive_partial_eq_without_eq)]
+ #[derive(Clone, PartialEq, ::prost::Message)]
+diff --git a/zellij-utils/src/client_server_contract/client_to_server.proto b/zellij-utils/src/client_server_contract/client_to_server.proto
+index dbf7999..4cae15e 100644
+--- a/zellij-utils/src/client_server_contract/client_to_server.proto
++++ b/zellij-utils/src/client_server_contract/client_to_server.proto
+@@ -32,6 +32,8 @@ message ClientToServerMsg {
+     RequestSessionListMsg request_session_list = 25;
+     SetMobileRenderPreferencesMsg set_mobile_render_preferences = 26;
+     HostTerminalFocusChangedMsg host_terminal_focus_changed = 27;
++    VerijRequestIdentityMsg verij_request_identity = 28;
++    VerijFocusPaneMsg verij_focus_pane = 29;
+   }
+ }
+ 
+@@ -39,6 +41,13 @@ message DetachSessionMsg {
+   repeated uint32 client_ids = 1;
+ }
+ 
++message VerijRequestIdentityMsg {}
++message VerijFocusPaneMsg {
++  uint32 target_client_id = 1;
++  string connection_id = 2;
++  uint32 pane_id = 3;
++}
++
+ message TerminalPixelDimensionsMsg {
+   PixelDimensions pixel_dimensions = 1;
+ }
+diff --git a/zellij-utils/src/client_server_contract/server_to_client.proto b/zellij-utils/src/client_server_contract/server_to_client.proto
+index 3e6f416..06ec0bd 100644
+--- a/zellij-utils/src/client_server_contract/server_to_client.proto
++++ b/zellij-utils/src/client_server_contract/server_to_client.proto
+@@ -24,6 +24,7 @@ message ServerToClientMsg {
+     SetSoftKeyboardMsg set_soft_keyboard = 17;
+     EmitNestedSessionFrameMsg emit_nested_session_frame = 18;
+     MobileStateMsg mobile_state = 19;
++    VerijAttachmentIdentityMsg verij_attachment_identity = 20;
+   }
+ }
+ 
+@@ -31,6 +32,12 @@ message RenderMsg {
+   string content = 1;
+ }
+ 
++message VerijAttachmentIdentityMsg {
++  uint32 client_id = 1;
++  string connection_id = 2;
++  uint32 server_pid = 3;
++}
++
+ message UnblockInputThreadMsg {
+   // Empty message
+ }
+diff --git a/zellij-utils/src/ipc.rs b/zellij-utils/src/ipc.rs
+index ee07fa2..7520995 100644
+--- a/zellij-utils/src/ipc.rs
++++ b/zellij-utils/src/ipc.rs
+@@ -244,6 +244,12 @@ pub enum ClientToServerMsg {
+     HostTerminalFocusChanged {
+         focused: bool,
+     },
++    VerijRequestIdentity,
++    VerijFocusPane {
++        target_client_id: ClientId,
++        connection_id: String,
++        pane_id: u32,
++    },
+ }
+ 
+ // Types of messages sent from the server to the client
+@@ -302,6 +308,11 @@ pub enum ServerToClientMsg {
+     MobileState {
+         payload: MobileStatePayload,
+     },
++    VerijAttachmentIdentity {
++        client_id: ClientId,
++        connection_id: String,
++        server_pid: u32,
++    },
+ }
+ 
+ #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+diff --git a/zellij-utils/src/ipc/protobuf_conversion.rs b/zellij-utils/src/ipc/protobuf_conversion.rs
+index 1e77172..fac5b1b 100644
+--- a/zellij-utils/src/ipc/protobuf_conversion.rs
++++ b/zellij-utils/src/ipc/protobuf_conversion.rs
+@@ -21,7 +21,8 @@ use crate::{
+         SoftKeyboardVisibilityChangedMsg, StartWebServerMsg, SubscribeToPaneRendersMsg,
+         SubscribedPaneClosedMsg, SwitchSessionMsg, TabMetadata as ProtoTabMetadata,
+         TerminalPixelDimensionsMsg, TerminalResizeMsg, UnblockCliPipeInputMsg,
+-        UnblockInputThreadMsg, WebServerStartedMsg,
++        UnblockInputThreadMsg, VerijAttachmentIdentityMsg, VerijFocusPaneMsg,
++        VerijRequestIdentityMsg, WebServerStartedMsg,
+     },
+     data::{HostTerminalThemeMode, InputMode, PaneId},
+     errors::prelude::*,
+@@ -38,6 +39,18 @@ use std::path::PathBuf;
+ impl From<ClientToServerMsg> for ProtoClientToServerMsg {
+     fn from(msg: ClientToServerMsg) -> Self {
+         let message = match msg {
++            ClientToServerMsg::VerijRequestIdentity => {
++                client_to_server_msg::Message::VerijRequestIdentity(VerijRequestIdentityMsg {})
++            },
++            ClientToServerMsg::VerijFocusPane {
++                target_client_id,
++                connection_id,
++                pane_id,
++            } => client_to_server_msg::Message::VerijFocusPane(VerijFocusPaneMsg {
++                target_client_id: u32::from(target_client_id),
++                connection_id,
++                pane_id,
++            }),
+             ClientToServerMsg::DetachSession { client_ids } => {
+                 client_to_server_msg::Message::DetachSession(DetachSessionMsg {
+                     client_ids: client_ids.into_iter().map(|id| id as u32).collect(),
+@@ -362,6 +375,19 @@ impl TryFrom<ProtoClientToServerMsg> for ClientToServerMsg {
+                 })
+             },
+             None => Err(anyhow!("Empty ClientToServerMsg message")),
++            Some(client_to_server_msg::Message::VerijRequestIdentity(_)) => {
++                Ok(ClientToServerMsg::VerijRequestIdentity)
++            },
++            Some(client_to_server_msg::Message::VerijFocusPane(msg)) => {
++                Ok(ClientToServerMsg::VerijFocusPane {
++                    target_client_id: msg
++                        .target_client_id
++                        .try_into()
++                        .map_err(|_| anyhow!("Invalid client ID"))?,
++                    connection_id: msg.connection_id,
++                    pane_id: msg.pane_id,
++                })
++            },
+         }
+     }
+ }
+@@ -392,6 +418,17 @@ impl From<ServerToClientMsg> for ProtoServerToClientMsg {
+             ServerToClientMsg::Connected => {
+                 server_to_client_msg::Message::Connected(ConnectedMsg {})
+             },
++            ServerToClientMsg::VerijAttachmentIdentity {
++                client_id,
++                connection_id,
++                server_pid,
++            } => {
++                server_to_client_msg::Message::VerijAttachmentIdentity(VerijAttachmentIdentityMsg {
++                    client_id: u32::from(client_id),
++                    connection_id,
++                    server_pid,
++                })
++            },
+             ServerToClientMsg::Log { lines } => {
+                 server_to_client_msg::Message::Log(LogMsg { lines })
+             },
+@@ -623,6 +660,16 @@ impl TryFrom<ProtoServerToClientMsg> for ServerToClientMsg {
+                 Ok(ServerToClientMsg::Exit { exit_reason })
+             },
+             Some(server_to_client_msg::Message::Connected(_)) => Ok(ServerToClientMsg::Connected),
++            Some(server_to_client_msg::Message::VerijAttachmentIdentity(msg)) => {
++                Ok(ServerToClientMsg::VerijAttachmentIdentity {
++                    client_id: msg
++                        .client_id
++                        .try_into()
++                        .map_err(|_| anyhow!("Invalid client ID"))?,
++                    connection_id: msg.connection_id,
++                    server_pid: msg.server_pid,
++                })
++            },
+             Some(server_to_client_msg::Message::Log(log)) => {
+                 Ok(ServerToClientMsg::Log { lines: log.lines })
+             },
+diff --git a/zellij-utils/src/ipc/tests/roundtrip_tests.rs b/zellij-utils/src/ipc/tests/roundtrip_tests.rs
+index f3f6d09..ef0f97e 100644
+--- a/zellij-utils/src/ipc/tests/roundtrip_tests.rs
++++ b/zellij-utils/src/ipc/tests/roundtrip_tests.rs
+@@ -29,6 +29,40 @@ use std::path::PathBuf;
+ 
+ const ROUNDTRIP_TEST_STACK_SIZE: usize = 32 * 1024 * 1024;
+ 
++#[test]
++fn verij_bridge_wire_roundtrip() {
++    use crate::client_server_contract::client_server_contract::{
++        ClientToServerMsg as ProtoClient, ServerToClientMsg as ProtoServer,
++    };
++    use prost::Message;
++    for original in [
++        ClientToServerMsg::VerijRequestIdentity,
++        ClientToServerMsg::VerijFocusPane {
++            target_client_id: 42,
++            connection_id: "attachment-generation".into(),
++            pane_id: 7,
++        },
++    ] {
++        let wire = ProtoClient::from(original.clone()).encode_to_vec();
++        let decoded: ClientToServerMsg = ProtoClient::decode(wire.as_slice())
++            .unwrap()
++            .try_into()
++            .unwrap();
++        assert_eq!(original, decoded);
++    }
++    let original = ServerToClientMsg::VerijAttachmentIdentity {
++        client_id: 42,
++        connection_id: "attachment-generation".into(),
++        server_pid: 12345,
++    };
++    let wire = ProtoServer::from(original.clone()).encode_to_vec();
++    let decoded: ServerToClientMsg = ProtoServer::decode(wire.as_slice())
++        .unwrap()
++        .try_into()
++        .unwrap();
++    assert_eq!(original, decoded);
++}
++
+ #[test]
+ fn server_client_contract() {
+     std::thread::Builder::new()
