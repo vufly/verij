@@ -8,10 +8,12 @@
 use anyhow::{Context, Result};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use verij_types::{SessionSnapshot, VERIJ_STATES_DIR};
+
+use crate::session::SessionStatus;
 
 /// Resolves and prepares the session states directory.
 ///
@@ -42,10 +44,10 @@ pub fn resolve_states_dir() -> PathBuf {
     fallback
 }
 
-/// Reads and aggregates all session JSON files currently present in the states directory.
+/// Combines plugin snapshots with Zellij's session inventory.
 ///
 /// Prunes stale state files for sessions that no longer exist in Zellij, and filters
-/// out registered host sessions.
+/// out host sessions. Sessions without a plugin snapshot remain visible after reboot.
 pub fn read_all_states(hosts: &HashSet<String>, unknown: &mut HashMap<String, bool>) -> Vec<SessionSnapshot> {
     let dir = resolve_states_dir();
     let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -83,8 +85,40 @@ pub fn read_all_states(hosts: &HashSet<String>, unknown: &mut HashMap<String, bo
         }
     }
 
+    if let Some(ref statuses) = session_statuses {
+        add_missing_sessions(&mut sessions, statuses, |name| {
+            hosts.contains(name) || *unknown.entry(name.to_string())
+                .or_insert_with(|| crate::session::is_verij_host(name).unwrap_or(false))
+        });
+    }
+
     sessions.sort_by(|a, b| a.name.cmp(&b.name));
     sessions
+}
+
+/// Runtime JSON lives in /tmp and can disappear on reboot. Zellij's durable
+/// inventory still knows exited sessions, even though their plugins cannot export
+/// fresh snapshots until resurrection. Keep these rows attachable without inventing
+/// tab or pane details; a plugin snapshot supplies those once the session runs.
+fn add_missing_sessions(
+    sessions: &mut Vec<SessionSnapshot>,
+    statuses: &BTreeMap<String, SessionStatus>,
+    mut is_host: impl FnMut(&str) -> bool,
+) {
+    let known: HashSet<_> = sessions.iter().map(|session| session.name.clone()).collect();
+    for (name, status) in statuses {
+        if known.contains(name) || is_host(name) || matches!(status, SessionStatus::Missing) {
+            continue;
+        }
+        sessions.push(SessionSnapshot {
+            name: name.clone(),
+            is_current: false,
+            tabs: Vec::new(),
+            active_pane: None,
+            connected_clients: None,
+            needs_resurrection: matches!(status, SessionStatus::Exited),
+        });
+    }
 }
 
 /// Spawns the filesystem watcher background task targeting the states directory.
@@ -172,4 +206,59 @@ pub fn spawn_fs_watcher(
     });
 
     Ok(handle)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use verij_types::TabSnapshot;
+
+    #[test]
+    fn reboot_without_runtime_snapshots_keeps_live_and_exited_inner_sessions() {
+        let statuses = BTreeMap::from([
+            ("exited-inner".into(), SessionStatus::Exited),
+            ("exited-host".into(), SessionStatus::Exited),
+            ("live-inner".into(), SessionStatus::Live),
+            ("live-host".into(), SessionStatus::Live),
+        ]);
+        let mut sessions = Vec::new();
+
+        add_missing_sessions(&mut sessions, &statuses, |name| name.ends_with("-host"));
+
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[0].name, "exited-inner");
+        assert!(sessions[0].needs_resurrection);
+        assert_eq!(sessions[1].name, "live-inner");
+        assert!(!sessions[1].needs_resurrection);
+        assert!(sessions.iter().all(|session| session.tabs.is_empty()));
+    }
+
+    #[test]
+    fn inventory_fallback_preserves_plugin_details_without_duplicate_rows() {
+        let snapshot = SessionSnapshot {
+            name: "inner".into(),
+            is_current: true,
+            tabs: vec![TabSnapshot {
+                name: "editor".into(),
+                position: 0,
+                is_active: true,
+            }],
+            active_pane: Some("shell".into()),
+            connected_clients: Some(1),
+            needs_resurrection: false,
+        };
+        let statuses = BTreeMap::from([
+            ("inner".into(), SessionStatus::Live),
+            ("old".into(), SessionStatus::Exited),
+        ]);
+        let mut sessions = vec![snapshot.clone()];
+
+        add_missing_sessions(&mut sessions, &statuses, |_| false);
+        add_missing_sessions(&mut sessions, &statuses, |_| false);
+
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[0], snapshot);
+        assert_eq!(sessions[1].name, "old");
+        assert!(sessions[1].needs_resurrection);
+    }
 }

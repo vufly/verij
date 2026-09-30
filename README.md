@@ -212,7 +212,7 @@ Inline style directives affect text spans on top of the chosen row base. Changin
 
 ## Runtime Model
 
-Each inner session runs a headless `verij-plugin.wasm`. It exports atomic JSON snapshots to `/tmp/verij/states/`. The host TUI watches that directory and rebuilds its session/tab tree when snapshots change.
+Each inner session runs a headless `verij-plugin.wasm`. It exports atomic JSON snapshots to `/tmp/verij/states/`. The host TUI watches that directory and combines snapshots with Zellij's session inventory to rebuild its session/tab tree. Sessions remain visible when runtime snapshots disappear after reboot: exited sessions appear in muted color with the folded caret and can be selected for resurrection. They remain folded until live, then resume their previous fold state. Tab and pane details appear once the session's plugin exports a fresh snapshot.
 
 Session changes use the Inception Switch: the sidebar sends `switch:<target>` to the currently attached inner agent, which calls Zellij's native `switch_session` API from inside the inner session. Tab changes use Zellij's session-targeted `go-to-tab` action.
 

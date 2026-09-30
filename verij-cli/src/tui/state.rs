@@ -238,6 +238,10 @@ impl AppState {
             return;
         };
 
+        if matches!(node, TreeNode::Session { needs_resurrection: true, .. }) {
+            return;
+        }
+
         let session_name = node.session_name().to_string();
         if self.collapsed.contains(&session_name) {
             self.collapsed.remove(&session_name);
@@ -268,6 +272,7 @@ impl AppState {
             name,
             is_collapsed,
             tab_count,
+            needs_resurrection: false,
             ..
         } = node
         {
@@ -386,12 +391,12 @@ impl AppState {
     // Private helpers
     // -----------------------------------------------------------------------
 
-    /// Flatten `self.sessions` into `self.nodes` respecting `self.collapsed`.
+    /// Flatten sessions respecting user folds, keeping exited sessions folded.
     pub fn rebuild_nodes(&mut self) {
         self.nodes.clear();
 
         for (session_index, session) in self.sessions.iter().enumerate() {
-            let is_collapsed = self.collapsed.contains(&session.name);
+            let is_collapsed = session.needs_resurrection || self.collapsed.contains(&session.name);
             let tab_count = session.tabs.len();
             let is_attached = self.active_session.as_deref() == Some(&session.name);
 
@@ -515,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resurrectable_session_is_marked_in_tree() {
+    fn test_resurrectable_session_stays_folded_until_live() {
         let mut state = AppState::default();
         let mut sessions = make_test_sessions();
         sessions[0].needs_resurrection = true;
@@ -525,9 +530,20 @@ mod tests {
             state.nodes[0],
             TreeNode::Session {
                 needs_resurrection: true,
+                is_collapsed: true,
                 ..
             }
         ));
+        assert_eq!(state.nodes.len(), 3);
+
+        state.toggle_collapse();
+        state.expand_selected();
+        assert_eq!(state.nodes.len(), 3);
+        assert!(!state.collapsed.contains("backend"));
+
+        state.reconcile(make_test_sessions());
+        assert_eq!(state.nodes.len(), 5);
+        assert!(matches!(state.nodes[0], TreeNode::Session { is_collapsed: false, .. }));
     }
 
     #[test]
