@@ -66,6 +66,8 @@ Native APIs to inspect are `switch_session_with_focus`, `focus_terminal_pane`, a
 
 Respect Zellij's own mirrored-session behavior: a mirrored session can intentionally share focus across clients. Verij must still maintain host-local acknowledgement and must not route an unmirrored focus request to an arbitrary other host. Document inherent Zellij limitations if they remain after investigation.
 
+**Live native-stack limitation (2026-10-01):** even with `mirror_session false`, focusing an ordinary stack member expands that member for other clients focused in the same stack. The extended bridge probe confirmed the other client's changed focus with actual keyboard input; tagged native `tiled_panes/mod.rs::focus_pane` invokes `focus_pane_for_all_clients_in_stack` independently of its mirroring branch. Do not advertise independent per-client stack-member visibility or infer host-local acknowledgement from inner focus alone. Direct cross-tab/rename/zero-client reattachment and abrupt-death generation checks passed; one nested lifecycle run without placements passed, but repeated nested startup/reconnect failures remain a reliability blocker. A nonexistent pane with a valid generation also returns `verij:accepted` without moving focus, concretely requiring execution completion/failure. See the prototype follow-up and progress log for retained passes and failures.
+
 **Deliverable:** a client-routing/focus strategy and a stable session-incarnation strategy, with a minimal live reproduction for each tricky placement. Do not substitute fixed sleeps or global client counts for this gate.
 
 ### G2. OpenCode version and local ownership

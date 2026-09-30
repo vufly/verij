@@ -12,12 +12,28 @@ import os
 from pathlib import Path
 import pty
 import select
+import signal
 import socket
 import struct
 import subprocess
 import tempfile
 import termios
 import time
+
+
+def process_identity(pid):
+    """Linux liveness qualified by boot and process birth, including zombies."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        # comm can contain spaces and parentheses; fields after its final ')'
+        # start at field 3 (state), making field 22 (starttime) offset 19.
+        parts = stat[stat.rindex(")") + 2:].split()
+        if parts[0] in ("Z", "X"):
+            return None
+        return {"pid": pid, "start_jiffies": int(parts[19]),
+                "boot_id": Path("/proc/sys/kernel/random/boot_id").read_text().strip()}
+    except FileNotFoundError:
+        return None
 
 
 def varint(number):
@@ -95,9 +111,10 @@ def main():
     parser.add_argument("--nested", action="store_true", help="Run inner attachments in real disposable host Zellij panes")
     parser.add_argument("--host-injected-input", action="store_true", help="Diagnostic: write to the actual host pane instead of simulating outer keyboard input")
     parser.add_argument("--placements", action="store_true", help="Also exercise floating, fullscreen and ordinary stack targets")
+    parser.add_argument("--lifecycle", action="store_true", help="Also exercise cross-tab focus, rename, missing targets, abrupt death and zero-client reattachment")
     args = parser.parse_args()
     binary = args.binary.resolve(strict=True)
-    report = {"checks": [], "binary": str(binary)}
+    report = {"checks": [], "binary": str(binary), "limitations": []}
     clients = []
     host_sessions = []
     scratch_parent = args.scratch_dir or Path(__file__).resolve().parent / ".scratch"
@@ -143,7 +160,9 @@ def main():
             for child in clients:
                 if child["master"] is not None and select.select([child["master"]], [], [], 0)[0]:
                     try:
-                        os.read(child["master"], 65536)
+                        data = os.read(child["master"], 65536)
+                        with (root / f"{child['directory'].name}.terminal").open("ab") as transcript:
+                            transcript.write(data)
                     except OSError:
                         pass
         def wait(predicate, timeout=25):
@@ -159,6 +178,7 @@ def main():
                 time.sleep(.1)
             raise TimeoutError("disposable probe condition timed out")
         def attach(label, create=False):
+            report["stage"] = f"attach {label}"
             directory = root / label
             directory.mkdir(mode=0o700)
             child_env = dict(env, VERIJ_ZELLIJ_IDENTITY_DIR=str(directory))
@@ -214,6 +234,11 @@ def main():
                         child["record"] = value
                         return value
             wait(record)
+            child["client_birth"] = process_identity(child["record"]["client_pid"])
+            child["server_birth"] = process_identity(child["record"]["server_pid"])
+            assert child["client_birth"] and child["server_birth"], "attachment processes must be live"
+            assert directory.stat().st_mode & 0o777 == 0o700
+            assert child["record_path"].stat().st_mode & 0o777 == 0o600
             print(f"attached {label}: client {child['record']['client_id']}", flush=True)
             return child
         def focus_map():
@@ -254,6 +279,8 @@ def main():
             assert a["record"]["server_pid"] == b["record"]["server_pid"]
             assert a["record"]["connection_id"] != b["record"]["connection_id"]
             report["checks"].append({"distinct_display_identity": True, "ids": [a["record"]["client_id"], b["record"]["client_id"]]})
+            report["checks"].append({"live_boot_qualified_client_and_server_birth": True,
+                                     "private_directory_and_record_modes": "0700/0600"})
             if args.nested:
                 report["checks"].append({"actual_host_pane_binding": True, "hosts": [a["host_marker"]["host_session"], b["host_marker"]["host_session"]]})
             pane1 = action("new-pane", "--", "python3", str(receiver), str(root / "pane1-input"))
@@ -291,6 +318,7 @@ def main():
                 send(a, "stack-member-one", 1)
                 report["checks"].append({"ordinary_stack_member_focus_and_input": True})
             stale = dict(a["record"])
+            report["stage"] = "clean detach record invalidation"
             if args.host_injected_input and args.nested:
                 a["host_action"]("write-chars", "--pane-id", "terminal_" + a["host_marker"]["host_pane"], "\x0fd")
             else:
@@ -309,12 +337,119 @@ def main():
             target(c, 1)
             send(c, "reconnected-a", 1)
             report["checks"].append({"reused_id_new_generation": True, "stale_focus_rejected": True, "clean_detach_invalidated": True})
+            if args.lifecycle:
+                report["stage"] = "cross-tab focus"
+                prior_panes = {p["id"] for p in json.loads(action("list-panes", "--all", "--json")) if not p["is_plugin"]}
+                action("new-tab", "--name", "background-target", "--", "python3", str(receiver), str(root / "cross-tab-input"))
+                def new_tab_pane():
+                    panes = [p for p in json.loads(action("list-panes", "--all", "--json")) if not p["is_plugin"] and p["id"] not in prior_panes]
+                    return panes[0] if len(panes) == 1 else None
+                cross_tab = wait(new_tab_pane)
+                cross_pane = cross_tab["id"]
+                # Receiver filenames follow actual inventory IDs, not tab indices.
+                (root / f"pane{cross_pane}-input").symlink_to(root / "cross-tab-input")
+                target(c, 0)
+                target(b, 1)
+                before = focus_map()
+                target(c, cross_pane)
+                assert focus_map()[b["record"]["client_id"]] == before[b["record"]["client_id"]]
+                send(c, "cross-tab-c", cross_pane)
+                send(b, "cross-tab-b-stayed", 1)
+                target(c, 0)
+                send(c, "returned-tab-zero", 0)
+                other_focus = focus_map()[b["record"]["client_id"]]
+                if args.placements:
+                    assert other_focus == "terminal_0", other_focus
+                    send(b, "shared-stack-expansion-b", 0)
+                    report["limitations"].append("Native stack expansion moves other clients focused in the same stack, even with mirror_session=false.")
+                    report["checks"].append({"unmirrored_stack_expansion_changes_other_client": True,
+                                             "other_client_keyboard_confirmed_in_expanded_member": True})
+                else:
+                    assert other_focus == "terminal_1", other_focus
+                report["checks"].append({"cross_tab_client_specific_focus_and_input": True, "target_pane": cross_pane,
+                                         "other_client_focus_after_return": other_focus})
+
+                # Stack expansion can affect another client's active member.
+                # Establish distinct tabs before testing rename in isolation.
+                target(c, cross_pane)
+                target(b, 1)
+                report["stage"] = "rename"
+                focus_before_rename = focus_map()
+                server_birth = c["server_birth"]
+                records_before = [json.loads(child["record_path"].read_text()) for child in (b, c)]
+                old_name = name
+                action("rename-session", "probe-renamed")
+                name = "probe-renamed"
+                socket_path = Path(sockets) / "contract_version_1" / name
+                wait(lambda: socket_path.exists() and focus_map())
+                assert not (Path(sockets) / "contract_version_1" / old_name).exists()
+                assert process_identity(c["record"]["server_pid"]) == server_birth
+                assert records_before == [json.loads(child["record_path"].read_text()) for child in (b, c)]
+                assert focus_map() == focus_before_rename
+                target(c, cross_pane)
+                send(c, "renamed-c", cross_pane)
+                send(b, "renamed-b", 1)
+                report["checks"].append({"rename_preserves_server_birth_and_attachment_generation": True, "focus_and_input_after_rename": True})
+
+                before = focus_map()
+                report["stage"] = "missing target"
+                missing_reply = control(socket_path, c["record"], 2**32 - 1)
+                assert missing_reply == ["verij:accepted"], missing_reply
+                # Verify a live keyboard path still reaches the prior target.
+                # Acceptance alone cannot establish the requested missing focus.
+                send(c, "missing-target-did-not-focus", cross_pane)
+                assert focus_map() == before
+                report["checks"].append({"missing_target_acceptance_is_not_completion": True, "reply": missing_reply, "focus_unchanged": True})
+                report["limitations"].append("A valid generation with a nonexistent pane is accepted at dispatch; no execution completion/failure response exists.")
+
+                abrupt = dict(c["record"])
+                report["stage"] = "abrupt client death and ID reuse"
+                assert process_identity(abrupt["client_pid"]) == c["client_birth"]
+                os.kill(abrupt["client_pid"], signal.SIGKILL)
+                wait(lambda: process_identity(abrupt["client_pid"]) is None)
+                wait(lambda: abrupt["client_id"] not in focus_map())
+                if not args.nested:
+                    c["process"].wait(timeout=4)
+                assert json.loads(c["record_path"].read_text())["attached"], "SIGKILL should leave a stale published record"
+                assert control(socket_path, abrupt, 0) == ["verij:rejected"]
+                d = attach("host-after-abrupt")
+                assert d["record"]["client_id"] == abrupt["client_id"]
+                assert d["record"]["connection_id"] != abrupt["connection_id"]
+                target(d, 0)
+                before = focus_map()
+                assert control(socket_path, abrupt, cross_pane) == ["verij:rejected"]
+                assert focus_map() == before
+                send(d, "after-abrupt-reuse", 0)
+                report["checks"].append({"abrupt_death_leaves_attached_record": True, "independent_process_liveness_detects_death": True, "stale_generation_rejected_before_and_after_reuse": True})
+
+                report["stage"] = "zero-client first reattachment"
+                for child in (b, d):
+                    keys(child, b"\x0fd")
+                    wait(lambda: not json.loads(child["record_path"].read_text())["attached"])
+                wait(lambda: not focus_map())
+                assert process_identity(d["record"]["server_pid"]) == server_birth
+                empty_before = focus_map()
+                assert control(socket_path, d["record"], 0) == ["verij:rejected"]
+                assert focus_map() == empty_before
+                e = attach("host-first-after-zero")
+                assert e["record"]["client_id"] == 1
+                assert e["server_birth"] == server_birth
+                assert e["record"]["connection_id"] not in {b["record"]["connection_id"], d["record"]["connection_id"]}
+                target(e, cross_pane)
+                send(e, "first-after-zero-clients", cross_pane)
+                report["checks"].append({"zero_client_server_lifetime_preserved": True, "zero_client_old_target_rejected": True, "first_reattachment_focus_and_input": True})
+            report.pop("stage", None)
             report["status"] = "PASS"
         except Exception as error:
             report.update(status="FAIL", error=str(error))
             print(f"probe failed: {error}", flush=True)
             try:
                 report["failure_focus"] = focus_map()
+                report["attachment_records_at_failure"] = [
+                    {"record": json.loads(child["record_path"].read_text()),
+                     "client_live": process_identity(child["record"]["client_pid"]) == child["client_birth"]}
+                    for child in clients if "record_path" in child
+                ]
                 report["input_files"] = {p.name: p.read_text() for p in root.glob("pane*-input")}
                 if args.nested:
                     report["host_focus"] = [c["host_action"]("list-clients") for c in clients if "host_action" in c]

@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-01",
+  "base_version": "Zellij 0.45.1, isolated patched debug binary",
+  "binary": "../zellij/target/debug/zellij",
+  "common_command": "python3 prototypes/zellij-attach-bridge/verify.py --binary ../zellij/target/debug/zellij --scratch-dir ../artifacts/scratch",
+  "attempts": [
+    {
+      "flags": "--placements --lifecycle --output ../artifacts/lifecycle-direct-results.json",
+      "result": "FAIL",
+      "stage": "rename input expectation after shared stack expansion",
+      "scratch": "vj-bridge-_buhn5ok",
+      "interpretation": "Harness expected B on member 1 after A expanded member 0. Receiver showed B's token in member 0. Rename isolated from stack focus in subsequent harness."
+    },
+    {
+      "flags": "--placements --lifecycle --output ../artifacts/lifecycle-direct-results-2.json",
+      "result": "PASS",
+      "scratch": "vj-bridge-el9ts33x"
+    },
+    {
+      "flags": "--nested --placements --lifecycle --output ../artifacts/lifecycle-nested-results.json",
+      "result": "FAIL",
+      "stage": "clean detach record invalidation",
+      "scratch": "vj-bridge-llq7s2g9"
+    },
+    {
+      "flags": "--nested --lifecycle --output ../artifacts/lifecycle-nested-results-2.json",
+      "result": "PASS",
+      "scratch": "vj-bridge-bkl7gcq1",
+      "interpretation": "Full nested lifecycle pass without placement matrix, before additional diagnostics were added."
+    },
+    {
+      "flags": "--placements --lifecycle --output prototypes/zellij-attach-bridge/lifecycle-direct-results.json",
+      "result": "PASS",
+      "scratch": "vj-bridge-edfpr6ov",
+      "interpretation": "Includes explicit other-client keyboard proof of native shared stack expansion and missing-target acceptance limitation."
+    },
+    {
+      "flags": "--nested --placements --lifecycle --output ../artifacts/lifecycle-nested-results-3.json",
+      "result": "FAIL",
+      "stage": "host B startup before attachment",
+      "scratch": "vj-bridge-o2wb_x47"
+    },
+    {
+      "flags": "--nested --lifecycle --output prototypes/zellij-attach-bridge/lifecycle-nested-results.json",
+      "result": "FAIL",
+      "stage": "host B startup before attachment",
+      "scratch": "vj-bridge-f8ijne0g"
+    },
+    {
+      "flags": "--nested --lifecycle --output ../artifacts/lifecycle-nested-results-4.json",
+      "result": "FAIL",
+      "stage": "host-a-reconnected startup",
+      "scratch": "vj-bridge-70xu7p51",
+      "interpretation": "Normal detach record invalidated and client died; replacement outer host produced no terminal output before bounded startup timeout."
+    }
+  ],
+  "artifact_root_from_verij": "../artifacts/scratch",
+  "full_nested_placement_lifecycle_verified": false,
+  "H0_approved": false
+}

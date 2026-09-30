@@ -22,6 +22,15 @@ python3 prototypes/zellij-attach-bridge/verify.py \
 python3 prototypes/zellij-attach-bridge/verify_tmux.py \
   --binary ../zellij/target/debug/zellij \
   --scratch-dir ../artifacts/scratch --output ../artifacts/nested-tmux-results.json
+
+# Extended Linux lifecycle observations; inspect limitations even on PASS.
+python3 prototypes/zellij-attach-bridge/verify.py \
+  --binary ../zellij/target/debug/zellij --placements --lifecycle \
+  --scratch-dir ../artifacts/scratch --output ../artifacts/lifecycle-direct-results.json
+
+python3 prototypes/zellij-attach-bridge/verify.py \
+  --binary ../zellij/target/debug/zellij --nested --lifecycle \
+  --scratch-dir ../artifacts/scratch --output ../artifacts/lifecycle-nested-results.json
 ```
 
 Run from the workspace's Verij worktree. The Zellij worktree is on its own `agent-monitoring` branch, based on the exact upstream commit above. Source, patch, builds and saved evidence are durable under `~/repos/workspaces/verij-agent-monitoring`; no `/tmp/opencode` checkout is required. Use a clean exact-tag checkout when applying the patch elsewhere; do not reapply to an already-patched checkout. Each probe retains its isolated config/XDG/identity/input files and `results.json` beneath `--scratch-dir` (or the prototype's ignored `.scratch/` default), so interrupted or failed experiments remain inspectable. Only short-lived sockets use a private `/tmp/vj-sock-*` directory because Unix socket paths have a length limit. Probes target only those private sockets and clean their own clients and sessions. Some earlier starts timed out; failures are reported rather than interpreted as successful focus. Historical JSON results retain original `/tmp` binary paths as provenance, not current instructions.
@@ -71,8 +80,19 @@ cargo test --manifest-path ../zellij/Cargo.toml \
 
 ## Remaining H0 work
 
+### Lifecycle follow-up — 2026-10-01
+
+The `--lifecycle` probe adds actual keyboard checks for client-specific cross-tab focus and return to tab zero, focus after session rename, missing targets, abrupt client death and generation reuse, and first reattachment after zero display clients. It independently samples Linux process identity as `(boot_id, PID, /proc start_jiffies)` and excludes zombies; attachment directories and records are checked for modes 0700 and 0600. These are harness observations, not production identity-directory ownership or wrapper validation.
+
+[Direct lifecycle results](lifecycle-direct-results.json) pass. A [nested run without the placement matrix](lifecycle-nested-success-results.json) also passed all lifecycle observations; its original evidence is `../artifacts/lifecycle-nested-results-2.json` from the Verij worktree, under scratch run `vj-bridge-bkl7gcq1`. Later nested runs timed out during host startup or reconnect, and the first nested placement+lifecycle run timed out waiting for detach-record invalidation. [The retained nested failure](lifecycle-nested-results.json) and [attempt summary](lifecycle-summary.json) keep these outcomes explicit. The full nested placement+lifecycle combination is **not verified**. Stage, attachment liveness and private outer terminal output are retained for future diagnosis; no startup cause is established.
+
+Two concrete limitations were independently reproduced:
+
+- **Unmirrored stacks still share expansion.** Returning client A from another tab to stack member 0 changed client B from member 1 to member 0; B's subsequent keyboard token reached member 0. Tagged native `tiled_panes/mod.rs::focus_pane` calls `focus_pane_for_all_clients_in_stack` when expanding a stack, separately from its `session_is_mirrored` branch. Earlier ordinary-stack passes prove that the addressed pane accepts input, not independent focus for two clients viewing different members of one stack.
+- **Acceptance is not completion, including a missing target.** A valid generation targeting nonexistent terminal pane `4294967295` received `verij:accepted`; per-client focus stayed unchanged and keyboard input reached the previous pane. `SIGKILL` left `attached:true` in the old identity file, while independent process liveness showed death and the server rejected its token before and after numeric ClientId reuse. Production navigation therefore needs execution completion/failure and independent liveness checks.
+
 - Have a reviewer observe keyboard forwarding through two host Workspace panes and verify sidebar-versus-Workspace visits. Automated outer keyboard checks now pass under the explicit Descend test configuration; this does not exercise every user nested-session policy or host geometry.
-- Verify hidden stack-list members, cross-tab/session transitions, first attachment, mirroring, plugin reload, rename/resurrection, and superseded-navigation races with the bridge.
+- Stabilize nested host startup/reconnect and rerun the full placement+lifecycle combination. Verify hidden stack-list members, cross-session transitions, mirroring, plugin reload, resurrection, and superseded-navigation races. Cross-tab, rename and first reattachment after zero clients have the limited observations above.
 - Add a production request/completion contract and demonstrate execution-time generation validation under disconnect/reconnect races, rather than relying on acceptance replies.
 - Decide how the bridge would be maintained/distributed. The new protobuf tags are experimental; this is not an upstream-approved protocol extension or a supported mixed-version deployment.
 - Validate private identity-directory ownership, boot-qualified process birth identity, abrupt exits, and wrapper lifecycle in the eventual integration.

@@ -1,0 +1,32 @@
+{
+  "checks": [],
+  "binary": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/zellij/target/debug/zellij",
+  "limitations": [],
+  "artifacts_dir": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-bridge-f8ijne0g",
+  "status": "FAIL",
+  "error": "disposable probe condition timed out",
+  "failure_focus": {
+    "1": "terminal_0"
+  },
+  "attachment_records_at_failure": [
+    {
+      "record": {
+        "attached": true,
+        "client_id": 1,
+        "client_pid": 28491,
+        "connection_id": "fdd95ec2-7aa0-4a7e-8811-bae92a378ca4",
+        "schema_version": 1,
+        "server_pid": 28507
+      },
+      "client_live": true
+    }
+  ],
+  "input_files": {},
+  "host_focus": [
+    "CLIENT_ID ZELLIJ_PANE_ID RUNNING_COMMAND\n1         terminal_1     /home/vudinhn/repos/workspaces/verij-agent-monitoring/zellij/target/debug/zellij --config /home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-bridge-f8ijne0g/config.kdl --layout /home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-bridge-f8ijne0g/layout.kdl attach -c probe -- python3 /home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-bridge-f8ijne0g/receiver.py /home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-bridge-f8ijne0g/pane0-input"
+  ],
+  "host_screens": [
+    ""
+  ],
+  "all_clients_exited": true
+}
