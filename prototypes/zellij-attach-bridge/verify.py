@@ -16,6 +16,7 @@ import signal
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -33,7 +34,7 @@ def process_identity(pid):
             return None
         return {"pid": pid, "start_jiffies": int(parts[19]),
                 "boot_id": Path("/proc/sys/kernel/random/boot_id").read_text().strip()}
-    except FileNotFoundError:
+    except (OSError, IndexError, ValueError):
         return None
 
 
@@ -62,6 +63,8 @@ def fields(data):
             offset += 1
             result |= (byte & 127) << shift
             if byte < 128:
+                if result >= 2**64:
+                    raise ValueError("protobuf varint exceeds uint64")
                 return result, offset
             shift += 7
         raise ValueError("invalid protobuf varint")
@@ -73,6 +76,8 @@ def fields(data):
             value, offset = read_varint(offset)
         elif tag & 7 == 2:
             length, offset = read_varint(offset)
+            if length > len(data) - offset:
+                raise ValueError("truncated protobuf length-delimited field")
             value, offset = data[offset:offset + length], offset + length
         else:
             raise ValueError("unexpected wire type")
@@ -80,31 +85,35 @@ def fields(data):
     return result
 
 
+def receive_reply(connection, reply_field, timeout=5):
+    deadline = time.monotonic() + timeout
+    def exact(length):
+        data = bytearray()
+        while len(data) < length:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("control result deadline expired")
+            connection.settimeout(remaining)
+            chunk = connection.recv(length - len(data))
+            if not chunk:
+                raise RuntimeError("control socket closed without response")
+            data.extend(chunk)
+        return bytes(data)
+    while True:
+        length = struct.unpack("<I", exact(4))[0]
+        if length > 1024 * 1024:
+            raise ValueError("control response too large")
+        for field, value in fields(exact(length)):
+            if field == reply_field:
+                return value
+
+
 def exchange(socket_path, wire, reply_field):
-    deadline = time.monotonic() + 5
     with socket.socket(socket.AF_UNIX) as connection:
         connection.settimeout(5)
         connection.connect(str(socket_path))
         connection.sendall(struct.pack("<I", len(wire)) + wire)
-        def exact(length):
-            data = bytearray()
-            while len(data) < length:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError("control result deadline expired")
-                connection.settimeout(remaining)
-                chunk = connection.recv(length - len(data))
-                if not chunk:
-                    raise RuntimeError("control socket closed without response")
-                data.extend(chunk)
-            return bytes(data)
-        while True:
-            length = struct.unpack("<I", exact(4))[0]
-            if length > 1024 * 1024:
-                raise ValueError("control response too large")
-            for field, value in fields(exact(length)):
-                if field == reply_field:
-                    return value
+        return receive_reply(connection, reply_field)
 
 
 def control(socket_path, record, pane_id):
@@ -112,12 +121,19 @@ def control(socket_path, record, pane_id):
     return [line.decode() for number, line in fields(exchange(socket_path, blob(29, payload), 5)) if number == 1]
 
 
-def completion_control(socket_path, record, pane_id, sequence=0, query_only=False):
-    request_id = uuid.uuid4().hex
+def completion_wire(record, pane_id, sequence, query_only, request_id):
+    for name, value, limit in (("client_id", record["client_id"], 2**16),
+                               ("pane_id", pane_id, 2**32), ("sequence", sequence, 2**64)):
+        if type(value) is not int or not 0 <= value < limit:
+            raise ValueError(f"invalid {name} wire range")
     payload = (blob(1, request_id.encode()) + integer(2, record["client_id"])
                + blob(3, record["connection_id"].encode()) + integer(4, pane_id)
                + integer(5, sequence) + integer(6, int(query_only)))
-    reply = dict(fields(exchange(socket_path, blob(30, payload), 21)))
+    return blob(30, payload)
+
+
+def completion_result(wire, record, pane_id, sequence, query_only, request_id):
+    reply = dict(fields(wire))
     echoed = dict(fields(reply[1]))
     assert echoed[1].decode() == request_id
     assert echoed[2] == record["client_id"]
@@ -129,7 +145,14 @@ def completion_control(socket_path, record, pane_id, sequence=0, query_only=Fals
     return {"request_id": request_id, "client_id": record["client_id"],
             "sequence": sequence, "query_only": query_only, "requested_pane": pane_id,
             "status": reply[2].decode(), "focused_pane_id": reply.get(3),
-            "focused_is_plugin": bool(reply.get(4, 0)), "tab_id": reply.get(5)}
+            "focused_is_plugin": bool(reply.get(4, 0)), "tab_id": reply.get(5),
+            "latest_sequence": reply.get(7)}
+
+
+def completion_control(socket_path, record, pane_id, sequence=0, query_only=False, request_id=None):
+    request_id = request_id or uuid.uuid4().hex
+    wire = completion_wire(record, pane_id, sequence, query_only, request_id)
+    return completion_result(exchange(socket_path, wire, 21), record, pane_id, sequence, query_only, request_id)
 
 
 def main():
@@ -142,7 +165,22 @@ def main():
     parser.add_argument("--placements", action="store_true", help="Also exercise floating, fullscreen and ordinary stack targets")
     parser.add_argument("--lifecycle", action="store_true", help="Also exercise cross-tab focus, rename, missing targets, abrupt death and zero-client reattachment")
     parser.add_argument("--completion", action="store_true", help="Use correlated execution results and test read-only queries/superseded requests")
+    parser.add_argument("--races", action="store_true", help="Deterministic live pre-execution and pre-delivery races (debug binary only)")
+    parser.add_argument("--recovery", action="store_true", help="Exercise independent controller processes and durable sequence recovery")
+    parser.add_argument("--control-stress", action="store_true", help="Exercise rapid legacy rejection/typed-query connection turnover")
+    parser.add_argument("--stack-list", action="store_true", help="Use title-list stacks and verify hidden member geometry/query/reveal")
+    parser.add_argument("--mirrored", action="store_true", help="Verify native shared-focus behavior with mirror_session=true")
     args = parser.parse_args()
+    if (args.races or args.recovery) and not args.completion:
+        parser.error("--races/--recovery require --completion")
+    if args.races and args.nested:
+        parser.error("live race barriers currently support direct disposable displays")
+    if args.control_stress and not args.races:
+        parser.error("--control-stress requires --races")
+    if args.stack_list and not (args.placements and args.completion):
+        parser.error("--stack-list requires --placements --completion")
+    if args.mirrored and (args.races or args.recovery or args.lifecycle):
+        parser.error("--mirrored currently covers completion and placements without lifecycle/races/recovery")
     binary = args.binary.resolve(strict=True)
     report = {"checks": [], "binary": str(binary), "limitations": []}
     clients = []
@@ -159,10 +197,17 @@ def main():
             env[f"XDG_{kind}_HOME"] = str(root / kind.lower())
         env["TERM"] = "xterm-256color"
         env["ZELLIJ_SOCKET_DIR"] = sockets
+        probe_dir = root / "race-events"
+        if args.races:
+            probe_dir.mkdir(mode=0o700)
+            env["VERIJ_ZELLIJ_PROBE_DIR"] = str(probe_dir)
         name = "probe"
         socket_path = Path(sockets) / "contract_version_1" / name
         config = root / "config.kdl"
-        config.write_text('default_shell "/bin/sh"\nshow_startup_tips false\nshow_release_notes false\nmirror_session false\nsession_serialization false\n')
+        config.write_text('default_shell "/bin/sh"\nshow_startup_tips false\nshow_release_notes false\n'
+                          + f'mirror_session {str(args.mirrored).lower()}\n'
+                          + f'stacked_pane_list {str(args.stack_list).lower()}\n'
+                          + 'session_serialization false\n')
         outer_config = root / "host-config.kdl"
         outer_config.write_text(config.read_text() + 'default_mode "locked"\nnested_session_handling "descend"\n')
         layout = root / "layout.kdl"
@@ -316,6 +361,249 @@ def main():
                 child["host_action"]("write-chars", "--pane-id", "terminal_" + child["host_marker"]["host_pane"], data.decode())
             else:
                 os.write(child["master"], data)
+        pending_controls = []
+        def begin(record, pane, query_only=False, phase=None):
+            request_id = uuid.uuid4().hex
+            generation = record["connection_id"]
+            sequence = 0 if query_only else sequences.get(generation, 0) + 1
+            if not query_only:
+                sequences[generation] = sequence
+            hold = probe_dir / f"{request_id}.{phase}.hold" if phase else None
+            if hold:
+                hold.touch()
+            connection = socket.socket(socket.AF_UNIX)
+            connection.settimeout(5)
+            connection.connect(str(socket_path))
+            wire = completion_wire(record, pane, sequence, query_only, request_id)
+            connection.sendall(struct.pack("<I", len(wire)) + wire)
+            request = {"id": request_id, "connection": connection, "record": record,
+                       "pane": pane, "sequence": sequence, "query_only": query_only, "hold": hold}
+            pending_controls.append(request)
+            queued = event(request_id + ".queued")
+            assert queued["failure"] is None, queued
+            request["queued"] = queued
+            if phase:
+                event(request_id + "." + phase)
+            return request
+        def event(name):
+            return wait(lambda: json.loads((probe_dir / f"{name}.json").read_text()), timeout=8)
+        def release(request):
+            request["hold"].unlink(missing_ok=True)
+        def finish(request):
+            try:
+                reply = receive_reply(request["connection"], 21)
+                return completion_result(reply, request["record"], request["pane"],
+                                         request["sequence"], request["query_only"], request["id"])
+            finally:
+                request["connection"].close()
+        def races(a, b):
+            report["stage"] = "queued navigation supersession"
+            target(a, 0)
+            first = begin(a["record"], 1, phase="execute")
+            newest = begin(a["record"], 0)
+            release(first)
+            old_result, new_result = finish(first), finish(newest)
+            assert old_result["status"] == "superseded", old_result
+            assert event(first["id"] + ".executed")["result"]["status"] == "superseded"
+            assert new_result["status"] == "focused", new_result
+            send(a, "race-queued-newest-only", 0)
+            report["checks"].append({"live_queued_supersession_before_execution": True,
+                                     "old": old_result, "new": new_result})
+
+            report["stage"] = "in-flight completion supersession"
+            first = begin(a["record"], 1, phase="result")
+            execution = event(first["id"] + ".executed")["result"]
+            assert execution["status"] == "focused" and execution["focused_pane_id"] == 1, execution
+            newest = begin(a["record"], 0)
+            release(first)
+            old_result, new_result = finish(first), finish(newest)
+            assert old_result["status"] == "superseded", old_result
+            assert old_result["focused_pane_id"] is None, old_result
+            assert new_result["status"] == "focused", new_result
+            send(a, "race-inflight-no-stale-success", 0)
+            report["checks"].append({"live_delivery_supersession_after_mutation": True,
+                                     "prior_mutation_observed": execution["focused_pane_id"],
+                                     "old": old_result, "new": new_result})
+
+            report["stage"] = "cancelled requester and numeric control ID reuse"
+            cancelled = begin(a["record"], 1, phase="execute")
+            cancelled["connection"].close()
+            queued = cancelled["queued"]
+            event("removed-" + queued["requester_generation"])
+            replacement = begin(a["record"], 0, query_only=True)
+            assert replacement["queued"]["requester"] == queued["requester"], (queued, replacement["queued"])
+            assert replacement["queued"]["requester_generation"] != queued["requester_generation"]
+            release(cancelled)
+            executed = event(cancelled["id"] + ".executed")["result"]
+            assert executed["status"] == "cancelled", executed
+            new_result = finish(replacement)  # Correlation rejects a result delivered to the recycled socket.
+            assert new_result["status"] == "focused" and new_result["focused_pane_id"] == 0, new_result
+            assert not (probe_dir / f"{cancelled['id']}.delivered.json").exists()
+            send(a, "race-cancelled-control-stayed", 0)
+            report["checks"].append({"live_requester_disconnect_prevents_mutation": True,
+                                     "recycled_control_id_does_not_receive_old_result": True,
+                                     "requester_id": queued["requester"], "query": new_result})
+
+            report["stage"] = "delayed EOF cleanup after explicit ClientExited and socket ID reuse"
+            abandoned = begin(a["record"], 1, phase="execute")
+            queued = abandoned["queued"]
+            old_generation = queued["requester_generation"]
+            route_hold = probe_dir / f"{old_generation}.route-end.hold"
+            route_hold.touch()
+            wire = blob(11, b"")  # ClientExited queues removal before route EOF cleanup.
+            abandoned["connection"].sendall(struct.pack("<I", len(wire)) + wire)
+            event(old_generation + ".route-end")
+            event("removed-" + old_generation)
+            replacement = begin(a["record"], 0, query_only=True)
+            assert replacement["queued"]["requester"] == queued["requester"]
+            assert replacement["queued"]["requester_generation"] != old_generation
+            route_hold.unlink()
+            event("cleanup-skipped-" + old_generation)
+            release(abandoned)
+            assert event(abandoned["id"] + ".executed")["result"]["status"] == "cancelled"
+            new_result = finish(replacement)
+            assert new_result["status"] == "focused" and new_result["focused_pane_id"] == 0, new_result
+            abandoned["connection"].close()
+            send(a, "race-delayed-eof-cleanup-stayed", 0)
+            report["checks"].append({"delayed_eof_cleanup_cannot_remove_reused_socket": True,
+                                     "recycled_control_id": queued["requester"], "query": new_result})
+
+            for phase in ("execute", "result"):
+                report["stage"] = "target display reuse before " + phase
+                stale = dict(a["record"])
+                first = begin(stale, 1, phase=phase)
+                os.kill(stale["client_pid"], signal.SIGKILL)
+                event("removed-" + stale["connection_id"])
+                a = attach("race-display-replacement-" + phase)
+                assert a["record"]["client_id"] == stale["client_id"]
+                assert a["record"]["connection_id"] != stale["connection_id"]
+                release(first)
+                old_result = finish(first)
+                assert old_result["status"] == "stale_attachment", old_result
+                assert old_result["latest_sequence"] is None, old_result
+                execution = event(first["id"] + ".executed")["result"]
+                assert execution["status"] == ("stale_attachment" if phase == "execute" else "focused"), execution
+                # RemoveClient/AddClient are still queued behind the old task;
+                # the live registry must reject it despite stale screen state.
+                wait(lambda: a["record"]["client_id"] in focus_map())
+                replacement_focus = completed(a["record"], 0, query_only=True)
+                assert replacement_focus["latest_sequence"] == 0, replacement_focus
+                target(a, 0)
+                send(a, "race-disconnected-generation-" + phase, 0)
+                report["checks"].append({"live_target_disconnect_and_reuse": phase,
+                                         "display_id_reused_while_screen_paused": True,
+                                         "stale": old_result, "replacement_generation_starts_at_one": True})
+            target(b, 1)
+            send(b, "race-other-display-stayed", 1)
+            return a
+        controller_processes = []
+        def recovery(child, label):
+            report["stage"] = "controller sequence recovery " + label
+            from controller import durable_write
+            directory = root / ("controller-" + label)
+            directory.mkdir(mode=0o700)
+            binding = directory / "binding.json"
+            binding.write_text(json.dumps({"record": child["record"], "server_birth": child["server_birth"],
+                                           "client_birth": child["client_birth"]}))
+            journal = root / "controller-journal"
+            probe = directory / "barriers"
+            probe.mkdir(mode=0o700)
+            command = [sys.executable, str(Path(__file__).with_name("controller.py")),
+                       "--socket", str(socket_path), "--binding", str(binding), "--journal-dir", str(journal)]
+            def start(pane, pause=False):
+                process = subprocess.Popen([*command, "--pane", str(pane), *(["--probe-dir", str(probe)] if pause else [])],
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                controller_processes.append(process)
+                return process
+            def result(process) -> dict:
+                stdout, stderr = process.communicate(timeout=8)
+                assert process.returncode == 0, (stdout, stderr)
+                return json.loads(stdout)
+            def failed(process):
+                stdout, stderr = process.communicate(timeout=8)
+                assert process.returncode != 0, (stdout, stderr)
+                return stderr
+            before = completed(child["record"], 0, query_only=True)["latest_sequence"]
+            first, restarted = result(start(0)), result(start(1))
+            assert first["sequence"] == before + 1 and restarted["sequence"] == first["sequence"] + 1
+            send(child, "recovery-restarted-" + label, 1)
+
+            # Crash after fsync but before send. Recovery skips the unsent reservation.
+            (probe / "reserved.hold").touch()
+            crashed = start(0, pause=True)
+            reservation = wait(lambda: json.loads((probe / "reserved.json").read_text()), timeout=8)
+            crashed.kill()
+            crashed.communicate(timeout=4)
+            (probe / "reserved.hold").unlink()
+            recovered = result(start(1))
+            assert recovered["sequence"] == reservation["sequence"] + 1, recovered
+            send(child, "recovery-reserved-crash-" + label, 1)
+
+            if args.races:
+                # Crash with a reservation actually queued on the live screen.
+                (probe / "reserved.json").unlink()
+                (probe / "reserved.hold").touch()
+                crashed = start(0, pause=True)
+                queued_reservation = wait(lambda: json.loads((probe / "reserved.json").read_text()), timeout=8)
+                request_id = queued_reservation["request_id"]
+                screen_hold = probe_dir / f"{request_id}.execute.hold"
+                screen_hold.touch()
+                (probe / "reserved.hold").unlink()
+                queued = event(request_id + ".queued")
+                event(request_id + ".execute")
+                crashed.kill()
+                crashed.communicate(timeout=4)
+                event("removed-" + queued["requester_generation"])
+                screen_hold.unlink()
+                assert event(request_id + ".executed")["result"]["status"] == "cancelled"
+                recovered = result(start(1))
+                assert recovered["sequence"] == queued_reservation["sequence"] + 1, recovered
+                send(child, "recovery-queued-crash-" + label, 1)
+
+            # Crash after server completion but before result publication.
+            (probe / "completed.hold").touch()
+            crashed = start(0, pause=True)
+            lost_result = wait(lambda: json.loads((probe / "completed.json").read_text()), timeout=8)
+            crashed.kill()
+            crashed.communicate(timeout=4)
+            (probe / "completed.hold").unlink()
+            recovered = result(start(1))
+            assert recovered["sequence"] == lost_result["sequence"] + 1, recovered
+            send(child, "recovery-lost-result-" + label, 1)
+
+            # Cold journal can recover from server reservations; corrupt journal fails closed.
+            journal_path = Path(reservation["journal"])
+            saved = json.loads(journal_path.read_text())
+            journal_path.unlink()
+            cold = result(start(0))
+            assert cold["sequence"] == recovered["sequence"] + 1, cold
+            send(child, "recovery-cold-journal-" + label, 0)
+            journal_path.write_text("{corrupt")
+            before_focus = focus_map()
+            failure = failed(start(1))
+            assert "JSONDecodeError" in failure and focus_map() == before_focus
+            assert journal_path.read_text() == "{corrupt"
+            saved["reserved_sequence"] = 2**64 - 1
+            durable_write(journal_path, saved)
+            assert "OverflowError" in failed(start(1)) and focus_map() == before_focus
+            saved["reserved_sequence"] = cold["sequence"]
+            durable_write(journal_path, saved)
+
+            # Two independent producers share one inode lock and reserve distinct sequences.
+            left, right = start(0), start(0)
+            parallel = [result(left), result(right)]
+            assert sorted(item["sequence"] for item in parallel) == [cold["sequence"] + 1, cold["sequence"] + 2]
+            send(child, "recovery-two-producers-" + label, 0)
+            latest = max(item["sequence"] for item in parallel)
+            sequences[child["record"]["connection_id"]] = latest
+            report["checks"].append({"controller_recovery": label, "distinct_process_restarts": True,
+                                     "fsynced_unsent_reservation_skipped": True, "lost_completion_not_replayed": True,
+                                     "controller_killed_while_live_queued": args.races,
+                                     "missing_journal_recovered_from_server": True, "corrupt_journal_refused_without_mutation": True,
+                                     "exhausted_sequence_refused_without_mutation": True,
+                                     "shared_lock_serializes_two_producers": True, "initial_server_watermark": before,
+                                     "last_sequence": latest, "journal": str(journal_path),
+                                     "shared_directory_generation_isolation": True})
         try:
             a = attach("host-a", True)
             wait(lambda: focus_map())
@@ -331,14 +619,25 @@ def main():
             pane1 = action("new-pane", "--", "python3", str(receiver), str(root / "pane1-input"))
             assert pane1 == "terminal_1", pane1
             target(a, 0)
-            target(b, 1)
-            send(a, "first-a", 0)
-            send(b, "first-b", 1)
-            target(a, 1)
-            target(b, 0)
-            send(a, "swapped-a", 1)
-            send(b, "swapped-b", 0)
-            report["checks"].append({"independent_tiled_focus_and_input": True, "focus": focus_map(), "input_transport": "host-pane CLI injection" if args.host_injected_input and args.nested else "display PTY keyboard"})
+            if args.mirrored:
+                assert all(focus_map().get(child["record"]["client_id"]) == "terminal_0" for child in (a, b))
+                send(a, "mirrored-a-zero", 0)
+                send(b, "mirrored-b-zero", 0)
+                target(b, 1)
+                assert all(focus_map().get(child["record"]["client_id"]) == "terminal_1" for child in (a, b))
+                send(a, "mirrored-a-one", 1)
+                send(b, "mirrored-b-one", 1)
+                report["checks"].append({"native_mirrored_tiled_focus_shared": True, "both_clients_keyboard_confirmed": True})
+                report["limitations"].append("Native mirrored focus is shared; this does not acknowledge Done in another host.")
+            else:
+                target(b, 1)
+                send(a, "first-a", 0)
+                send(b, "first-b", 1)
+                target(a, 1)
+                target(b, 0)
+                send(a, "swapped-a", 1)
+                send(b, "swapped-b", 0)
+                report["checks"].append({"independent_tiled_focus_and_input": True, "focus": focus_map(), "input_transport": "host-pane CLI injection" if args.host_injected_input and args.nested else "display PTY keyboard"})
             if args.completion:
                 report["stage"] = "correlated completion and query"
                 before = focus_map()
@@ -365,6 +664,17 @@ def main():
                 report["checks"].append({"correlated_screen_execution_result": True, "read_only_effective_focus_query": True,
                                          "pane_and_tab_zero_preserved": True, "missing_target_failed_at_execution": True,
                                          "older_and_duplicate_navigation_rejected": True, "zero_navigation_sequence_rejected": True})
+            if args.races:
+                if args.control_stress:
+                    stale_control = dict(a["record"], connection_id=uuid.uuid4().hex)
+                    for turn in range(32):
+                        report["stage"] = f"legacy/control turnover {turn}"
+                        assert control(socket_path, stale_control, 1) == ["verij:rejected"]
+                        assert completed(a["record"], 0, query_only=True)["status"] == "focused"
+                    report["checks"].append({"rapid_legacy_rejection_and_typed_query_turnover": 32})
+                a = races(a, b)
+            if args.recovery:
+                recovery(a, "same-attachment")
             if args.placements:
                 floating = action("new-pane", "--floating", "--", "python3", str(receiver), str(root / "pane2-input"))
                 assert floating == "terminal_2", floating
@@ -398,8 +708,23 @@ def main():
                     collapsed = completed(a["record"], 1, query_only=True)
                     assert collapsed["status"] == "not_focused" and collapsed["focused_pane_id"] == 0, collapsed
                     assert focus_map() == before
+                    if args.stack_list:
+                        panes = json.loads(action("list-panes", "--all", "--json"))
+                        hidden_member = next(p for p in panes if p["id"] == 1 and not p["is_plugin"])
+                        assert hidden_member["is_suppressed"], hidden_member
+                        report["checks"].append({"hidden_stack_list_member_in_inventory": True,
+                                                 "member_id": 1, "pane_rows": hidden_member["pane_rows"],
+                                                 "content_rows": hidden_member["pane_content_rows"],
+                                                 "is_suppressed": hidden_member["is_suppressed"],
+                                                 "passive_query_not_effectively_focused": True})
                 target(a, 1)
                 send(a, "stack-member-one", 1)
+                if args.stack_list:
+                    panes = json.loads(action("list-panes", "--all", "--json"))
+                    visible_member = next(p for p in panes if p["id"] == 1 and not p["is_plugin"])
+                    assert not visible_member["is_suppressed"] and visible_member["pane_content_rows"] > 0, visible_member
+                    report["checks"].append({"hidden_stack_list_member_revealed_with_keyboard": True,
+                                             "content_rows_after_focus": visible_member["pane_content_rows"]})
                 report["checks"].append({"ordinary_stack_member_focus_and_input": True})
                 if args.completion:
                     report["checks"].append({"queries_respect_hidden_float_fullscreen_and_collapsed_stack": True})
@@ -417,6 +742,7 @@ def main():
             assert c["record"]["connection_id"] != stale["connection_id"]
             target(c, 0)
             before = focus_map()
+            report["stage"] = "legacy stale request after reattachment"
             reply = control(socket_path, stale, 1)
             assert reply == ["verij:rejected"], reply
             if args.completion:
@@ -425,6 +751,8 @@ def main():
             assert focus_map() == before
             target(c, 1)
             send(c, "reconnected-a", 1)
+            if args.recovery:
+                recovery(c, "new-generation")
             report["checks"].append({"reused_id_new_generation": True, "stale_focus_rejected": True, "clean_detach_invalidated": True})
             if args.lifecycle:
                 report["stage"] = "cross-tab focus"
@@ -538,6 +866,8 @@ def main():
                 send(e, "first-after-zero-clients", cross_pane)
                 report["checks"].append({"zero_client_server_lifetime_preserved": True, "zero_client_old_target_rejected": True, "first_reattachment_focus_and_input": True})
             report.pop("stage", None)
+            if args.races:
+                assert not list(probe_dir.glob("*.expired.json")), "a live probe barrier expired"
             report["status"] = "PASS"
         except Exception as error:
             report.update(status="FAIL", error=str(error))
@@ -556,6 +886,17 @@ def main():
             except Exception:
                 pass
         finally:
+            if args.races:
+                for hold in probe_dir.glob("*.hold"):
+                    hold.unlink(missing_ok=True)
+            for request in pending_controls:
+                if request["hold"]:
+                    release(request)
+                request["connection"].close()
+            for process in controller_processes:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate(timeout=4)
             subprocess.run([str(binary), "kill-session", name], env=env, capture_output=True, timeout=8)
             for host in host_sessions:
                 subprocess.run([str(binary), "kill-session", host], env=env, capture_output=True, timeout=8)

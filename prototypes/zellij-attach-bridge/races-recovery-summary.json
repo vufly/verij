@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-02",
+  "scope": "Isolated H0 G1 live queued races and prototype controller sequence recovery",
+  "upstream_base": "efd8fd5a89a20c07a111d248ad7fce53848d2c18",
+  "dependency_fork": "https://github.com/vufly/zellij/tree/agent-monitoring",
+  "published_dependency_checkpoint": "0f5aeb1",
+  "continuation_committed": true,
+  "h0_approved": false,
+  "attempts": [
+    {
+      "command_flags": "--completion --races --recovery",
+      "result": "PASS",
+      "scratch": "vj-bridge-uu_hqfwz",
+      "report": "workspace artifacts/races-recovery-attempt-1.json",
+      "qualification": "Initial four-race version; replacement display attached after old execution and controller-while-queued crash not yet included. Superseded by stronger final run."
+    },
+    {
+      "command_flags": "--completion --races --recovery --placements --lifecycle",
+      "result": "FAIL",
+      "scratch": "vj-bridge-4fybe18i",
+      "report": "workspace artifacts/races-recovery-attempt-2.json",
+      "qualification": "Races, same-generation recovery and placements passed; five-second socket timeout at legacy stale verification after reconnect. Original stage label was inherited from attach. Cause unproven; full combined reliability not established."
+    },
+    {
+      "command_flags": "--completion --races --recovery",
+      "result": "PASS",
+      "scratch": "vj-bridge-d6v19f7_",
+      "report": "workspace artifacts/races-recovery-attempt-3.json",
+      "qualification": "Added actual display-ID reuse before execution and controller SIGKILL while queued; final run additionally covers target reuse before delivery."
+    },
+    {
+      "command_flags": "--completion --races --recovery",
+      "result": "PASS",
+      "scratch": "vj-bridge-oaz1pqhk",
+      "report": "races-recovery-results.json",
+      "qualification": "Five live races; independent controller recovery subprocesses across two generations; actual display-PTY keyboard tokens. No expired barriers."
+    },
+    {
+      "harness": "verify_tmux.py",
+      "command_flags": "--completion",
+      "result": "PASS",
+      "scratch": "vj-mux-pqk_9ljf",
+      "report": "workspace artifacts/recovery-wire-tmux-results.json",
+      "qualification": "Updated-wire nested real-keyboard placement/reconnect regression; no race barriers or controller subprocess recovery in this run."
+    },
+    {
+      "command_flags": "--completion --placements --lifecycle",
+      "result": "PASS",
+      "scratch": "vj-bridge-a_h9liaa",
+      "report": "workspace artifacts/recovery-wire-direct-results.json",
+      "qualification": "Separate direct regression; shared native stack expansion remains reproduced. Does not erase the expanded-matrix failure."
+    }
+  ],
+  "checks": {
+    "protobuf_roundtrips": "2 passed, including optional uint64 watermark",
+    "server_policy_tests": "3 passed, including zero/current/stale watermark",
+    "debug_build": "PASS",
+    "web_feature_compile": "PASS",
+    "rust_formatting": "PASS",
+    "dependency_whitespace": "PASS",
+    "full_patch_reverse_check": "PASS",
+    "exact_upstream_base_patch_application": "PASS using alternate Git index",
+    "disposable_process_cleanup": "No workspace Zellij/controller/receiver processes in final process inspection"
+  }
+}

@@ -1,0 +1,244 @@
+{
+  "checks": [
+    {
+      "distinct_display_identity": true,
+      "ids": [
+        1,
+        2
+      ]
+    },
+    {
+      "live_boot_qualified_client_and_server_birth": true,
+      "private_directory_and_record_modes": "0700/0600"
+    },
+    {
+      "independent_tiled_focus_and_input": true,
+      "focus": {
+        "1": "terminal_1",
+        "2": "terminal_0"
+      },
+      "input_transport": "display PTY keyboard"
+    },
+    {
+      "correlated_screen_execution_result": true,
+      "read_only_effective_focus_query": true,
+      "pane_and_tab_zero_preserved": true,
+      "missing_target_failed_at_execution": true,
+      "older_and_duplicate_navigation_rejected": true,
+      "zero_navigation_sequence_rejected": true
+    },
+    {
+      "rapid_legacy_rejection_and_typed_query_turnover": 32
+    },
+    {
+      "live_queued_supersession_before_execution": true,
+      "old": {
+        "request_id": "f5ded14d3f984b3d9e4c91adb89a3148",
+        "client_id": 1,
+        "sequence": 6,
+        "query_only": false,
+        "requested_pane": 1,
+        "status": "superseded",
+        "focused_pane_id": null,
+        "focused_is_plugin": false,
+        "tab_id": null,
+        "latest_sequence": 7
+      },
+      "new": {
+        "request_id": "f02275f481ca451488acedf135f40153",
+        "client_id": 1,
+        "sequence": 7,
+        "query_only": false,
+        "requested_pane": 0,
+        "status": "focused",
+        "focused_pane_id": 0,
+        "focused_is_plugin": false,
+        "tab_id": 0,
+        "latest_sequence": 7
+      }
+    },
+    {
+      "live_delivery_supersession_after_mutation": true,
+      "prior_mutation_observed": 1,
+      "old": {
+        "request_id": "9e204b5003af4b4893d3f1e182343b25",
+        "client_id": 1,
+        "sequence": 8,
+        "query_only": false,
+        "requested_pane": 1,
+        "status": "superseded",
+        "focused_pane_id": null,
+        "focused_is_plugin": false,
+        "tab_id": null,
+        "latest_sequence": 9
+      },
+      "new": {
+        "request_id": "1e885e273e4b45bbade592da748b0af6",
+        "client_id": 1,
+        "sequence": 9,
+        "query_only": false,
+        "requested_pane": 0,
+        "status": "focused",
+        "focused_pane_id": 0,
+        "focused_is_plugin": false,
+        "tab_id": 0,
+        "latest_sequence": 9
+      }
+    },
+    {
+      "live_requester_disconnect_prevents_mutation": true,
+      "recycled_control_id_does_not_receive_old_result": true,
+      "requester_id": 3,
+      "query": {
+        "request_id": "0e2dae73e47e4385ae03791604454b6b",
+        "client_id": 1,
+        "sequence": 0,
+        "query_only": true,
+        "requested_pane": 0,
+        "status": "focused",
+        "focused_pane_id": 0,
+        "focused_is_plugin": false,
+        "tab_id": 0,
+        "latest_sequence": 10
+      }
+    },
+    {
+      "delayed_eof_cleanup_cannot_remove_reused_socket": true,
+      "recycled_control_id": 3,
+      "query": {
+        "request_id": "98ece7f839a94f6196ac4dd37c05c827",
+        "client_id": 1,
+        "sequence": 0,
+        "query_only": true,
+        "requested_pane": 0,
+        "status": "focused",
+        "focused_pane_id": 0,
+        "focused_is_plugin": false,
+        "tab_id": 0,
+        "latest_sequence": 11
+      }
+    },
+    {
+      "live_target_disconnect_and_reuse": "execute",
+      "display_id_reused_while_screen_paused": true,
+      "stale": {
+        "request_id": "da46bf8ca4684828b75fe085043f123f",
+        "client_id": 1,
+        "sequence": 12,
+        "query_only": false,
+        "requested_pane": 1,
+        "status": "stale_attachment",
+        "focused_pane_id": null,
+        "focused_is_plugin": false,
+        "tab_id": null,
+        "latest_sequence": null
+      },
+      "replacement_generation_starts_at_one": true
+    },
+    {
+      "live_target_disconnect_and_reuse": "result",
+      "display_id_reused_while_screen_paused": true,
+      "stale": {
+        "request_id": "31c61ed7061a4da5a6080db0db136db6",
+        "client_id": 1,
+        "sequence": 2,
+        "query_only": false,
+        "requested_pane": 1,
+        "status": "stale_attachment",
+        "focused_pane_id": null,
+        "focused_is_plugin": false,
+        "tab_id": null,
+        "latest_sequence": null
+      },
+      "replacement_generation_starts_at_one": true
+    },
+    {
+      "controller_recovery": "same-attachment",
+      "distinct_process_restarts": true,
+      "fsynced_unsent_reservation_skipped": true,
+      "lost_completion_not_replayed": true,
+      "controller_killed_while_live_queued": true,
+      "missing_journal_recovered_from_server": true,
+      "corrupt_journal_refused_without_mutation": true,
+      "exhausted_sequence_refused_without_mutation": true,
+      "shared_lock_serializes_two_producers": true,
+      "initial_server_watermark": 1,
+      "last_sequence": 12,
+      "journal": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-bridge-nmp2qu6a/controller-journal/ae9a0808a74fe0bbf059e5af774d0e1f1cc3bdc36c6cf292a7ff179db64ad2c4.json",
+      "shared_directory_generation_isolation": true
+    },
+    {
+      "hidden_float_revealed_with_input": true
+    },
+    {
+      "target_from_other_fullscreen_pane": true
+    },
+    {
+      "ordinary_stack_member_focus_and_input": true
+    },
+    {
+      "queries_respect_hidden_float_fullscreen_and_collapsed_stack": true
+    },
+    {
+      "controller_recovery": "new-generation",
+      "distinct_process_restarts": true,
+      "fsynced_unsent_reservation_skipped": true,
+      "lost_completion_not_replayed": true,
+      "controller_killed_while_live_queued": true,
+      "missing_journal_recovered_from_server": true,
+      "corrupt_journal_refused_without_mutation": true,
+      "exhausted_sequence_refused_without_mutation": true,
+      "shared_lock_serializes_two_producers": true,
+      "initial_server_watermark": 2,
+      "last_sequence": 13,
+      "journal": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-bridge-nmp2qu6a/controller-journal/59fa7e7f186f592b172a2605841eb4e6a454f363d295501922f2245e7e22356b.json",
+      "shared_directory_generation_isolation": true
+    },
+    {
+      "reused_id_new_generation": true,
+      "stale_focus_rejected": true,
+      "clean_detach_invalidated": true
+    },
+    {
+      "unmirrored_stack_expansion_changes_other_client": true,
+      "other_client_keyboard_confirmed_in_expanded_member": true
+    },
+    {
+      "cross_tab_client_specific_focus_and_input": true,
+      "target_pane": 3,
+      "other_client_focus_after_return": "terminal_0"
+    },
+    {
+      "rename_preserves_server_birth_and_attachment_generation": true,
+      "focus_and_input_after_rename": true
+    },
+    {
+      "missing_target_acceptance_is_not_completion": true,
+      "reply": [
+        "verij:accepted"
+      ],
+      "focus_unchanged": true
+    },
+    {
+      "legacy_missing_acceptance_replaced_by_typed_failure": true
+    },
+    {
+      "abrupt_death_leaves_attached_record": true,
+      "independent_process_liveness_detects_death": true,
+      "stale_generation_rejected_before_and_after_reuse": true
+    },
+    {
+      "zero_client_server_lifetime_preserved": true,
+      "zero_client_old_target_rejected": true,
+      "first_reattachment_focus_and_input": true
+    }
+  ],
+  "binary": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/zellij/target/debug/zellij",
+  "limitations": [
+    "Native stack expansion moves other clients focused in the same stack, even with mirror_session=false.",
+    "Legacy focus dispatch still accepts a nonexistent pane; use the new correlated request path for execution outcome."
+  ],
+  "artifacts_dir": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-bridge-nmp2qu6a",
+  "status": "PASS",
+  "all_clients_exited": true
+}

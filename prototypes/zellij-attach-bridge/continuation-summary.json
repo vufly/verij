@@ -1,0 +1,112 @@
+{
+  "date": "2026-10-02",
+  "scope": "H0 continuation: connection cleanup, visibility, nested lifecycle and qualified worker evidence",
+  "h0_approved": false,
+  "continuation_committed": true,
+  "base": "efd8fd5a89a20c07a111d248ad7fce53848d2c18",
+  "defect": {
+    "description": "Delayed numeric-ID route cleanup could remove a replacement connection after legacy/server or explicit client removal",
+    "fix": "Legacy route EOF owns removal; route EOF/ClientExited/undecodable cleanup carries originating generation and skips recycled IDs",
+    "before": "workspace artifacts/continuation-turnover-traced.json",
+    "before_scratch": "vj-bridge-c13jaf2t",
+    "before_result": "FAIL at turnover iteration 4",
+    "replacement_generation_removed_before_dispatch": "f76000f7-51ad-44ea-bdc3-8c52d3a34e73",
+    "before_trace_analysis": "workspace artifacts/continuation-turnover-analysis-before.json",
+    "after_trace_analysis": "workspace artifacts/continuation-cleanup-analysis-after.json"
+  },
+  "probes": [
+    {
+      "flags": "--completion --races --recovery --control-stress --placements --lifecycle",
+      "report": "continuation-combined-results.json",
+      "scratch": "vj-bridge-nmp2qu6a",
+      "result": "PASS",
+      "qualification": "Six live races including deterministic stale route EOF cleanup, 32 rapid legacy/query turnovers, both-generation controller recovery, classic-stack placements and lifecycle; no expired barriers"
+    },
+    {
+      "flags": "--completion --races --recovery --control-stress --placements --lifecycle",
+      "report": "workspace artifacts/continuation-combined-after-fix.json",
+      "scratch": "vj-bridge-396nv9jq",
+      "result": "PASS",
+      "qualification": "Earlier post-fix full run before adding explicit delayed-EOF barrier and explicit classic-stack configuration"
+    },
+    {
+      "flags": "--completion --placements --stack-list --lifecycle",
+      "report": "workspace artifacts/continuation-stack-list-results-2.json",
+      "scratch": "vj-bridge-cbja45_a",
+      "result": "PASS",
+      "qualification": "Hidden member retained nonzero geometry with is_suppressed=true; passive query, reveal and keyboard input verified"
+    },
+    {
+      "flags": "--nested --completion --placements --stack-list --lifecycle",
+      "report": "workspace artifacts/continuation-nested-results.json",
+      "scratch": "vj-bridge-1nebol9a",
+      "result": "PASS",
+      "qualification": "Full title-list placement/lifecycle through actual outer-display PTY keyboard input; one scoped pass, not universal historical-startup cause"
+    },
+    {
+      "flags": "--completion --placements --mirrored",
+      "report": "workspace artifacts/continuation-mirrored-results.json",
+      "scratch": "vj-bridge-t60wvzg_",
+      "result": "PASS",
+      "qualification": "Both displays receive keyboard on native shared tiled focus; placement/reconnect verified, no cross-host Done acknowledgement"
+    },
+    {
+      "report": "workspace artifacts/continuation-stack-list-results.json",
+      "scratch": "vj-bridge-fd3be3u2",
+      "result": "FAIL",
+      "qualification": "New probe incorrectly assumed hidden member geometry is zero; source/actual suppression semantics corrected without changing focus acceptance"
+    },
+    {
+      "report": "workspace artifacts/continuation-combined-before-fix.json",
+      "scratch": "vj-bridge-rd5mn_98",
+      "result": "FAIL",
+      "qualification": "Pre-fix timeout after target ID reuse; dispatch/delivery marker alone did not prove result reached helper"
+    },
+    {
+      "report": "workspace artifacts/continuation-combined-traced.json",
+      "scratch": "vj-bridge-mdn0bd2f",
+      "result": "FAIL",
+      "qualification": "Pre-fix queued race had missing dispatch; original traces retained"
+    }
+  ],
+  "workers": [
+    {
+      "role": "G2 OpenCode",
+      "watch_id": "watch_f76ff8cb432e45e9",
+      "watch_result": "failed/exit 1, stream result ERROR",
+      "workspace": "artifacts/worker-g2",
+      "report": "G2_REPORT.md",
+      "qualification": "INDEPENDENT_QUALIFICATION.md",
+      "accepted": "Genuine 1.18.33 two-TUI busy/idle, permission/question/error broadcast, pending request snapshots and direct route switches",
+      "gaps": "Terminal finish/cancel/retry, child family, mid-turn recovery, foreground tpgid/birth and fully isolated storage"
+    },
+    {
+      "role": "bridge/controller review",
+      "watch_id": "watch_1f3aec2000ad451d",
+      "watch_result": "failed/exit 1, stream result ERROR",
+      "workspace": "artifacts/worker-bridge-review",
+      "report": "BRIDGE_REVIEW.md",
+      "qualification": "INDEPENDENT_QUALIFICATION.md",
+      "accepted": "Main reran all 12 bounded tests; procfs/wire helper hardening applied with six boundary tests",
+      "gaps": "Predates cleanup fix; mock tests are not power-cut/native runtime/H0 proof"
+    },
+    {
+      "role": "G3 Agy",
+      "watch_id": "watch_0d85b2ee6e564108",
+      "watch_result": "cancelled by main-agent steering",
+      "continuation_watch_id": "watch_c4fc442621ad43fe",
+      "continuation_result": "failed/exit 1, stream interrupted result ERROR",
+      "workspace": "artifacts/worker-g3",
+      "report": "G3_REPORT.md",
+      "qualification": "INDEPENDENT_QUALIFICATION.md",
+      "accepted": "1.2.14 version check and no-callback observations only; empty fixtures",
+      "gaps": "Verified interactive configuration/callback, composition, neutral permissions, questions, background, cancellation and terminal error"
+    }
+  ],
+  "remaining": [
+    "Cross-session navigation and plugin reload/resurrection",
+    "Human whole-host/sidebar effective-focus and Done-visit verification",
+    "Production control integration/dependency distribution review",
+    "Remaining qualified G2/G3 semantic/runtime gaps"
+  ]
+}

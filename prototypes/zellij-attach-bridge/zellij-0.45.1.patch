@@ -197,7 +197,7 @@ index 585f317..c812440 100644
                              Some(ServerToClientMsg::UnblockCliPipeInput { .. } ) => {},
                              Some(ServerToClientMsg::StartWebServer { .. } ) => {},
 diff --git a/zellij-server/src/lib.rs b/zellij-server/src/lib.rs
-index c86de12..260750c 100644
+index c86de12..3367165 100644
 --- a/zellij-server/src/lib.rs
 +++ b/zellij-server/src/lib.rs
 @@ -27,6 +27,7 @@ mod session_layout_metadata;
@@ -225,7 +225,15 @@ index c86de12..260750c 100644
  /// Instructions related to server-side application
  #[derive(Debug, Clone)]
  pub enum ServerInstruction {
-@@ -105,6 +109,10 @@ pub enum ServerInstruction {
+@@ -93,6 +97,7 @@ pub enum ServerInstruction {
+     UnblockInputThread,
+     ClientExit(ClientId, Option<NotificationEnd>),
+     RemoveClient(ClientId),
++    RemoveClientIfGeneration(ClientId, String),
+     Error(String),
+     KillSession,
+     DetachSession(Vec<ClientId>, Option<NotificationEnd>),
+@@ -105,6 +110,10 @@ pub enum ServerInstruction {
      ),
      AttachWatcherClient(ClientId, Size, bool), // bool -> is_web_client
      ConnStatus(ClientId),
@@ -236,7 +244,16 @@ index c86de12..260750c 100644
      Log(Vec<String>, ClientId, Option<NotificationEnd>),
      LogError(Vec<String>, ClientId, Option<NotificationEnd>),
      SwitchSession(ConnectToSession, ClientId, Option<NotificationEnd>),
-@@ -159,6 +167,11 @@ impl From<&ServerInstruction> for ServerContext {
+@@ -152,13 +161,19 @@ impl From<&ServerInstruction> for ServerContext {
+             ServerInstruction::Render(..) => ServerContext::Render,
+             ServerInstruction::UnblockInputThread => ServerContext::UnblockInputThread,
+             ServerInstruction::ClientExit(..) => ServerContext::ClientExit,
+-            ServerInstruction::RemoveClient(..) => ServerContext::RemoveClient,
++            ServerInstruction::RemoveClient(..)
++            | ServerInstruction::RemoveClientIfGeneration(..) => ServerContext::RemoveClient,
+             ServerInstruction::Error(_) => ServerContext::Error,
+             ServerInstruction::KillSession => ServerContext::KillSession,
+             ServerInstruction::DetachSession(..) => ServerContext::DetachSession,
              ServerInstruction::AttachClient(..) => ServerContext::AttachClient,
              ServerInstruction::AttachWatcherClient(..) => ServerContext::AttachClient,
              ServerInstruction::ConnStatus(..) => ServerContext::ConnStatus,
@@ -248,7 +265,7 @@ index c86de12..260750c 100644
              ServerInstruction::Log(..) => ServerContext::Log,
              ServerInstruction::LogError(..) => ServerContext::LogError,
              ServerInstruction::SwitchSession(..) => ServerContext::SwitchSession,
-@@ -629,6 +642,8 @@ macro_rules! send_to_client {
+@@ -629,6 +644,8 @@ macro_rules! send_to_client {
  
  #[derive(Clone, Debug, PartialEq)]
  pub(crate) struct SessionState {
@@ -257,7 +274,7 @@ index c86de12..260750c 100644
      clients: HashMap<ClientId, Option<(Size, bool)>>, // bool -> is_web_client
      pipes: HashMap<String, ClientId>,                 // String => pipe_id
      watchers: HashMap<ClientId, bool>, // watcher clients (read-only observers) bool -> is_web_client
-@@ -645,6 +660,8 @@ pub(crate) struct SessionState {
+@@ -645,6 +662,8 @@ pub(crate) struct SessionState {
  impl SessionState {
      pub fn new() -> Self {
          SessionState {
@@ -266,7 +283,7 @@ index c86de12..260750c 100644
              clients: HashMap::new(),
              pipes: HashMap::new(),
              watchers: HashMap::new(),
-@@ -669,11 +686,22 @@ impl SessionState {
+@@ -669,11 +688,26 @@ impl SessionState {
              }
          }
          self.clients.insert(next_client_id, None);
@@ -274,6 +291,10 @@ index c86de12..260750c 100644
 +        self.verij_navigation_sequences.remove(&next_client_id);
 +        self.attachment_generations
 +            .insert(next_client_id, uuid::Uuid::new_v4().to_string());
++        verij_bridge::verij_probe_event(
++            &format!("allocated-{}", self.attachment_generations[&next_client_id]),
++            serde_json::json!({"client_id": next_client_id}),
++        );
          next_client_id
      }
      pub fn associate_pipe_with_client(&mut self, pipe_id: String, client_id: ClientId) {
@@ -289,16 +310,48 @@ index c86de12..260750c 100644
      /// Remove a client and return any host-query tokens that had
      /// been dispatched to this client and were still awaiting a
      /// reply. Callers must synthesize an empty reply for each token
-@@ -681,6 +709,8 @@ impl SessionState {
+@@ -681,7 +715,15 @@ impl SessionState {
      /// `Screen`'s in-flight slot releases and any queued forwards
      /// can proceed.
      pub fn remove_client(&mut self, client_id: ClientId) -> Vec<u32> {
-+        self.attachment_generations.remove(&client_id);
++        let generation = self.attachment_generations.remove(&client_id);
 +        self.verij_navigation_sequences.remove(&client_id);
          self.clients.remove(&client_id);
++        if let Some(generation) = generation {
++            verij_bridge::verij_probe_event(
++                &format!("removed-{generation}"),
++                serde_json::json!({"client_id": client_id, "generation": generation}),
++            );
++        }
          self.pipes.retain(|_p_id, c_id| c_id != &client_id);
          self.clear_last_active_client(client_id);
-@@ -1618,6 +1648,133 @@ pub fn start_server_impl(
+         let stuck: Vec<u32> = self
+@@ -1434,7 +1476,23 @@ pub fn start_server_impl(
+                     }
+                 }
+             },
+-            ServerInstruction::RemoveClient(client_id) => {
++            ServerInstruction::RemoveClient(client_id)
++            | ServerInstruction::RemoveClientIfGeneration(client_id, _) => {
++                if let ServerInstruction::RemoveClientIfGeneration(_, generation) = &instruction {
++                    if session_state
++                        .read()
++                        .unwrap()
++                        .attachment_generations
++                        .get(&client_id)
++                        != Some(generation)
++                    {
++                        verij_bridge::verij_probe_event(
++                            &format!("cleanup-skipped-{generation}"),
++                            serde_json::json!({"client_id": client_id}),
++                        );
++                        continue;
++                    }
++                }
+                 // Check if this is a watcher
+                 let is_watcher = session_state.read().unwrap().is_watcher(&client_id);
+                 if is_watcher {
+@@ -1618,6 +1676,162 @@ pub fn start_server_impl(
                  let _ = os_input.send_to_client(client_id, ServerToClientMsg::Connected);
                  remove_client!(client_id, os_input, session_state, session_data);
              },
@@ -325,7 +378,17 @@ index c86de12..260750c 100644
 +            },
 +            ServerInstruction::VerijFocusPane(requester, target, generation, pane_id) => {
 +                let state = session_state.read().unwrap();
++                if state.clients.get(&requester) != Some(&None) {
++                    continue;
++                }
 +                let bound = state.verij_identity(target) == Some(&generation);
++                let requester_generation = state.attachment_generations.get(&requester).cloned();
++                if let Some(requester_generation) = &requester_generation {
++                    verij_bridge::verij_probe_event(
++                        &format!("legacy-{requester_generation}.dispatch"),
++                        serde_json::json!({"requester": requester, "target": target, "bound": bound}),
++                    );
++                }
 +                let accepted = bound
 +                    && session_data
 +                        .read()
@@ -343,7 +406,7 @@ index c86de12..260750c 100644
 +                        .unwrap_or(false);
 +                // Receipt is not effective-focus confirmation. The caller must
 +                // observe the addressed display client after dispatch.
-+                let _ = os_input.send_to_client(
++                let sent = os_input.send_to_client(
 +                    requester,
 +                    ServerToClientMsg::Log {
 +                        lines: vec![if accepted {
@@ -354,6 +417,12 @@ index c86de12..260750c 100644
 +                        .to_owned()],
 +                    },
 +                );
++                if let Some(requester_generation) = &requester_generation {
++                    verij_bridge::verij_probe_event(
++                        &format!("legacy-{requester_generation}.buffered"),
++                        serde_json::json!({"requester": requester, "ok": sent.is_ok()}),
++                    );
++                }
 +                drop(state);
 +                let _ = os_input.send_to_client(
 +                    requester,
@@ -361,7 +430,7 @@ index c86de12..260750c 100644
 +                        exit_reason: ExitReason::Normal,
 +                    },
 +                );
-+                remove_client!(requester, os_input, session_state, session_data);
++                // The still-open route owns cleanup after the helper closes.
 +            },
 +            ServerInstruction::VerijPaneRequest(requester, request) => {
 +                // Completion connections are CLI-only, never disconnect a display
@@ -395,11 +464,19 @@ index c86de12..260750c 100644
 +                        .unwrap_or(false);
 +                    (!queued).then_some("unavailable")
 +                });
++                verij_bridge::verij_probe_event(
++                    &format!("{}.queued", request.request_id),
++                    serde_json::json!({"requester": requester, "requester_generation": requester_generation,
++                        "request": request, "failure": failure}),
++                );
 +                if let Some(status) = failure {
-+                    let _ = os_input.send_to_client(
-+                        requester,
-+                        ServerToClientMsg::VerijPaneResult(VerijPaneResult::new(request, status)),
-+                    );
++                    let mut result = VerijPaneResult::new(request, status);
++                    result.latest_sequence = session_state
++                        .read()
++                        .unwrap()
++                        .verij_latest_sequence(&result.request);
++                    let _ = os_input
++                        .send_to_client(requester, ServerToClientMsg::VerijPaneResult(result));
 +                    let _ = os_input.send_to_client(
 +                        requester,
 +                        ServerToClientMsg::Exit {
@@ -418,6 +495,11 @@ index c86de12..260750c 100644
 +                if let Err(status) = state.verij_validate_execution(&result.request) {
 +                    result = VerijPaneResult::new(result.request, status);
 +                }
++                result.latest_sequence = state.verij_latest_sequence(&result.request);
++                verij_bridge::verij_probe_event(
++                    &format!("{}.delivered", result.request.request_id),
++                    serde_json::json!({"result": result}),
++                );
 +                let _ =
 +                    os_input.send_to_client(requester, ServerToClientMsg::VerijPaneResult(result));
 +                let _ = os_input.send_to_client(
@@ -432,11 +514,69 @@ index c86de12..260750c 100644
              ServerInstruction::Log(
                  lines_to_log,
                  client_id,
+diff --git a/zellij-server/src/os_input_output.rs b/zellij-server/src/os_input_output.rs
+index be19d03..0bf96b5 100644
+--- a/zellij-server/src/os_input_output.rs
++++ b/zellij-server/src/os_input_output.rs
+@@ -233,10 +233,25 @@ impl ClientSender {
+         std::thread::spawn(move || {
+             let err_context = || format!("failed to send message to client {client_id}");
+             for msg in client_buffer_receiver.iter() {
+-                sender
+-                    .send_server_msg(msg)
+-                    .with_context(err_context)
+-                    .non_fatal();
++                let probe_name = match &msg {
++                    ServerToClientMsg::VerijPaneResult(result) => {
++                        Some(format!("{}.wire", result.request.request_id))
++                    },
++                    ServerToClientMsg::Log { lines }
++                        if lines.iter().any(|line| line.starts_with("verij:")) =>
++                    {
++                        Some(format!("legacy-wire-{client_id}"))
++                    },
++                    _ => None,
++                };
++                let sent = sender.send_server_msg(msg).with_context(err_context);
++                if let Some(name) = probe_name {
++                    crate::verij_bridge::verij_probe_event(
++                        &name,
++                        serde_json::json!({"client_id": client_id, "ok": sent.is_ok(), "error": sent.as_ref().err().map(ToString::to_string)}),
++                    );
++                }
++                sent.non_fatal();
+             }
+             let _ = sender.send_server_msg(ServerToClientMsg::Exit {
+                 exit_reason: ExitReason::Disconnect,
 diff --git a/zellij-server/src/route.rs b/zellij-server/src/route.rs
-index 7ee9e0d..025202d 100644
+index 7ee9e0d..cd9cb8e 100644
 --- a/zellij-server/src/route.rs
 +++ b/zellij-server/src/route.rs
-@@ -2686,6 +2686,19 @@ pub(crate) fn route_thread_main(
+@@ -2258,6 +2258,12 @@ pub(crate) fn route_thread_main(
+     mut receiver: IpcReceiverWithContext<ClientToServerMsg>,
+     client_id: ClientId,
+ ) -> Result<()> {
++    let route_generation = session_state
++        .read()
++        .unwrap()
++        .attachment_generations
++        .get(&client_id)
++        .cloned();
+     let mut retry_queue = VecDeque::new();
+     let err_context = || format!("failed to handle instruction for client {client_id}");
+     let mut seen_cli_pipes = HashSet::new();
+@@ -2674,7 +2680,9 @@ pub(crate) fn route_thread_main(
+                             }
+                         },
+                         ClientToServerMsg::ClientExited => {
+-                            let _ = to_server.send(ServerInstruction::RemoveClient(client_id));
++                            if let Some(generation) = &route_generation {
++                                let _ = to_server.send(ServerInstruction::RemoveClientIfGeneration(client_id, generation.clone()));
++                            }
+                             return Ok(true);
+                         },
+                         ClientToServerMsg::KillSession => {
+@@ -2686,6 +2694,20 @@ pub(crate) fn route_thread_main(
                              let _ = to_server.send(ServerInstruction::ConnStatus(client_id));
                              should_break = true;
                          },
@@ -445,7 +585,8 @@ index 7ee9e0d..025202d 100644
 +                        },
 +                        ClientToServerMsg::VerijFocusPane { target_client_id, connection_id, pane_id } => {
 +                            to_server.send(ServerInstruction::VerijFocusPane(client_id, target_client_id, connection_id, pane_id)).with_context(err_context)?;
-+                            should_break = true;
++                            // Server receipt is asynchronous; retain the route
++                            // until the helper receives its reply and closes.
 +                        },
 +                        ClientToServerMsg::VerijPaneRequest(request) => {
 +                            to_server.send(ServerInstruction::VerijPaneRequest(client_id, request)).with_context(err_context)?;
@@ -456,8 +597,43 @@ index 7ee9e0d..025202d 100644
                          ClientToServerMsg::DetachSession { client_ids } => {
                              let _ =
                                  to_server.send(ServerInstruction::DetachSession(client_ids, None));
+@@ -2926,7 +2948,12 @@ pub(crate) fn route_thread_main(
+                             exit_reason: ExitReason::Error("Received empty message".to_string()),
+                         },
+                     );
+-                    let _ = to_server.send(ServerInstruction::RemoveClient(client_id));
++                    if let Some(generation) = &route_generation {
++                        let _ = to_server.send(ServerInstruction::RemoveClientIfGeneration(
++                            client_id,
++                            generation.clone(),
++                        ));
++                    }
+                     break 'route_loop;
+                 }
+             },
+@@ -2938,7 +2965,19 @@ pub(crate) fn route_thread_main(
+         let _ = os_input.send_to_client(client_id, ServerToClientMsg::UnblockInputThread);
+     }
+     // route thread exited, make sure we clean up
+-    let _ = to_server.send(ServerInstruction::RemoveClient(client_id));
++    if let Some(generation) = &route_generation {
++        crate::verij_bridge::verij_probe_route_end(generation);
++        crate::verij_bridge::verij_probe_event(
++            &format!("route-ended-{generation}"),
++            serde_json::json!({"client_id": client_id,
++                "current_generation": session_state.read().unwrap().attachment_generations.get(&client_id)}),
++        );
++    }
++    if let Some(generation) = route_generation {
++        let _ = to_server.send(ServerInstruction::RemoveClientIfGeneration(
++            client_id, generation,
++        ));
++    }
+     Ok(())
+ }
+ 
 diff --git a/zellij-server/src/screen.rs b/zellij-server/src/screen.rs
-index 0f6c5c9..166aff8 100644
+index 0f6c5c9..a470ad0 100644
 --- a/zellij-server/src/screen.rs
 +++ b/zellij-server/src/screen.rs
 @@ -34,6 +34,7 @@ use std::net::{IpAddr, Ipv4Addr};
@@ -546,7 +722,7 @@ index 0f6c5c9..166aff8 100644
          self.revert_fit_disabled_without_reference_client()
              .with_context(err_context)?;
          if let Some(prev_tab_id) = previously_active_tab_id {
-@@ -11197,6 +11216,120 @@ pub(crate) fn screen_thread_main(
+@@ -11197,6 +11216,132 @@ pub(crate) fn screen_thread_main(
                      }
                  }
              },
@@ -580,6 +756,7 @@ index 0f6c5c9..166aff8 100644
 +                request,
 +                state,
 +            }) => {
++                let probe_ready = crate::verij_bridge::verij_probe_barrier(&request, "execute");
 +                let result = {
 +                    // Recheck the live registry at execution start. Release its
 +                    // lock before native focus: cross-tab focus can send Render
@@ -588,7 +765,10 @@ index 0f6c5c9..166aff8 100644
 +                    // a later reservation is rechecked at result delivery.
 +                    let validation = {
 +                        let state = state.read().unwrap();
-+                        if !state.verij_validate_requester(requester, &requester_generation) {
++                        if !probe_ready {
++                            Err("unavailable")
++                        } else if !state.verij_validate_requester(requester, &requester_generation)
++                        {
 +                            Err("cancelled")
 +                        } else {
 +                            state.verij_validate_execution(&request)
@@ -642,6 +822,14 @@ index 0f6c5c9..166aff8 100644
 +                    }
 +                    result
 +                };
++                crate::verij_bridge::verij_probe_event(
++                    &format!("{}.executed", request.request_id),
++                    serde_json::json!({"requester": requester, "requester_generation": requester_generation,
++                        "result": result}),
++                );
++                if !crate::verij_bridge::verij_probe_barrier(&request, "result") {
++                    continue;
++                }
 +                if !request.query_only && result.status == "focused" {
 +                    screen.clear_bell_for_pane_id(
 +                        PaneId::Terminal(request.pane_id),
@@ -669,15 +857,23 @@ index 0f6c5c9..166aff8 100644
                  new_name,
 diff --git a/zellij-server/src/verij_bridge.rs b/zellij-server/src/verij_bridge.rs
 new file mode 100644
-index 0000000..fbc0f8b
+index 0000000..cee60cc
 --- /dev/null
 +++ b/zellij-server/src/verij_bridge.rs
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,148 @@
 +//! Generation and sequence policy shared by dispatch, execution and delivery.
 +use crate::SessionState;
 +use zellij_utils::ipc::VerijPaneRequest;
 +
 +impl SessionState {
++    pub(crate) fn verij_latest_sequence(&self, request: &VerijPaneRequest) -> Option<u64> {
++        (self.verij_identity(request.target_client_id) == Some(&request.connection_id)).then(|| {
++            self.verij_navigation_sequences
++                .get(&request.target_client_id)
++                .copied()
++                .unwrap_or(0)
++        })
++    }
 +    pub(crate) fn verij_validate_requester(&self, requester: u16, generation: &str) -> bool {
 +        self.clients.get(&requester) == Some(&None)
 +            && self
@@ -729,12 +925,96 @@ index 0000000..fbc0f8b
 +        Ok(())
 +    }
 +}
++
++/// Opt-in, debug-build-only instrumentation for disposable live race probes.
++/// No registry lock may be held across a barrier. Release builds ignore it.
++pub(crate) fn verij_probe_event(name: &str, mut event: serde_json::Value) {
++    #[cfg(debug_assertions)]
++    if let Some(directory) = std::env::var_os("VERIJ_ZELLIJ_PROBE_DIR") {
++        if !name.is_empty()
++            && name.len() <= 200
++            && name
++                .bytes()
++                .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
++        {
++            if let Some(event) = event.as_object_mut() {
++                event.insert(
++                    "time_ns".into(),
++                    serde_json::json!(std::time::SystemTime::now()
++                        .duration_since(std::time::UNIX_EPOCH)
++                        .unwrap_or_default()
++                        .as_nanos()
++                        .to_string()),
++                );
++            }
++            let path = std::path::PathBuf::from(directory).join(format!("{name}.json"));
++            let temporary = path.with_extension("tmp");
++            if let Ok(bytes) = serde_json::to_vec(&event) {
++                if std::fs::write(&temporary, bytes).is_ok() {
++                    let _ = std::fs::rename(temporary, path);
++                }
++            }
++        }
++    }
++    let _ = (name, event);
++}
++
++pub(crate) fn verij_probe_barrier(request: &VerijPaneRequest, phase: &str) -> bool {
++    #[cfg(debug_assertions)]
++    if let Some(directory) = std::env::var_os("VERIJ_ZELLIJ_PROBE_DIR") {
++        if !request.request_id.is_empty()
++            && request.request_id.len() <= 128
++            && request
++                .request_id
++                .bytes()
++                .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
++        {
++            let name = format!("{}.{phase}", request.request_id);
++            let hold = std::path::PathBuf::from(directory).join(format!("{name}.hold"));
++            if hold.exists() {
++                verij_probe_event(
++                    &name,
++                    serde_json::json!({"request": request, "phase": phase}),
++                );
++                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
++                while hold.exists() {
++                    if std::time::Instant::now() >= deadline {
++                        verij_probe_event(
++                            &format!("{name}.expired"),
++                            serde_json::json!({"expired": true}),
++                        );
++                        return false;
++                    }
++                    std::thread::sleep(std::time::Duration::from_millis(5));
++                }
++            }
++        }
++    }
++    let _ = (request, phase);
++    true
++}
++
++pub(crate) fn verij_probe_route_end(generation: &str) {
++    #[cfg(debug_assertions)]
++    {
++        let request = VerijPaneRequest {
++            request_id: generation.into(),
++            target_client_id: 0,
++            connection_id: String::new(),
++            pane_id: 0,
++            sequence: 0,
++            query_only: true,
++        };
++        let _ = verij_probe_barrier(&request, "route-end");
++    }
++    let _ = generation;
++}
 diff --git a/zellij-server/src/verij_bridge_tests.rs b/zellij-server/src/verij_bridge_tests.rs
 new file mode 100644
-index 0000000..83266d0
+index 0000000..5b0b901
 --- /dev/null
 +++ b/zellij-server/src/verij_bridge_tests.rs
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,148 @@
 +use super::{SessionState, Size};
 +use zellij_utils::ipc::VerijPaneRequest;
 +
@@ -800,12 +1080,14 @@ index 0000000..83266d0
 +        sequence: 1,
 +        query_only: false,
 +    };
++    assert_eq!(state.verij_latest_sequence(&first), Some(0));
 +    state.verij_reserve(&first).unwrap();
 +    let mut latest = first.clone();
 +    latest.request_id = "latest".into();
 +    latest.pane_id = 1;
 +    latest.sequence = 2;
 +    state.verij_reserve(&latest).unwrap();
++    assert_eq!(state.verij_latest_sequence(&first), Some(2));
 +    assert_eq!(state.verij_validate_execution(&first), Err("superseded"));
 +    assert_eq!(state.verij_reserve(&first), Err("superseded"));
 +    assert_eq!(state.verij_validate_execution(&latest), Ok(()));
@@ -813,12 +1095,14 @@ index 0000000..83266d0
 +    query.query_only = true;
 +    query.sequence = 0;
 +    state.verij_reserve(&query).unwrap();
++    assert_eq!(state.verij_latest_sequence(&query), Some(2));
 +    assert_eq!(
 +        state.verij_validate_execution(&latest),
 +        Ok(()),
 +        "query must not cancel focus"
 +    );
 +    state.remove_client(id);
++    assert_eq!(state.verij_latest_sequence(&latest), None);
 +    assert_eq!(
 +        state.verij_validate_execution(&latest),
 +        Err("stale_attachment")
@@ -839,6 +1123,7 @@ index 0000000..83266d0
 +    );
 +    let mut replacement = first;
 +    replacement.connection_id = state.verij_identity(id).unwrap().clone();
++    assert_eq!(state.verij_latest_sequence(&replacement), Some(0));
 +    state.verij_reserve(&replacement).unwrap();
 +    assert_eq!(
 +        state.verij_validate_execution(&replacement),
@@ -879,7 +1164,7 @@ index 0000000..83266d0
 +    );
 +}
 diff --git a/zellij-utils/assets/prost_ipc/client_server_contract.rs b/zellij-utils/assets/prost_ipc/client_server_contract.rs
-index a50f86a..dcd969f 100644
+index a50f86a..fc8e5a9 100644
 --- a/zellij-utils/assets/prost_ipc/client_server_contract.rs
 +++ b/zellij-utils/assets/prost_ipc/client_server_contract.rs
 @@ -3068,7 +3068,7 @@ impl ThemeHue {
@@ -904,7 +1189,7 @@ index a50f86a..dcd969f 100644
      }
  }
  #[allow(clippy::derive_partial_eq_without_eq)]
-@@ -3138,6 +3144,47 @@ pub struct DetachSessionMsg {
+@@ -3138,6 +3144,49 @@ pub struct DetachSessionMsg {
      #[prost(uint32, repeated, tag="1")]
      pub client_ids: ::prost::alloc::vec::Vec<u32>,
  }
@@ -939,6 +1224,8 @@ index a50f86a..dcd969f 100644
 +    pub tab_id: ::core::option::Option<u64>,
 +    #[prost(uint32, tag="6")]
 +    pub server_pid: u32,
++    #[prost(uint64, optional, tag="7")]
++    pub latest_sequence: ::core::option::Option<u64>,
 +}
 +#[derive(Clone, PartialEq, ::prost::Message)]
 +pub struct VerijFocusPaneMsg {
@@ -952,7 +1239,7 @@ index a50f86a..dcd969f 100644
  #[allow(clippy::derive_partial_eq_without_eq)]
  #[derive(Clone, PartialEq, ::prost::Message)]
  pub struct TerminalPixelDimensionsMsg {
-@@ -3347,7 +3394,7 @@ impl HostTerminalThemeIndication {
+@@ -3347,7 +3396,7 @@ impl HostTerminalThemeIndication {
  #[allow(clippy::derive_partial_eq_without_eq)]
  #[derive(Clone, PartialEq, ::prost::Message)]
  pub struct ServerToClientMsg {
@@ -961,7 +1248,7 @@ index a50f86a..dcd969f 100644
      pub message: ::core::option::Option<server_to_client_msg::Message>,
  }
  /// Nested message and enum types in `ServerToClientMsg`.
-@@ -3393,6 +3440,10 @@ pub mod server_to_client_msg {
+@@ -3393,6 +3442,10 @@ pub mod server_to_client_msg {
          EmitNestedSessionFrame(super::EmitNestedSessionFrameMsg),
          #[prost(message, tag="19")]
          MobileState(super::MobileStateMsg),
@@ -972,7 +1259,7 @@ index a50f86a..dcd969f 100644
      }
  }
  #[allow(clippy::derive_partial_eq_without_eq)]
-@@ -3401,6 +3452,15 @@ pub struct RenderMsg {
+@@ -3401,6 +3454,15 @@ pub struct RenderMsg {
      #[prost(string, tag="1")]
      pub content: ::prost::alloc::string::String,
  }
@@ -1025,7 +1312,7 @@ index dbf7999..7bbe947 100644
    PixelDimensions pixel_dimensions = 1;
  }
 diff --git a/zellij-utils/src/client_server_contract/server_to_client.proto b/zellij-utils/src/client_server_contract/server_to_client.proto
-index 3e6f416..527fa0c 100644
+index 3e6f416..e5b7279 100644
 --- a/zellij-utils/src/client_server_contract/server_to_client.proto
 +++ b/zellij-utils/src/client_server_contract/server_to_client.proto
 @@ -2,6 +2,7 @@ syntax = "proto3";
@@ -1045,7 +1332,7 @@ index 3e6f416..527fa0c 100644
    }
  }
  
-@@ -31,6 +34,21 @@ message RenderMsg {
+@@ -31,6 +34,22 @@ message RenderMsg {
    string content = 1;
  }
  
@@ -1062,16 +1349,17 @@ index 3e6f416..527fa0c 100644
 +  bool focused_is_plugin = 4;
 +  optional uint64 tab_id = 5;
 +  uint32 server_pid = 6;
++  optional uint64 latest_sequence = 7;
 +}
 +
  message UnblockInputThreadMsg {
    // Empty message
  }
 diff --git a/zellij-utils/src/ipc.rs b/zellij-utils/src/ipc.rs
-index ee07fa2..df52a86 100644
+index ee07fa2..764e3fa 100644
 --- a/zellij-utils/src/ipc.rs
 +++ b/zellij-utils/src/ipc.rs
-@@ -244,6 +244,49 @@ pub enum ClientToServerMsg {
+@@ -244,6 +244,52 @@ pub enum ClientToServerMsg {
      HostTerminalFocusChanged {
          focused: bool,
      },
@@ -1105,6 +1393,8 @@ index ee07fa2..df52a86 100644
 +    pub focused_is_plugin: bool,
 +    pub tab_id: Option<u64>,
 +    pub server_pid: u32,
++    /// Server reservation watermark at delivery, present only for a live generation.
++    pub latest_sequence: Option<u64>,
 +}
 +
 +impl VerijPaneResult {
@@ -1116,12 +1406,13 @@ index ee07fa2..df52a86 100644
 +            focused_is_plugin: false,
 +            tab_id: None,
 +            server_pid: std::process::id(),
++            latest_sequence: None,
 +        }
 +    }
  }
  
  // Types of messages sent from the server to the client
-@@ -302,6 +345,12 @@ pub enum ServerToClientMsg {
+@@ -302,6 +348,12 @@ pub enum ServerToClientMsg {
      MobileState {
          payload: MobileStatePayload,
      },
@@ -1135,7 +1426,7 @@ index ee07fa2..df52a86 100644
  
  #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 diff --git a/zellij-utils/src/ipc/protobuf_conversion.rs b/zellij-utils/src/ipc/protobuf_conversion.rs
-index 1e77172..7afd134 100644
+index 1e77172..9d73886 100644
 --- a/zellij-utils/src/ipc/protobuf_conversion.rs
 +++ b/zellij-utils/src/ipc/protobuf_conversion.rs
 @@ -21,23 +21,70 @@ use crate::{
@@ -1234,7 +1525,7 @@ index 1e77172..7afd134 100644
          }
      }
  }
-@@ -392,6 +455,27 @@ impl From<ServerToClientMsg> for ProtoServerToClientMsg {
+@@ -392,6 +455,28 @@ impl From<ServerToClientMsg> for ProtoServerToClientMsg {
              ServerToClientMsg::Connected => {
                  server_to_client_msg::Message::Connected(ConnectedMsg {})
              },
@@ -1257,12 +1548,13 @@ index 1e77172..7afd134 100644
 +                    focused_is_plugin: result.focused_is_plugin,
 +                    tab_id: result.tab_id,
 +                    server_pid: result.server_pid,
++                    latest_sequence: result.latest_sequence,
 +                })
 +            },
              ServerToClientMsg::Log { lines } => {
                  server_to_client_msg::Message::Log(LogMsg { lines })
              },
-@@ -623,6 +707,29 @@ impl TryFrom<ProtoServerToClientMsg> for ServerToClientMsg {
+@@ -623,6 +708,30 @@ impl TryFrom<ProtoServerToClientMsg> for ServerToClientMsg {
                  Ok(ServerToClientMsg::Exit { exit_reason })
              },
              Some(server_to_client_msg::Message::Connected(_)) => Ok(ServerToClientMsg::Connected),
@@ -1287,16 +1579,17 @@ index 1e77172..7afd134 100644
 +                    focused_is_plugin: msg.focused_is_plugin,
 +                    tab_id: msg.tab_id,
 +                    server_pid: msg.server_pid,
++                    latest_sequence: msg.latest_sequence,
 +                }))
 +            },
              Some(server_to_client_msg::Message::Log(log)) => {
                  Ok(ServerToClientMsg::Log { lines: log.lines })
              },
 diff --git a/zellij-utils/src/ipc/tests/roundtrip_tests.rs b/zellij-utils/src/ipc/tests/roundtrip_tests.rs
-index f3f6d09..16f2ff4 100644
+index f3f6d09..1491f69 100644
 --- a/zellij-utils/src/ipc/tests/roundtrip_tests.rs
 +++ b/zellij-utils/src/ipc/tests/roundtrip_tests.rs
-@@ -29,6 +29,79 @@ use std::path::PathBuf;
+@@ -29,6 +29,80 @@ use std::path::PathBuf;
  
  const ROUNDTRIP_TEST_STACK_SIZE: usize = 32 * 1024 * 1024;
  
@@ -1360,6 +1653,7 @@ index f3f6d09..16f2ff4 100644
 +        let mut result = VerijPaneResult::new(request.clone(), "focused");
 +        result.focused_pane_id = observation;
 +        result.tab_id = observation.map(u64::from);
++        result.latest_sequence = observation.map(|_| u64::MAX);
 +        let original = ServerToClientMsg::VerijPaneResult(result);
 +        let wire = ProtoServer::from(original.clone()).encode_to_vec();
 +        let decoded: ServerToClientMsg = ProtoServer::decode(wire.as_slice())
@@ -1368,7 +1662,7 @@ index f3f6d09..16f2ff4 100644
 +            .unwrap();
 +        assert_eq!(
 +            original, decoded,
-+            "absent and zero IDs must remain distinct"
++            "absent/zero IDs and the u64 reservation watermark must survive"
 +        );
 +    }
 +}

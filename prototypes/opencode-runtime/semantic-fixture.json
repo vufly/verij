@@ -1,0 +1,31 @@
+{
+  "version": "1.18.33",
+  "date": "2026-10-02",
+  "source": "workspace artifacts/worker-g2/probes/g2/g2-observations-1026081.ndjson",
+  "provenance": "Manual field projection from genuine callback records; line numbers refer to the original 102-line stream",
+  "h0_approved": false,
+  "bindings": [
+    {"line": 2, "pid": 1029033, "pane": "0", "ready": true},
+    {"line": 4, "pid": 1031947, "pane": "1", "ready": true}
+  ],
+  "observations": [
+    {"lines": [15, 16], "type": "session.status", "status": "busy", "session": "ses_f0727b01cf***", "owner_pid": 1029033, "foreign_pid": 1031947},
+    {"lines": [24, 28], "type": "session.status", "status": "idle", "session": "ses_f0727b01cf***", "done_inferred": false},
+    {"lines": [41, 42], "type": "permission.asked", "event_id": "evt_0f8d894690***", "request_id": "per_0f8d894680***", "owner_pid": 1029033, "foreign_pid": 1031947, "pending_count": 1},
+    {"lines": [43, 44], "type": "permission.replied", "event_id": "evt_0f8d895330***", "request_id": "per_0f8d894680***", "pending_count": 0},
+    {"lines": [71, 72], "type": "question.asked", "event_id": "evt_0f8d8d6860***", "request_id": "que_0f8d8d6840***", "owner_pid": 1031947, "foreign_pid": 1029033, "pending_count": 1},
+    {"lines": [73, 74], "type": "question.replied", "event_id": "evt_0f8d8d70d0***", "request_id": "que_0f8d8d6840***", "pending_count": 0},
+    {"lines": [86, 93], "type": "session.error", "event_id": "evt_0f8d8e9550***", "error_name": "UnknownError", "owner_pid": 1031947, "foreign_pid": 1029033},
+    {"lines": [87, 94], "type": "session.status", "status": "idle", "session": "ses_f0727afc6f***", "done_inferred": false},
+    {"line": 99, "type": "programmatic_navigation", "pid": 1029033, "route": "session", "session": "ses_f0727afc6f***"},
+    {"line": 100, "type": "programmatic_navigation", "pid": 1029033, "route": "home"},
+    {"lines": [101, 102], "type": "dispose", "pids": [1029033, 1031947]}
+  ],
+  "qualifications": [
+    "Shortened identifiers are redaction, not production identity keys",
+    "Direct-session equality is not descendant-family aggregation",
+    "No assistant finish metadata, retry/cancel or mid-turn recovery proof",
+    "No post-Home semantic turn in this stream",
+    "Foreground tpgid/process-birth validation and fully isolated server storage remain pending"
+  ]
+}
