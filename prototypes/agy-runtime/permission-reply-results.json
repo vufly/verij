@@ -1,0 +1,471 @@
+{
+  "agy_version": "1.2.14",
+  "artifacts_dir": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-agy-1qlabzhn",
+  "cases": [
+    {
+      "case": "permission-reply",
+      "scenario": "permission-reply",
+      "terminal_transport": "native private tmux",
+      "wrapped": true,
+      "callbacks": [
+        {
+          "time_ns": 1790919536400787408,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "exceeds_200k_tokens",
+            "model",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1480087,
+          "agent_state": "authenticating",
+          "version": "",
+          "sandbox": {
+            "enabled": false
+          },
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790919536430173933,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "exceeds_200k_tokens",
+            "model",
+            "product",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1480090,
+          "agent_state": "authenticating",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790919540140647166,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "product",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1480232,
+          "agent_state": "initializing",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790919540442728169,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1480244,
+          "agent_state": "initializing",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790919540735285825,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1480256,
+          "agent_state": "initializing",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "af32058e30c5fe33e533",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790919541924727810,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "plan_tier",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1480319,
+          "agent_state": "initializing",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "af32058e30c5fe33e533",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790919542514638441,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "plan_tier",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1480353,
+          "agent_state": "working",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "af32058e30c5fe33e533",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790919545710530578,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "plan_tier",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "tool_confirmation_pending",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1480481,
+          "agent_state": "tool_use",
+          "tool_confirmation_pending": true,
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "af32058e30c5fe33e533",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790919549283809069,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "plan_tier",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1480614,
+          "agent_state": "idle",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "af32058e30c5fe33e533",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        }
+      ],
+      "callback_count": 17,
+      "cli_pid": 1479989,
+      "cli_start_jiffies": 9665625,
+      "trusted_workspace_is_generated_probe_only": true,
+      "lifecycle": [
+        {
+          "time_ns": 1790919541731653374,
+          "phase": "PreInvocation",
+          "keys": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "initialNumSteps",
+            "invocationNum",
+            "modelName",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "callback_pid": 1480314,
+          "error_present": false,
+          "invocationNum": 0,
+          "initialNumSteps": 1,
+          "conversation": "af32058e30c5fe33e533"
+        },
+        {
+          "time_ns": 1790919545890213000,
+          "phase": "PostToolUse",
+          "keys": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "error",
+            "modelName",
+            "stepIdx",
+            "toolCall",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "callback_pid": 1480494,
+          "error_present": false,
+          "stepIdx": 2,
+          "conversation": "af32058e30c5fe33e533"
+        },
+        {
+          "time_ns": 1790919545944712702,
+          "phase": "PostInvocation",
+          "keys": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "initialNumSteps",
+            "invocationNum",
+            "modelName",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "callback_pid": 1480496,
+          "error_present": false,
+          "invocationNum": 0,
+          "initialNumSteps": 1,
+          "conversation": "af32058e30c5fe33e533"
+        },
+        {
+          "time_ns": 1790919545986162805,
+          "phase": "PreInvocation",
+          "keys": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "initialNumSteps",
+            "invocationNum",
+            "modelName",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "callback_pid": 1480498,
+          "error_present": false,
+          "invocationNum": 1,
+          "initialNumSteps": 3,
+          "conversation": "af32058e30c5fe33e533"
+        },
+        {
+          "time_ns": 1790919548987646232,
+          "phase": "PostInvocation",
+          "keys": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "initialNumSteps",
+            "invocationNum",
+            "modelName",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "callback_pid": 1480596,
+          "error_present": false,
+          "invocationNum": 1,
+          "initialNumSteps": 3,
+          "conversation": "af32058e30c5fe33e533"
+        },
+        {
+          "time_ns": 1790919549032002041,
+          "phase": "Stop",
+          "keys": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "error",
+            "executionNum",
+            "fullyIdle",
+            "modelName",
+            "terminationReason",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "callback_pid": 1480600,
+          "error_present": false,
+          "executionNum": 0,
+          "terminationReason": "NO_TOOL_CALL",
+          "fullyIdle": true,
+          "conversation": "af32058e30c5fe33e533"
+        }
+      ],
+      "permission_autoapproval": false,
+      "empty_pretool_observer_installed": false,
+      "exact_probe_command_native_once_reply": true,
+      "test_only_exact_modal_shape": {
+        "exact_command_row": true,
+        "exact_once_row": true,
+        "exact_summary": true,
+        "intermediate_row_types": [
+          [
+            "blank",
+            "native_confirmation_label"
+          ]
+        ],
+        "short_static_question_labels": [
+          "run this command?"
+        ],
+        "command_row_wrappers": [
+          {
+            "prefix": "\u25cf bash(",
+            "suffix": ") (ctrl+o to expand)"
+          },
+          {
+            "prefix": "",
+            "suffix": ""
+          }
+        ],
+        "once_row_wrappers": [
+          "> 1. yes, run command"
+        ]
+      },
+      "native_permission_option_words": [
+        "always allow",
+        "no",
+        "run command",
+        "yes"
+      ],
+      "test_only_redacted_permission_control_rows": [
+        "2. yes, and always allow in this conversation for commands that start with 'printf'",
+        "3. yes, and always allow for commands that start with 'printf' (persist to settings.json)"
+      ],
+      "fixed_hook_error_diagnostic_phrases": {
+        "invalid decision": false,
+        "empty decision": false,
+        "hook error": false,
+        "hook failed": false,
+        "hook failure": false,
+        "pretooluse": false,
+        "invalid json": false
+      },
+      "disposable_welcome_dismissed": true,
+      "disposable_data_sharing_decline_attempted": true,
+      "unchecked_native_consent_before_confirmation": true,
+      "test_only_native_question_choices_visible": false,
+      "cancellation_key_sent_after_working_callback": false,
+      "private_settings_flags": {
+        ".gemini/antigravity-cli/settings.json:showFeedbackSurvey": false
+      },
+      "pre_turn_redacted_ui_hints": [],
+      "observed_states": [
+        "authenticating",
+        "idle",
+        "initializing",
+        "tool_use",
+        "working"
+      ],
+      "idle_observed": true,
+      "terminal_flags": {
+        "authentication_prompt": false,
+        "trust_prompt": false,
+        "welcome": true,
+        "folder_selection": false,
+        "press_enter": true,
+        "confirm_permission": true,
+        "configured_marker_rendered": true
+      },
+      "terminal_bytes": 129329,
+      "config_path": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-agy-1qlabzhn/permission-reply/home/.gemini/antigravity-cli/settings.json",
+      "retained_config": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-agy-1qlabzhn/permission-reply/statusline-config.json",
+      "status": "PASS"
+    }
+  ],
+  "no_model_invocation": false,
+  "scope": "bounded native interactive permission-reply",
+  "status": "PASS",
+  "private_auth_and_app_data_removed": true
+}

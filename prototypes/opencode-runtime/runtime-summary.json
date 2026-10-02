@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-02",
+  "opencode_version": "1.18.33",
+  "provider_boundary": "Synthetic loopback OpenAI-compatible responses; real installed execution, local TUI callbacks, native task child and caches",
+  "h0_approved": false,
+  "continuation_committed": true,
+  "attempts": [
+    {"scratch": "vj-runtime-8cgz029i", "report": "workspace artifacts/opencode-runtime-attempt-1.json", "result": "FAIL", "reason": "Probe incorrectly expected /path.data"},
+    {"scratch": "vj-runtime-t1mnd5bl", "report": "workspace artifacts/opencode-runtime-attempt-2.json", "result": "FAIL", "reason": "Ready flag preceded selected snapshot hydration; no missing state inferred as Idle"},
+    {"scratch": "vj-runtime-2iccdtd3", "report": "workspace artifacts/opencode-runtime-attempt-3.json", "result": "PASS", "reason": "Waited for actual Busy/history hydration before recovery assertions"},
+    {"scratch": "vj-runtime-apm7344n", "report": "runtime-results.json", "result": "PASS", "reason": "Final private DB/listener/foreground/replacement identity and cleanup checks"}
+  ],
+  "validated_checks": 9,
+  "original_callback_records": 347,
+  "qualifications": [
+    "No remote model/provider coverage implied by protocol fixtures",
+    "One synchronous native child, not all parallel/background descendants",
+    "Replacement TUI/native pane attached to same live server, not server-crash recovery",
+    "Programmatic route/Home navigation, not all user-navigation paths",
+    "Production reducer/store isolation and whole-host acknowledgement remain pending"
+  ]
+}

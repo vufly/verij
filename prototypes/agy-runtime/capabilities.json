@@ -1,0 +1,47 @@
+{
+  "version": "1.2.14",
+  "date": "2026-10-02",
+  "h0_approved": false,
+  "continuation_committed": true,
+  "observations": [
+    {"capability": "interactive working and idle callbacks plus no-tool terminal Stop", "result": "PASS", "report": "turn-results.json", "scratch": "vj-agy-7xwzmzzq"},
+    {"capability": "pending native tool approval survives non-gating observer", "result": "PASS", "report": "permission-results.json", "scratch": "vj-agy-ndlvg787"},
+    {"capability": "structured question-pending observation", "result": "LIMITATION", "report": "question-results.json", "scratch": "vj-agy-l27z6v56", "note": "Controlled native choice UI visible; status-line Working, no observed pending flag"},
+    {"capability": "successful completion inferred after Ctrl+C", "result": "LIMITATION", "report": "cancel-results.json", "scratch": "vj-agy-5ja858he", "note": "Idle after explicit cancellation, no Stop in observation window; do not infer Done"},
+    {"capability": "one-time permission reply and normal model resumption", "result": "PASS", "report": "permission-reply-results.json", "scratch": "vj-agy-1qlabzhn"},
+    {"capability": "background Stop fullyIdle:false followed by aggregate fullyIdle:true", "result": "PASS", "report": "background-results.json", "scratch": "vj-agy-6r0fyloe", "note": "Idle with task_count=1 is not Done; executionNum repeats zero"},
+    {"capability": "empty PreToolUse output is a neutral question observer", "result": "LIMITATION", "report": "pretool-rejection-results.json", "scratch": "vj-agy-82ede5kk", "note": "Pending baseline not preserved; reject candidate, exact internal cause unproven"},
+    {"capability": "headless SUCCESS under caller deadline proves completed agent work", "result": "LIMITATION", "report": "deadline-results.json", "scratch": "vj-agy-z2gfwc1n", "note": "Exit0/SUCCESS/empty response with no terminal Stop; startup statusLine callbacks also observed"}
+  ],
+  "setup": {
+    "terminal": "dedicated private tmux",
+    "trusted_workspace": "generated probe directory only",
+    "normal_tool_approvals": true,
+    "pre_tool_use_hook_in_verified_turns": false,
+    "explicit_pre_tool_use_experiment": "Rejected empty JSON candidate; not enabled in permission replies/background runs",
+    "ordinary_hook_stdout": {},
+    "stop_hook_stdout": {"decision": ""},
+    "data_sharing": "native checkbox visibly unchecked before Done; no persisted global policy claim",
+    "credential_staging": "private copy, removed after confirmed CLI exit"
+  },
+  "pending": [
+    "Neutral source for native question-pending state or explicit H0 capability restriction",
+    "Broader background/parallel task coverage and reporter revision identity despite repeated executionNum",
+    "Broader default-decision comparison beyond tested one-time benign command",
+    "Actual terminal failure and cancellation outcome coverage",
+    "Arbitrary prior callback, nonzero exit, disablement and concurrency",
+    "Production pane binding, reducer/store and whole-host acknowledgement"
+  ],
+  "retained_attempts": {
+    "no_tool": "workspace artifacts/agy-no-tool-attempt-1.json through -11.json",
+    "permission_initial": "workspace artifacts/agy-permission-attempt-1.json, vj-agy-ubq0xlln, PASS",
+    "question_initial": "workspace artifacts/agy-question-attempt-1.json, vj-agy-qew1f6qn, FAIL cleanup; private tree later removed",
+    "question_second": "workspace artifacts/agy-question-attempt-2.json, vj-agy-ql9i8751, BLOCKED structured signal; cleanup passed",
+    "cancel_initial": "workspace artifacts/agy-cancel-attempt-1.json, vj-agy-5ljprhsx, BLOCKED Stop outcome; idle observed",
+    "pretool_permission": "workspace artifacts/agy-pretool-permission-attempt-1.json, vj-agy-1ut_6_dq, baseline not preserved",
+    "pretool_question": "workspace artifacts/agy-pretool-question-attempt-1.json, vj-agy-pzy_971y, baseline question UI absent",
+    "permission_reply_initial": "workspace artifacts/agy-permission-reply-attempt-1.json through -4.json: blocked label/boundary diagnostics; -3 is initial PASS",
+    "background_initial": "workspace artifacts/agy-background-attempt-1.json BLOCKED; -2.json vj-agy-aec1dvvx initial PASS",
+    "deadline_initial": "workspace artifacts/agy-deadline-attempt-1.json vj-agy-laq1iqkq: SUCCESS without terminal Stop"
+  }
+}

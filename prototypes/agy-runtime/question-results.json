@@ -1,0 +1,238 @@
+{
+  "agy_version": "1.2.14",
+  "artifacts_dir": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-agy-l27z6v56",
+  "cases": [
+    {
+      "case": "question",
+      "scenario": "question",
+      "terminal_transport": "native private tmux",
+      "wrapped": true,
+      "callbacks": [
+        {
+          "time_ns": 1790915430462293729,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "exceeds_200k_tokens",
+            "model",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438273,
+          "agent_state": "authenticating",
+          "version": "",
+          "sandbox": {
+            "enabled": false
+          },
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790915430469949307,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "exceeds_200k_tokens",
+            "model",
+            "product",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438278,
+          "agent_state": "authenticating",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790915434408420495,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "product",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438535,
+          "agent_state": "initializing",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790915435000120114,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438593,
+          "agent_state": "initializing",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "fd219d833ca9687cec2d",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790915436320122832,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "plan_tier",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438682,
+          "agent_state": "initializing",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "fd219d833ca9687cec2d",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790915436935870118,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "plan_tier",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438745,
+          "agent_state": "working",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "fd219d833ca9687cec2d",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        }
+      ],
+      "callback_count": 15,
+      "cli_pid": 1438163,
+      "cli_start_jiffies": 9255033,
+      "trusted_workspace_is_generated_probe_only": true,
+      "lifecycle": [
+        {
+          "time_ns": 1790915436118436260,
+          "phase": "PreInvocation",
+          "keys": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "initialNumSteps",
+            "invocationNum",
+            "modelName",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "callback_pid": 1438663,
+          "error_present": false,
+          "invocationNum": 0,
+          "initialNumSteps": 1,
+          "conversation": "fd219d833ca9687cec2d"
+        }
+      ],
+      "permission_autoapproval": false,
+      "disposable_welcome_dismissed": true,
+      "disposable_data_sharing_decline_attempted": true,
+      "unchecked_native_consent_before_confirmation": true,
+      "test_only_native_question_choices_visible": true,
+      "cancellation_key_sent_after_working_callback": false,
+      "private_settings_flags": {
+        ".gemini/antigravity-cli/settings.json:showFeedbackSurvey": false
+      },
+      "pre_turn_redacted_ui_hints": [],
+      "observed_states": [
+        "authenticating",
+        "initializing",
+        "working"
+      ],
+      "idle_observed": false,
+      "terminal_flags": {
+        "authentication_prompt": false,
+        "trust_prompt": false,
+        "welcome": true,
+        "folder_selection": false,
+        "press_enter": true,
+        "confirm_permission": true,
+        "configured_marker_rendered": true
+      },
+      "terminal_bytes": 81823,
+      "config_path": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-agy-l27z6v56/question/home/.gemini/antigravity-cli/settings.json",
+      "retained_config": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-agy-l27z6v56/question/statusline-config.json",
+      "status": "LIMITATION"
+    }
+  ],
+  "no_model_invocation": false,
+  "scope": "bounded native interactive question",
+  "status": "LIMITATION",
+  "private_auth_and_app_data_removed": true
+}

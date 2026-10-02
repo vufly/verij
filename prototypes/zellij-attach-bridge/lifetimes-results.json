@@ -1,0 +1,97 @@
+{
+  "binary": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/zellij/target/debug/zellij",
+  "plugin": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/lifetime-plugin-target/wasm32-wasip1/debug/verij-lifetime-probe.wasm",
+  "artifacts_dir": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-lifetimes-3iob2hjn",
+  "checks": [
+    {
+      "native_display_specific_cross_session_and_return": true,
+      "client_process_birth_preserved": true,
+      "source_server_birth_preserved": true,
+      "client_birth": {
+        "pid": 1197525,
+        "start_jiffies": 6516534,
+        "boot_id": "366c1ff0-f60b-4681-b346-eacff3d9c71f"
+      },
+      "source_server_birth": {
+        "pid": 1197538,
+        "start_jiffies": 6516664,
+        "boot_id": "366c1ff0-f60b-4681-b346-eacff3d9c71f"
+      },
+      "old_record_invalidated": true,
+      "same_numeric_id_fresh_generation_on_return": true,
+      "destination_sequence_starts_at_zero": true,
+      "peers_keyboard_unchanged": true,
+      "wrong_server_token_rejected": true
+    },
+    {
+      "actual_plugin_load_and_reload_for_both_clients": true,
+      "initial_loads": [
+        {
+          "client_id": 1,
+          "load_nonce": "1790888057167390176",
+          "plugin_id": 1,
+          "server_pid": 1197538
+        },
+        {
+          "client_id": 2,
+          "load_nonce": "1790888057135525962",
+          "plugin_id": 1,
+          "server_pid": 1197538
+        },
+        {
+          "client_id": 1,
+          "load_nonce": "1790888057096145123",
+          "plugin_id": 1,
+          "server_pid": 1197538
+        }
+      ],
+      "reloads": [
+        {
+          "client_id": 1,
+          "load_nonce": "1790888058190874175",
+          "plugin_id": 1,
+          "server_pid": 1197538
+        },
+        {
+          "client_id": 2,
+          "load_nonce": "1790888057736491094",
+          "plugin_id": 1,
+          "server_pid": 1197538
+        }
+      ],
+      "server_birth": {
+        "pid": 1197538,
+        "start_jiffies": 6516664,
+        "boot_id": "366c1ff0-f60b-4681-b346-eacff3d9c71f"
+      },
+      "attachment_and_server_birth_preserved": true,
+      "navigation_watermark_preserved": 1,
+      "correlated_focus_and_keyboard_after_reload": true
+    },
+    {
+      "native_serialized_session_resurrection": true,
+      "layout_cache": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-lifetimes-3iob2hjn/cache/zellij/contract_version_1/session_info/lifetime-resurrect/session-layout.kdl",
+      "new_server_birth": true,
+      "old_server_birth": {
+        "pid": 1197942,
+        "start_jiffies": 6518141,
+        "boot_id": "366c1ff0-f60b-4681-b346-eacff3d9c71f"
+      },
+      "replacement_server_birth": {
+        "pid": 1198066,
+        "start_jiffies": 6518467,
+        "boot_id": "366c1ff0-f60b-4681-b346-eacff3d9c71f"
+      },
+      "same_session_name_not_same_incarnation": true,
+      "old_token_rejected": true,
+      "fresh_generation_watermark_zero": true,
+      "restored_receiver_keyboard_confirmed": true
+    }
+  ],
+  "limitations": [
+    "Cross-session uses a display-owned native keybinding, not a production correlated switch endpoint or whole-host acknowledgement.",
+    "Plugin loads prove per-client native IDs and attachment stability; Verij production plugin reload/re-registration is not implemented."
+  ],
+  "status": "PASS",
+  "all_clients_exited": true
+}

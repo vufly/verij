@@ -87,4 +87,8 @@ Rapid legacy/query socket turnover reproduced delayed route cleanup removing a n
 
 Direct and full nested title-list placement+lifecycle checks now pass, as does a mirrored completion/placement/reconnect run. Hidden stack-list members are suppressed but can retain nonzero remembered geometry; effective query and reveal/input establish visibility, not inventory size. Probe config now selects classic stacks explicitly unless `--stack-list` is supplied. Native mirrored focus and native stack expansion remain shared; this does not acknowledge another host's completion. See [continuation summary](continuation-summary.json) for exact evidence.
 
-Cross-session switching, plugin reload/resurrection, production controller integration and human whole-host/sidebar visits remain H0 work. These scoped passes are not human H0 approval.
+### Native lifetime continuation — 2026-10-02
+
+[The lifetime probe](verify_lifetimes.py) now verifies display-owned native cross-session switching and return, per-client WASM reload and native cached-layout resurrection. See [results](lifetimes-results.json). Switching invalidates the old connection token despite stable client process birth; returning to the same live server creates another generation. Plugin reload preserves server birth, attachment generations and reservation watermark, with actual new per-client load markers. Resurrection reuses a session name/layout but has a new server birth, fresh generation and zero watermark; old tokens fail.
+
+The request/result endpoint still focuses within one verified server/display attachment. Native switching here uses a private keybinding, not a correlated control-switch API. Production cross-session binding/completion, Verij plugin re-registration/store integration and human whole-host/sidebar visits remain H0 work. These scoped passes are not human H0 approval.

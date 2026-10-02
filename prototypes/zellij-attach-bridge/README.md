@@ -61,6 +61,16 @@ python3 prototypes/zellij-attach-bridge/verify.py \
 python3 prototypes/zellij-attach-bridge/verify.py \
   --binary ../zellij/target/debug/zellij --completion --placements --mirrored \
   --scratch-dir ../artifacts/scratch --output ../artifacts/continuation-mirrored-results.json
+
+# Native display-owned session switching, actual per-client plugin reload,
+# and cached-layout resurrection. The observer does not request permissions.
+cargo build --locked \
+  --manifest-path prototypes/zellij-attach-bridge/lifetime-plugin/Cargo.toml \
+  --target wasm32-wasip1 --target-dir ../artifacts/lifetime-plugin-target
+python3 prototypes/zellij-attach-bridge/verify_lifetimes.py \
+  --binary ../zellij/target/debug/zellij \
+  --plugin ../artifacts/lifetime-plugin-target/wasm32-wasip1/debug/verij-lifetime-probe.wasm \
+  --scratch-dir ../artifacts/scratch --output ../artifacts/lifetimes-results.json
 ```
 
 Run from the workspace's Verij worktree. The Zellij worktree is on its own `agent-monitoring` branch, based on the exact upstream commit above. Source, patch, builds and saved evidence are durable under `~/repos/workspaces/verij-agent-monitoring`; no `/tmp/opencode` checkout is required. Use a clean exact-tag checkout when applying the patch elsewhere; do not reapply to an already-patched checkout. Each probe retains its isolated config/XDG/identity/input files and `results.json` beneath `--scratch-dir` (or the prototype's ignored `.scratch/` default), so interrupted or failed experiments remain inspectable. Only short-lived sockets use a private `/tmp/vj-sock-*` directory because Unix socket paths have a length limit. Probes target only those private sockets and clean their own clients and sessions. Some earlier starts timed out; failures are reported rather than interpreted as successful focus. Historical JSON results retain original `/tmp` binary paths as provenance, not current instructions.
@@ -97,6 +107,14 @@ The updated-wire separate direct placement+lifecycle and real nested-tmux regres
 The dependency branch's existing checkpoint `0f5aeb1` is published to user fork [`vufly/zellij`](https://github.com/vufly/zellij/tree/agent-monitoring), tracking local `fork/agent-monitoring`; `origin` remains `zellij-org/zellij`. The user requested local checkpoint commits for the race/recovery and cleanup continuation before remaining G1 work. The full saved patch still targets exact upstream v0.45.1 and includes the continuation.
 
 ## Reviewed results
+
+### Native switching, reload and resurrection — 2026-10-02
+
+After local checkpoint commits Verij `9c49074` and Zellij `52080c3`, [the lifetime harness](verify_lifetimes.py) verified native display-owned switching between two sessions and return, actual per-client WASM plugin reload, and native cached-layout resurrection. [Final results](lifetimes-results.json) retain process birth identity and actual plugin load markers; [attempt summary](lifetimes-summary.json) retains scope and provenance.
+
+Switching uses private display keybindings, not stock CLI last-active selection. Only the addressed display moves, old records invalidate, return gets a new generation and peers retain keyboard input. Plugin reload preserves server/attachment identity and positive sequence watermark while actual WASM loads report fresh timestamps for both native client IDs. Resurrection preserves a session name/layout, but starts a new server birth and generation; old tokens fail and fresh focus/input work. The observer only writes to its own scratch `/host/plugin-loads`; no permission grant or production Verij plugin behavior is implied. Native initial loads can contain duplicate markers for a client.
+
+The lifetime continuation is local work after the checkpoint commits. A production correlated cross-session switch API, Verij re-registration/store behavior and human whole-host/sidebar acknowledgement remain pending.
 
 ### Route cleanup and explicit visibility modes — 2026-10-02
 
@@ -146,7 +164,7 @@ Two concrete limitations were independently reproduced:
 - **Acceptance is not completion, including a missing target.** A valid generation targeting nonexistent terminal pane `4294967295` received `verij:accepted`; per-client focus stayed unchanged and keyboard input reached the previous pane. `SIGKILL` left `attached:true` in the old identity file, while independent process liveness showed death and the server rejected its token before and after numeric ClientId reuse. Production navigation therefore needs execution completion/failure and independent liveness checks.
 
 - Have a reviewer observe keyboard forwarding through two host Workspace panes and verify sidebar-versus-Workspace visits. Automated outer keyboard checks now pass under the explicit Descend test configuration; this does not exercise every user nested-session policy or host geometry.
-- Full nested title-list placement+lifecycle, hidden-list targeting and mirrored placement/reconnect now have scoped passing evidence. Continue cross-session transitions, plugin reload/resurrection and reliability checks justified by any new failures. Historical startup causes remain qualified.
+- Full nested title-list placement+lifecycle, hidden-list targeting, mirrored placement/reconnect and native switching/reload/resurrection now have scoped passing evidence. Continue production integration, whole-host visits and reliability checks justified by new failures. Historical startup causes remain qualified.
 - Review the prototype completion/query and verified race/recovery contracts, then verify whole-host confirmation before selecting a production API. Legacy acceptance must not be used as confirmation.
 - Decide how the bridge would be maintained/distributed. The new protobuf tags are experimental; this is not an upstream-approved protocol extension or a supported mixed-version deployment.
 - Validate private identity-directory ownership, boot-qualified process birth identity, abrupt exits, and wrapper lifecycle in the eventual integration.

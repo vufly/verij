@@ -1,0 +1,587 @@
+{
+  "artifacts_dir": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-runtime-apm7344n",
+  "provider": "controlled local HTTP fixture (synthetic model output)",
+  "opencode_version": "1.18.33",
+  "checks": [
+    {
+      "private_home_xdg_database_and_verified_listener": true,
+      "port": 47211,
+      "server_birth": {
+        "pid": 1262281,
+        "start_jiffies": 7255755,
+        "boot_id": "366c1ff0-f60b-4681-b346-eacff3d9c71f"
+      },
+      "paths": {
+        "home": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-runtime-apm7344n/home",
+        "state": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-runtime-apm7344n/state/opencode",
+        "config": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-runtime-apm7344n/config/opencode",
+        "worktree": "/",
+        "directory": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-runtime-apm7344n"
+      },
+      "database_path": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-runtime-apm7344n/data/opencode/opencode.db"
+    },
+    {
+      "two_native_panes_foreground_tpgid_and_birth_verified": true,
+      "tuis": [
+        {
+          "ts": 1790895449971,
+          "pid": 1262433,
+          "pane": "0",
+          "kind": "ready",
+          "birth": {
+            "pid": 1262433,
+            "pgrp": 1262433,
+            "tty_nr": 34855,
+            "tpgid": 1262433,
+            "start_jiffies": 7256683,
+            "boot_id": "366c1ff0-f60b-4681-b346-eacff3d9c71f"
+          },
+          "route": "e04619546def3ff9acc8"
+        },
+        {
+          "ts": 1790895453530,
+          "pid": 1262513,
+          "pane": "1",
+          "kind": "ready",
+          "birth": {
+            "pid": 1262513,
+            "pgrp": 1262513,
+            "tty_nr": 34856,
+            "tpgid": 1262513,
+            "start_jiffies": 7257112,
+            "boot_id": "366c1ff0-f60b-4681-b346-eacff3d9c71f"
+          },
+          "route": "d94fc47bf4669a1907ba"
+        }
+      ],
+      "inventory": [
+        {
+          "pane_id": 0,
+          "command_is_opencode_attach": true,
+          "cwd_is_private": true
+        },
+        {
+          "pane_id": 1,
+          "command_is_opencode_attach": true,
+          "cwd_is_private": true
+        }
+      ]
+    },
+    {
+      "terminal_success_metadata_not_idle_alone": true,
+      "snapshot": {
+        "ts": 1790895454883,
+        "pid": 1262433,
+        "pane": "0",
+        "kind": "snapshot",
+        "correlation": "9ae62a85c83f4f0f91b139ebf96c9640",
+        "route": "e04619546def3ff9acc8",
+        "sessions": [
+          {
+            "session": "e04619546def3ff9acc8",
+            "parent_session": null,
+            "in_family": true,
+            "status": "idle",
+            "messages": [
+              {
+                "id": "dff15778f03211dddaf8",
+                "session": "e04619546def3ff9acc8",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "6f4247eb9f8f3a99eb4b",
+                "session": "e04619546def3ff9acc8",
+                "role": "assistant",
+                "parent_message": "dff15778f03211dddaf8",
+                "finish": "stop",
+                "completed": true,
+                "error_name": null
+              }
+            ]
+          }
+        ]
+      },
+      "api_finish": "stop",
+      "api_completed": true
+    },
+    {
+      "terminal_error_not_done": true,
+      "error_name": "APIError",
+      "finish": null,
+      "snapshot": {
+        "ts": 1790895457423,
+        "pid": 1262513,
+        "pane": "1",
+        "kind": "snapshot",
+        "correlation": "89c229e9950a4ffb9e1e6d98ce35a78b",
+        "route": "d94fc47bf4669a1907ba",
+        "sessions": [
+          {
+            "session": "d94fc47bf4669a1907ba",
+            "parent_session": null,
+            "in_family": true,
+            "status": "idle",
+            "messages": [
+              {
+                "id": "7ffc34768e618ebc2ce9",
+                "session": "d94fc47bf4669a1907ba",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "7f199284b631a24f36a8",
+                "session": "d94fc47bf4669a1907ba",
+                "role": "assistant",
+                "parent_message": "7ffc34768e618ebc2ce9",
+                "finish": null,
+                "completed": true,
+                "error_name": "APIError"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "retry_callback_before_terminal_finish": true,
+      "retry": {
+        "ts": 1790895457735,
+        "pid": 1262433,
+        "pane": "0",
+        "kind": "event",
+        "type": "session.status",
+        "event": "b9b609148958fcbfc069",
+        "session": "39336eb3767b16d9a8ba",
+        "route": "39336eb3767b16d9a8ba",
+        "in_family": true,
+        "parent_session": null,
+        "status": "retry",
+        "retry_attempt": 1,
+        "error_name": null
+      },
+      "retry_snapshot": {
+        "ts": 1790895457933,
+        "pid": 1262433,
+        "pane": "0",
+        "kind": "snapshot",
+        "correlation": "10c0189cc9484df0a18b99f0303fc954",
+        "route": "39336eb3767b16d9a8ba",
+        "sessions": [
+          {
+            "session": "39336eb3767b16d9a8ba",
+            "parent_session": null,
+            "in_family": true,
+            "status": "retry",
+            "messages": [
+              {
+                "id": "99f2e6241f9b4f132362",
+                "session": "39336eb3767b16d9a8ba",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "e93b7052a8ef9749601a",
+                "session": "39336eb3767b16d9a8ba",
+                "role": "assistant",
+                "parent_message": "99f2e6241f9b4f132362",
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              }
+            ]
+          }
+        ]
+      },
+      "final_finish": "stop"
+    },
+    {
+      "abort_has_explicit_message_error": true,
+      "error_name": "MessageAbortedError",
+      "snapshot": {
+        "ts": 1790895462482,
+        "pid": 1262433,
+        "pane": "0",
+        "kind": "snapshot",
+        "correlation": "c08ea2b1b88f4745b26e2ef1f147113d",
+        "route": "1054d6e6078d2e405e5f",
+        "sessions": [
+          {
+            "session": "1054d6e6078d2e405e5f",
+            "parent_session": null,
+            "in_family": true,
+            "status": "idle",
+            "messages": [
+              {
+                "id": "5c8a3287bcea995fbedb",
+                "session": "1054d6e6078d2e405e5f",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "d71b76a3cd48b629f638",
+                "session": "1054d6e6078d2e405e5f",
+                "role": "assistant",
+                "parent_message": "5c8a3287bcea995fbedb",
+                "finish": null,
+                "completed": true,
+                "error_name": "MessageAbortedError"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "replacement_tui_midturn_snapshot_without_provider_replay": true,
+      "before": {
+        "ts": 1790895462821,
+        "pid": 1262433,
+        "pane": "0",
+        "kind": "snapshot",
+        "correlation": "e33955f079ae4037b0b12fdaaf3122e5",
+        "route": "387359cd652a6e206bd5",
+        "sessions": [
+          {
+            "session": "387359cd652a6e206bd5",
+            "parent_session": null,
+            "in_family": true,
+            "status": "busy",
+            "messages": [
+              {
+                "id": "41ff28cd50256e5ee640",
+                "session": "387359cd652a6e206bd5",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              }
+            ]
+          }
+        ]
+      },
+      "first_snapshot": {
+        "ts": 1790895466357,
+        "pid": 1262874,
+        "pane": "2",
+        "kind": "snapshot",
+        "correlation": "40b69e228c644a749c46a565e2132ac3",
+        "route": "387359cd652a6e206bd5",
+        "sessions": [
+          {
+            "session": "387359cd652a6e206bd5",
+            "parent_session": null,
+            "in_family": true,
+            "status": null,
+            "messages": []
+          }
+        ]
+      },
+      "recovered": {
+        "ts": 1790895466678,
+        "pid": 1262874,
+        "pane": "2",
+        "kind": "snapshot",
+        "correlation": "ea06465a1261492e876184226e0e277d",
+        "route": "387359cd652a6e206bd5",
+        "sessions": [
+          {
+            "session": "387359cd652a6e206bd5",
+            "parent_session": null,
+            "in_family": true,
+            "status": "busy",
+            "messages": [
+              {
+                "id": "41ff28cd50256e5ee640",
+                "session": "387359cd652a6e206bd5",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "7b760253e409106d9b43",
+                "session": "387359cd652a6e206bd5",
+                "role": "assistant",
+                "parent_message": "41ff28cd50256e5ee640",
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              }
+            ]
+          }
+        ]
+      },
+      "terminal": {
+        "ts": 1790895466895,
+        "pid": 1262874,
+        "pane": "2",
+        "kind": "snapshot",
+        "correlation": "15b7a363efbb49ef84a9488f03c5b5ea",
+        "route": "387359cd652a6e206bd5",
+        "sessions": [
+          {
+            "session": "387359cd652a6e206bd5",
+            "parent_session": null,
+            "in_family": true,
+            "status": "idle",
+            "messages": [
+              {
+                "id": "41ff28cd50256e5ee640",
+                "session": "387359cd652a6e206bd5",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "7b760253e409106d9b43",
+                "session": "387359cd652a6e206bd5",
+                "role": "assistant",
+                "parent_message": "41ff28cd50256e5ee640",
+                "finish": "stop",
+                "completed": true,
+                "error_name": null
+              }
+            ]
+          }
+        ]
+      },
+      "provider_requests": 1,
+      "ready_flag_can_precede_snapshot_hydration": true
+    },
+    {
+      "native_task_child_family_owner_and_foreign": true,
+      "owned": {
+        "ts": 1790895467468,
+        "pid": 1262874,
+        "pane": "2",
+        "kind": "snapshot",
+        "correlation": "bcdcb7ec834c44149e79475bbd44dac3",
+        "route": "ce004db6f1da1e33c1b0",
+        "sessions": [
+          {
+            "session": "ce004db6f1da1e33c1b0",
+            "parent_session": null,
+            "in_family": true,
+            "status": "busy",
+            "messages": [
+              {
+                "id": "6c394ac353cf6f07a5a8",
+                "session": "ce004db6f1da1e33c1b0",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "a84dc231fe9fc9c3d24b",
+                "session": "ce004db6f1da1e33c1b0",
+                "role": "assistant",
+                "parent_message": "6c394ac353cf6f07a5a8",
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              }
+            ]
+          },
+          {
+            "session": "7acb7c2e6378714a2c2e",
+            "parent_session": "ce004db6f1da1e33c1b0",
+            "in_family": true,
+            "status": "busy",
+            "messages": [
+              {
+                "id": "ac9689fac79ff20fde2f",
+                "session": "7acb7c2e6378714a2c2e",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "77388c7c4ebf1a77d6cf",
+                "session": "7acb7c2e6378714a2c2e",
+                "role": "assistant",
+                "parent_message": "ac9689fac79ff20fde2f",
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              }
+            ]
+          }
+        ]
+      },
+      "foreign": {
+        "ts": 1790895467566,
+        "pid": 1262513,
+        "pane": "1",
+        "kind": "snapshot",
+        "correlation": "0e49a0e9ade34a1daf2b79c699d62bf1",
+        "route": "d94fc47bf4669a1907ba",
+        "sessions": [
+          {
+            "session": "ce004db6f1da1e33c1b0",
+            "parent_session": null,
+            "in_family": false,
+            "status": "busy",
+            "messages": [
+              {
+                "id": "6c394ac353cf6f07a5a8",
+                "session": "ce004db6f1da1e33c1b0",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "a84dc231fe9fc9c3d24b",
+                "session": "ce004db6f1da1e33c1b0",
+                "role": "assistant",
+                "parent_message": "6c394ac353cf6f07a5a8",
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              }
+            ]
+          },
+          {
+            "session": "7acb7c2e6378714a2c2e",
+            "parent_session": "ce004db6f1da1e33c1b0",
+            "in_family": false,
+            "status": "busy",
+            "messages": [
+              {
+                "id": "ac9689fac79ff20fde2f",
+                "session": "7acb7c2e6378714a2c2e",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "77388c7c4ebf1a77d6cf",
+                "session": "7acb7c2e6378714a2c2e",
+                "role": "assistant",
+                "parent_message": "ac9689fac79ff20fde2f",
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              }
+            ]
+          }
+        ]
+      },
+      "busy_child_prevented_terminal_parent": true,
+      "final": {
+        "ts": 1790895467898,
+        "pid": 1262874,
+        "pane": "2",
+        "kind": "snapshot",
+        "correlation": "7a51b80170974c839c26d9dfc4c3dc1e",
+        "route": "ce004db6f1da1e33c1b0",
+        "sessions": [
+          {
+            "session": "ce004db6f1da1e33c1b0",
+            "parent_session": null,
+            "in_family": true,
+            "status": "idle",
+            "messages": [
+              {
+                "id": "6c394ac353cf6f07a5a8",
+                "session": "ce004db6f1da1e33c1b0",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "a84dc231fe9fc9c3d24b",
+                "session": "ce004db6f1da1e33c1b0",
+                "role": "assistant",
+                "parent_message": "6c394ac353cf6f07a5a8",
+                "finish": "tool-calls",
+                "completed": true,
+                "error_name": null
+              },
+              {
+                "id": "8a50dbdf17cf99758556",
+                "session": "ce004db6f1da1e33c1b0",
+                "role": "assistant",
+                "parent_message": "6c394ac353cf6f07a5a8",
+                "finish": "stop",
+                "completed": true,
+                "error_name": null
+              }
+            ]
+          },
+          {
+            "session": "7acb7c2e6378714a2c2e",
+            "parent_session": "ce004db6f1da1e33c1b0",
+            "in_family": true,
+            "status": "idle",
+            "messages": [
+              {
+                "id": "ac9689fac79ff20fde2f",
+                "session": "7acb7c2e6378714a2c2e",
+                "role": "user",
+                "parent_message": null,
+                "finish": null,
+                "completed": false,
+                "error_name": null
+              },
+              {
+                "id": "77388c7c4ebf1a77d6cf",
+                "session": "7acb7c2e6378714a2c2e",
+                "role": "assistant",
+                "parent_message": "ac9689fac79ff20fde2f",
+                "finish": "stop",
+                "completed": true,
+                "error_name": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "post_home_semantic_events_have_no_local_owner": true
+    }
+  ],
+  "limitations": [
+    "Controlled provider responses are synthetic; this verifies installed runtime handling, not remote-model/provider coverage.",
+    "TUI recovery uses a new native pane/process attached to the same live server; server crash recovery and production reducer are not implemented."
+  ],
+  "provider_requests": {
+    "success": 2,
+    "error": 1,
+    "retry": 5,
+    "cancel": 1,
+    "recovery": 1,
+    "family": 2,
+    "child": 1
+  },
+  "status": "PASS",
+  "probe_processes_exited": true,
+  "server_and_host_exited": true
+}

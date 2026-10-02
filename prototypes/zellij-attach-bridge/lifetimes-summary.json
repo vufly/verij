@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-02",
+  "h0_approved": false,
+  "checkpoints_before_probe": {
+    "verij": "9c49074",
+    "zellij": "52080c3",
+    "pushed": false
+  },
+  "lifetime_continuation_committed": true,
+  "native_dependency": "Patched Zellij 0.45.1 on exact upstream efd8fd5a89a20c07a111d248ad7fce53848d2c18",
+  "observer_dependency": "crates.io zellij-tile exactly 0.45.1 with retained Cargo.lock",
+  "attempts": [
+    {
+      "result": "PASS",
+      "scratch": "vj-lifetimes-ljqml08o",
+      "report": "workspace artifacts/lifetimes-attempt-1.json",
+      "qualification": "Initial cross-session, actual per-client reload and cached-layout resurrection checks"
+    },
+    {
+      "result": "PASS",
+      "scratch": "vj-lifetimes-3iob2hjn",
+      "report": "lifetimes-results.json",
+      "qualification": "Adds retained client/server birth tokens, killed-record invalidation and positive navigation watermark preservation through reload"
+    }
+  ],
+  "verified": [
+    "Display-owned keybinding switches only that display between sessions and returns to exact target",
+    "Client process birth preserved, old records invalidated, fresh connection generation on return",
+    "Other clients retain keyboard focus in source and destination sessions",
+    "Wrong server PID correlation and wrong-generation tokens fail",
+    "Actual WASM reload reports fresh load timestamps for both native client IDs",
+    "Plugin reload preserves server birth, attachment records and positive reservation watermark",
+    "Native save-session and force-run resurrection restore controlled receiver layout",
+    "Same name after resurrection has new server birth, fresh generation and zero reservation watermark",
+    "Old resurrection token rejected, new exact focus and keyboard verified"
+  ],
+  "limitations": [
+    "No production correlated cross-session switch endpoint or whole-host acknowledgement",
+    "Disposable observer is not production Verij plugin re-registration/store behavior",
+    "Initial plugin load can produce multiple markers for one client",
+    "Only controlled private receiver commands were auto-run during resurrection"
+  ]
+}

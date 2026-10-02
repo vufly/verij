@@ -1,0 +1,269 @@
+{
+  "agy_version": "1.2.14",
+  "artifacts_dir": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-agy-5ja858he",
+  "cases": [
+    {
+      "case": "cancel",
+      "scenario": "cancel",
+      "terminal_transport": "native private tmux",
+      "wrapped": true,
+      "callbacks": [
+        {
+          "time_ns": 1790915430429909434,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "exceeds_200k_tokens",
+            "model",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438266,
+          "agent_state": "authenticating",
+          "version": "",
+          "sandbox": {
+            "enabled": false
+          },
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790915430443966180,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "exceeds_200k_tokens",
+            "model",
+            "product",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438269,
+          "agent_state": "authenticating",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790915434421544232,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "product",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438537,
+          "agent_state": "initializing",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790915435009583715,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438595,
+          "agent_state": "initializing",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "e1005acb99f8f522a352",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790915436199618867,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "plan_tier",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438670,
+          "agent_state": "initializing",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "e1005acb99f8f522a352",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790915436746682922,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "plan_tier",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438717,
+          "agent_state": "working",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "e1005acb99f8f522a352",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        },
+        {
+          "time_ns": 1790915437062253863,
+          "keys": [
+            "agent_state",
+            "context_window",
+            "conversation_id",
+            "cwd",
+            "email",
+            "exceeds_200k_tokens",
+            "model",
+            "plan_tier",
+            "product",
+            "quota",
+            "sandbox",
+            "session_id",
+            "terminal_width",
+            "transcript_path",
+            "version",
+            "workspace"
+          ],
+          "callback_pid": 1438759,
+          "agent_state": "idle",
+          "version": "1.2.14",
+          "sandbox": {
+            "enabled": false
+          },
+          "conversation": "e1005acb99f8f522a352",
+          "prior_command_exit": 0,
+          "prior_stdout_preserved": true
+        }
+      ],
+      "callback_count": 12,
+      "cli_pid": 1438155,
+      "cli_start_jiffies": 9255032,
+      "trusted_workspace_is_generated_probe_only": true,
+      "lifecycle": [
+        {
+          "time_ns": 1790915435934328924,
+          "phase": "PreInvocation",
+          "keys": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "initialNumSteps",
+            "invocationNum",
+            "modelName",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "callback_pid": 1438648,
+          "error_present": false,
+          "invocationNum": 0,
+          "initialNumSteps": 1,
+          "conversation": "e1005acb99f8f522a352"
+        }
+      ],
+      "permission_autoapproval": false,
+      "disposable_welcome_dismissed": true,
+      "disposable_data_sharing_decline_attempted": true,
+      "unchecked_native_consent_before_confirmation": true,
+      "test_only_native_question_choices_visible": false,
+      "cancellation_key_sent_after_working_callback": true,
+      "private_settings_flags": {
+        ".gemini/antigravity-cli/settings.json:showFeedbackSurvey": false
+      },
+      "pre_turn_redacted_ui_hints": [],
+      "observed_states": [
+        "authenticating",
+        "idle",
+        "initializing",
+        "working"
+      ],
+      "idle_observed": true,
+      "terminal_flags": {
+        "authentication_prompt": false,
+        "trust_prompt": false,
+        "welcome": true,
+        "folder_selection": false,
+        "press_enter": true,
+        "confirm_permission": true,
+        "configured_marker_rendered": true
+      },
+      "terminal_bytes": 26786,
+      "config_path": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-agy-5ja858he/cancel/home/.gemini/antigravity-cli/settings.json",
+      "retained_config": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-agy-5ja858he/cancel/statusline-config.json",
+      "status": "LIMITATION"
+    }
+  ],
+  "no_model_invocation": false,
+  "scope": "bounded native interactive cancel",
+  "status": "LIMITATION",
+  "private_auth_and_app_data_removed": true
+}
