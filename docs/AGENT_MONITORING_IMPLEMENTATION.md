@@ -38,9 +38,15 @@ Adapter assets can live in a repository-owned `integrations/` directory and be e
 
 Complete these short investigations before committing to wire details that depend on unverified APIs. Record versions, payload fixtures, exact native calls, and results alongside tests.
 
+**Current dependency boundary — 2026-10-02:** the user requires **stock, unmodified Zellij** and accepts Verij limitations rather than further dependency patches. Native shared-stack behavior and documented Agy limits are accepted. Implement fixes, capability detection, request correlation and fallbacks in Verij only. All patched-Zellij findings below are historical prototype evidence; they do not select the production dependency or prove stock availability of its private messages/attachment tokens/watermark. Preserve the evidence, but do not continue work on the fork, its build/install/distribution or upstream transport changes.
+
 ### G1. Zellij identity and per-client focus
 
-Baseline: Zellij **0.45.1**, with `zellij-tile = "0.45"` in this repository.
+Production baseline: **stock Zellij 0.45.1**, with `zellij-tile = "0.45"` in this repository. Public CLI capability checks confirm `focus-pane-id` and `switch-session --pane-id`; neither help output nor command success establishes exact host/client binding or effective-focus completion.
+
+**Stock-only control proof — 2026-10-02:** the [Verij-owned stock fixture](../prototypes/stock-navigation/README.md) now validates explicit focused-plugin keyboard registration, native plugin/client/server IDs, process birth and an application plugin-load epoch. Filtered public CLI pipes drive client-bound focus, passive queries and switch/rebind without any private Zellij messages. Fifteen live cases include real two-host keyboard, Enter/click, hidden layers/stack/fullscreen, cross-tab/session and stale/missing/duplicate failures. Initial per-host keybind payloads did not bind both clients; focused Event::Key registration did. This is a bounded H0 integration proof, not automatic production host registration or H1 implementation. Point-in-time inner focus and single-display outer observation never manufacture Done acknowledgements.
+
+**H0 approval — 2026-10-02:** the user approved this stock-only integration contract after the two-host demo handoff and requested committing H0 first. See the [approval record](AGENT_MONITORING_PROGRESS.md#h0-approval-and-review-cleanup--2026-10-02). Production phases and later checkpoints remain pending.
 
 Verify:
 
@@ -471,6 +477,10 @@ Do not claim a successful integration merely because setup wrote a file. Include
 
 ## 8. Navigation Implementation
 
+**Stock-only contract:** implement application-level requests and observations inside Verij, using available stock CLI/plugin interfaces. Never require experimental VerijPaneRequest/VerijPaneResult, attachment-generation exchange, server navigation watermark or patched screen execution. Prefer a verified client-bound plugin context where one exists; label CLI last-active/broadcast routing best-effort when host binding is ambiguous. Capability-limited navigation must remain useful without inventing verified completion.
+
+Verij can coalesce/serialize its own requests, discard obsolete work before dispatch, and ignore old results for UI state/acknowledgement. It cannot promise cancellation of an operation already queued in stock Zellij. Passive focus verification is used where stock APIs and a current binding establish it; otherwise retain an explicit unverified/unavailable result and do not consume Done. Shared native stack/mirroring behavior and the accepted Agy limitations are not reasons to resume upstream patch work.
+
 Introduce an identity-bearing target and a request ID, conceptually:
 
 ```text
@@ -478,7 +488,7 @@ AgentTarget { pane_key, agent_instance_id }
 NavigationRequest { request_id, host_key, target, observed_completion_revision }
 ```
 
-Run navigation outside the blocking input/render path. Feed its completion back into the TUI. A new request supersedes the old request; stale completions cannot change active-session state, acknowledge completion, or refocus a previous target.
+Run navigation outside the blocking input/render path. Feed its completion back into the TUI. A new Verij request supersedes older local work/results; stale results cannot change active-session state or acknowledge completion. Prevent old dispatches where Verij controls them, and document the accepted stock limitation for actions already queued upstream.
 
 ### 8.1 Same inner session
 
@@ -539,7 +549,7 @@ Existing configurations remain valid. `config init` should write the complete ne
 1. **Integration gates:** resolve G1–G4 and capture representative fixtures. Finalize process/client identity before designing around mutable names or inherited environment.
 2. **Shared types and pane inventory:** export compatible full pane snapshots and capabilities; verify hidden/background panes and rename/reload behavior.
 3. **Reporter/store/reducer:** add native runtime records, identity validation, source ordering, liveness, completion revision, and acknowledgement persistence.
-4. **Exact pane navigation:** implement client-scoped, cancellable navigation and verify tiled/floating/stacked/cross-session targets before wiring click actions.
+4. **Stock-capability pane navigation:** implement client-scoped routing where verified, local coalescing/supersession and explicit verified/best-effort/unavailable outcomes. Verify tiled/floating/stacked/cross-session targets before wiring click actions; do not promise cancellation of already-queued stock operations.
 5. **Three-level TUI:** add nodes, folds, stable selection, formatting, status animation, and parent summaries using fixture records first.
 6. **OpenCode adapter:** support the verified installed API, recovery mid-turn, family filtering, and local pane binding.
 7. **Agy and Magy integration:** compose interactive callback, install neutral hooks, and bind Zellij-backed Magy watches to their NDJSON/state and synthetic homes.

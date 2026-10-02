@@ -1,5 +1,7 @@
 # Experimental Zellij attachment bridge
 
+**Historical only — superseded on 2026-10-02.** The user rejected further Zellij patch effort and selected stock Zellij for production. This directory preserves earlier source/patch/evidence, not a dependency recommendation or active bridge workstream. Do not continue, install, package or maintain the patched binary. Future Verij changes use stock public interfaces and explicit capability limitations. The reproduction commands below describe the archived experiments.
+
 This is an H0 feasibility prototype, approved for an isolated Zellij checkout. It is **not installed Zellij support, a Verij feature implementation, or H0 approval**.
 
 ## Reproduce

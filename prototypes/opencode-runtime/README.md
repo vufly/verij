@@ -2,6 +2,8 @@
 
 This is H0 evidence tooling, not a production adapter or H0 approval. The 2026-10-02 Magy worker observed installed OpenCode **1.18.33**; the workspace's read-only reference remains pinned to 1.18.32.
 
+**Current dependency direction:** future reproductions use installed stock Zellij. Earlier recorded runs used the experimental patched binary and retain that provenance; they do not make it a production requirement. This OpenCode harness uses public Zellij CLI operations, not the archived private attachment/completion protocol.
+
 The retained worker lives at workspace `artifacts/worker-g2/`. Its `probes/g2/g2-observations-1026081.ndjson` contains 102 redacted callbacks from two genuine Zellij TUI panes attached to one server. `INDEPENDENT_QUALIFICATION.md` overrides overbroad PASS claims in the original worker report. The watched run itself ended failed/exit 1 after retaining useful artifacts; it is not recorded as a successful worker execution.
 
 Run from the Verij worktree:
@@ -22,7 +24,7 @@ Still required: assistant terminal finish/cancel/retry semantics, descendant fam
 
 ```bash
 python3 prototypes/opencode-runtime/verify_runtime.py \
-  --binary ../zellij/target/debug/zellij --scratch-dir ../artifacts/scratch \
+  --binary "$(command -v zellij)" --scratch-dir ../artifacts/scratch \
   --output ../artifacts/opencode-runtime-results.json
 python3 prototypes/opencode-runtime/verify_evidence.py \
   prototypes/opencode-runtime/runtime-results.json

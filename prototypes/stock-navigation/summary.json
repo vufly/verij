@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-02",
+  "stock_only": true,
+  "dependency_worktree_changed": false,
+  "h0_approved": true,
+  "human_review": {
+    "date": "2026-10-02",
+    "feedback": "approve",
+    "scope": "H0 stock-only integration contract and documented limits; not H1 or production Done handling",
+    "scratch": "vj-stock-o_d7evzw",
+    "demo_cleaned": true,
+    "follow_up": "User requested committing H0 first"
+  },
+  "production_monitoring_implemented": false,
+  "final_verification": {"scratch": "vj-stock-kclnbnt6", "report": "results.json", "result": "PASS", "live_checks": 15,
+                          "cleanup_known_births_exited": true},
+  "contract": {
+    "binding": "Explicit typed nonce received as Event::Key by focused stock plugin; native plugin/client/server IDs plus validated process birth",
+    "epoch": "Verij-owned plugin load timestamp, not stock connection generation",
+    "transport": "Public named CLI pipe, receiver filters exact tuple; no private IPC extension",
+    "focus_result": "Fresh inner client focus observation only",
+    "switch_result": "Dispatch unverified, receiver-render wait then new focused-keyboard registration",
+    "ordering": "App journal and plugin sequence checks; queued native actions cannot be revoked",
+    "acknowledge_done": false
+  },
+  "attempts": [
+    {"scratch": "vj-stock-nx883ran", "result": "FAIL", "note": "Per-host keybind-message payload approach did not register second host; source cause not claimed"},
+    {"scratch": "vj-stock-20iw0ws3", "result": "FAIL", "note": "Initial stock session-list snapshot omitted session name; added native session environment hint/current SessionUpdate"},
+    {"report": "workspace artifacts/stock-navigation-attempt-3.json", "result": "FAIL", "note": "Inner binding/focus passed; immediate outer CLI observation unconfirmed"},
+    {"scratch": "vj-stock-z07alxek", "result": "FAIL", "note": "Early bootstrap keyboard/control; no rendered guest receiver"},
+    {"scratch": "vj-stock-zzu03qi1", "result": "FAIL", "note": "Bootstrap receiver not ready; diagnostics retained"},
+    {"scratch": "vj-stock-fehedeij", "result": "FAIL", "note": "Blank guest startup retained; wait actual receiver frame instead of early control"},
+    {"scratch": "vj-stock-fkk_7xsi", "result": "FAIL", "note": "Stock CLI already-focused nonzero error; fresh pre/post observation now handles idempotence"},
+    {"report": "workspace artifacts/stock-navigation-attempt-8.json", "result": "FAIL", "note": "Tiled/float/failure paths passed; destination config lacked registration keybinding"},
+    {"report": "workspace artifacts/stock-navigation-attempt-9.json", "result": "PASS", "note": "Basic stock routing/cross-session/stack before curses interaction cases"},
+    {"report": "workspace artifacts/stock-navigation-attempt-10.json", "result": "PASS", "note": "Fullscreen and background-tab cases, F11 return limitation"},
+    {"report": "workspace artifacts/stock-navigation-attempt-11.json", "result": "FAIL", "note": "Enter passed; incomplete first mouse event crashed fixture"},
+    {"scratch": "vj-stock-doec3q1h", "result": "FAIL", "note": "Same mouse issue with retained key event409; fixture now ignores incomplete event and separates focus/activation"},
+    {"report": "workspace artifacts/stock-navigation-attempt-13.json", "result": "PASS", "note": "Mouse activation passed after focus and press/release separation"}
+  ],
+  "workers": [
+    {"watch_id": "watch_d1a73f133168421b", "status": "completed", "exit_code": 0,
+     "role": "independent stock contract review", "report": "workspace artifacts/worker-stock-review/STOCK_REVIEW.md",
+     "qualification": "INDEPENDENT_QUALIFICATION.md", "tests": "seven bounded tests rerun; token test is a restated specification"},
+    {"watch_id": "watch_226257675d254063", "status": "completed", "exit_code": 0,
+     "role": "user review guide", "report": "workspace artifacts/worker-stock-ux/USER_REVIEW.md",
+     "qualification": "INDEPENDENT_QUALIFICATION.md"}
+  ],
+  "limits": [
+    "Prototype control fixture, no production agent tree or Done store",
+    "Explicit private registration keybinding and focused input required; configure each destination session",
+    "Single-display outer host confirmation only",
+    "Native stack/mirroring sharing accepted",
+    "No cancellation of already-queued stock operations",
+    "F11 return intercepted in tested Descend configuration; mouse/helper recommended",
+    "Result/trace artifact retention is prototype evidence, not a production retention policy"
+  ]
+}

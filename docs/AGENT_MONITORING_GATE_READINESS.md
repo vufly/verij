@@ -1,20 +1,36 @@
 # Agent monitoring: remaining gates and ownership
 
-Assessment date: **2026-10-02**. This assessment does not approve H0 or authorize later implementation phases. The [approved product design](AGENT_MONITORING.md) and [implementation checkpoints](AGENT_MONITORING_IMPLEMENTATION.md#101-human-verification-checkpoints) remain authoritative.
+Assessment date: **2026-10-02**. **H0 is approved by explicit user feedback; H1 is pending.** The [approved product design](AGENT_MONITORING.md) and [implementation checkpoints](AGENT_MONITORING_IMPLEMENTATION.md#101-human-verification-checkpoints) remain authoritative.
+
+## Recorded reviewer decisions
+
+The user answered the three dependency/capability decisions:
+
+1. **No Zellij patches, fork maintenance, build or distribution effort.** Use stock Zellij and tolerate documented Verij limitations.
+2. **Native shared-stack behavior is accepted.** Host-local acknowledgement still stays independent.
+3. **Documented Agy limits are accepted.** Do not resume vendor/interface work just to remove these accepted gaps; use verified sources and conservative outcome/capability handling.
+
+These choices supersede the earlier patched-dependency proposal and resolve the corresponding requests for input below. The existing fork/patch remains historical evidence, not an active dependency. They do not imply production implementation or completion of H1 checks.
+
+After the stock-only two-host demo handoff, the user replied **“approve”** and then requested **“You should commit H0 first”**. This approves the selected H0 contract within its documented scope and limits. No additional per-scenario human observations are inferred from that feedback. The reviewed private instance has been cleaned; see the [approval record](AGENT_MONITORING_PROGRESS.md#h0-approval-and-review-cleanup--2026-10-02).
 
 ## Where the work stands
 
-The current stop is **H0 — integration contract**. The accumulated changes are isolated dependency prototypes, reproducible runtime harnesses and qualified evidence. Production monitoring types, agent store/reducer, host-local acknowledgement and agent-pane navigation are not implemented.
+**H0 — integration contract is approved.** The accumulated changes include archived dependency prototypes, reproducible runtime harnesses, a stock-only Verij control fixture and qualified evidence. Production monitoring types, agent store/reducer, host-local acknowledgement and agent-pane navigation are not implemented.
+
+The stock-only [two-host review fixture](../prototypes/stock-navigation/README.md) has [15 scoped live checks](../prototypes/stock-navigation/results.json) and successful qualified Magy review. It exposes binding/observation limits and keeps ack=false. H0 approval does not finish production H1 phases.
 
 **H1 — topology and navigation** follows production phases 1–3: shared types/full pane inventory, reporter/store/reducer/acknowledgement, and exact asynchronous navigation. The prototypes prove useful native behavior, but they do not complete those phases or substitute for the H1 CLI/plugin build and human verification.
 
-## H0: work the coding agent can continue
+## Technical follow-ups after H0
+
+These are engineering follow-ups, not new H0 approval blockers. Accepted capability limits do not require further vendor fixes or repeated policy decisions.
 
 | Item | Coding-agent work | Limit or boundary |
 |---|---|---|
-| Final cross-session control contract | Design and implement a generation-qualified, correlated switch/binding prototype; validate races, first attachment and effective focus. | Existing switching evidence uses a display-owned native keybinding. The current request/result endpoint focuses within one verified server attachment. |
+| Stock-only navigation contract | Current fixture verifies focused keyboard registration, filtered public plugin control, local journal order and stock focus/switch/rebind. Prepare production registration/lifecycle and first-attachment behavior after review. | Explicit private registration configuration is still required; point-in-time observations and single-display outer fixture do not prove broad host guarantees. Queued stock actions stay uncancellable, ack=false. |
 | Remaining Agy outcomes | Run bounded fatal-outcome, cancellation, callback nonzero-exit/disablement/concurrency and broader permission-policy probes; keep unsupported modes explicit. | Idle, wrapper SUCCESS and repeated execution counters are already known to be insufficient by themselves. |
-| Neutral question observation | Investigate documented structured interfaces and compare behavior. Keep the rejected empty-output PreToolUse experiment excluded from production. | A real question is visible while callbacks remain Working. A user looking at the terminal cannot manufacture a missing structured API signal. If no neutral interface exists, an upstream change or accepted capability restriction is needed. |
+| Accepted Agy capabilities | Implement verified activity, permissions and aggregate completion; expose accepted question/cancellation/deadline limitations. Keep the rejected PreToolUse experiment excluded. | Full question-pending detection is not claimed; the user accepted that limit. No terminal-text or permission-changing workaround is required. |
 | OpenCode coverage | Extend real 1.18.33 probes for parallel/background descendants, user-driven route changes and remote-provider variations. | Current controlled-provider tests verify installed runtime behavior with synthetic provider input; earlier authenticated permission/question fixtures are separate. |
 | Magy binding and runner edge cases | Automate native Zellij-backed runner/birth/pane correlation, rename, failure/cancel/deadline and pane-closure checks when an authenticated profile is available. | Custom tmux launcher IDs are not native Zellij pane IDs. Profile availability/authentication may require account access from the user. |
 | Preparation for human review | Consolidate contracts/capabilities, provide a disposable visible harness and concise reviewer commands, retain exact pass/fail/not-run evidence. | Human approval is recorded only after explicit reviewer feedback. |
@@ -25,23 +41,23 @@ These investigations are technical work; the user does not need to reproduce eve
 
 ### 1. Production dependency choice
 
-The experimental Zellij 0.45.1 bridge lives in the user's `vufly/zellij` fork. The user approved the isolated prototype and fork, but production pinning/maintenance/distribution is not yet approved. Confirm whether the production feature should depend on that patched fork while upstream support is pursued. The coding agent can implement the chosen build/package/version-detection path; upstream acceptance is outside its control.
+**Resolved: stock Zellij only.** The earlier experimental bridge lives in the user's fork but is not selected for production. Do not ask for fork adoption again or continue dependency patching/upstream work. Build/package/runtime checks must target stock interfaces and Verij-owned integration code.
 
 ### 2. Acceptance of native shared-layout behavior
 
 Native stack expansion can move the other client's visible member even with `mirror_session=false`. Native mirrored focus is intentionally shared. Inner-client targeting and host-local acknowledgement must still be kept separate.
 
-The user must decide whether the observed shared-stack behavior is acceptable for the intended multi-host workflow. If it is unacceptable, the coding agent can investigate a different native/control strategy or dependency change, but must not silently promise independent stack visibility from the current implementation.
+**Resolved: accepted.** Preserve native layout behavior and document its multi-host effects. Do not spend dependency effort trying to provide independent stack-member visibility; keep host-local acknowledgement separate.
 
 ### 3. Acceptance or rework of agent capability limits
 
-Conservative Unknown handling and no fabricated Done are **already part of the approved design**; they do not require a new product-design round. The outstanding choice is whether the **observed incomplete Agy question/cancellation/deadline coverage** is acceptable for the release scope, or requires an upstream signal before release. This is an explicit H0 capability decision, not permission to weaken the agreed semantics.
+**Resolved: documented limits accepted.** Conservative Unknown handling and no fabricated Done are already part of the approved design. Implement the verified capability-limited Agy path without treating accepted question/cancellation/deadline gaps as a reason for endless feasibility work or new permission hooks.
 
 The coding agent can encode version/capability detection and reliable fallback behavior. It cannot certify a real pending question from terminal text, an invalid permission hook or missing state.
 
 ### 4. Real terminal and workflow verification
 
-The coding agent can prepare and automate a disposable two-host test. The user should observe actual keyboard transfer in the terminal/layout normally used, judge shared-stack/mirroring behavior, and provide approve/rework feedback for the proposed contract. Later H1/H2 checks must confirm Workspace versus sidebar focus and host-local visits with the built feature.
+**Resolved for H0: approved.** The coding agent prepared the disposable two-host test and the user supplied approve feedback. Later H1/H2 checks must confirm Workspace versus sidebar focus and host-local visits with the built feature.
 
 Do not ask the user to test agent-row Done visits against today's code: those rows and acknowledgement logic do not exist yet. The prescribed H1/H2 human checks occur after their respective implementation artifacts are available.
 
@@ -51,11 +67,11 @@ After H0 approval and authorization to proceed, these are normal engineering tas
 
 | H1 workstream | Concrete work | User input needed during implementation? |
 |---|---|---|
-| Shared identities/protocol | Add server-incarnation, terminal-pane, agent-process, host-binding and navigation identities; version capabilities and preserve old snapshot decoding. | No new product decision beyond the selected H0 integration contract. |
+| Shared identities/protocol | Add server-incarnation, terminal-pane, agent-process, host-binding and navigation identities using stock observations and Verij-owned epochs; version capabilities and preserve old snapshots. | No invented stock attachment nonce/watermark; selected stock-only boundary is settled. |
 | Full pane topology | Export terminal IDs, effective titles, stable tab IDs/membership, layers, suppression/stack/fullscreen state and liveness; reconcile moves, rename, reload and resurrection. | The shared-layout acceptance decision is inherited from H0. |
 | Reporter/store/reducer | Implement atomic records, locking, sequence/generation validation, initial-state hydration, process birth/liveness, family/task aggregation, terminal outcomes and monotonic completion revisions. | Technical implementation and testing are autonomous. Missing upstream capabilities stay explicit. |
 | Host-local acknowledgement | Persist by stable host/agent identity, prevent old-revision races and require fresh whole-host effective-focus proof. | Existing visit semantics are approved. Human keyboard/UX confirmation remains necessary. |
-| Exact navigation | Implement asynchronous same-/cross-session targeting, first-attachment guard, visibility correction, supersession, timeouts and correlated failure with no false acknowledgement. | No per-edit approval needed once H0 selects the contract; unresolved dependency/API changes require a decision. |
+| Stock-capability navigation | Implement asynchronous same-/cross-session targeting through public interfaces, local coalescing/supersession, first-attachment guards and explicit verified/best-effort/unavailable outcomes. | No Zellij dependency changes; already-queued upstream operations cannot be promised cancellable. |
 | Compatibility/regression verification | Build CLI/plugin, run meaningful identity/reducer/navigation tests, prove legacy session/tab snapshots remain usable and normal navigation survives unsupported reporting. | Coding agent can run checks and produce a visible development harness. |
 
 H1 production code will require the normal workspace native and WASM checks, not merely the existing prototype validators.
@@ -73,10 +89,6 @@ The coding agent can execute and present those scenarios. The user's real workfl
 
 ## Minimum input to unlock implementation
 
-The immediate input is **H0 feedback**, not another coding request for H1:
+The dependency, shared-stack and Agy capability choices are now supplied; do not repeat those questions. The coding agent owns re-scoping the contract to stock APIs and documenting honest navigation/confirmation limits.
 
-- Accept or rework the patched-Zellij production dependency and shared-stack limitation.
-- Accept an explicitly capability-limited Agy path with the approved conservative semantics, or require further upstream work.
-- Review the visible client-routing evidence and explicitly approve the selected H0 contract when the remaining agreed probes are sufficient.
-
-The coding agent owns the technical backlog and can prepare these decisions for review. Formal H1 implementation and final human acceptance follow that authorization.
+H0 contract approval is recorded. The user requested committing H0 first; next-stage authorization and later H1 verification remain separate. No further Zellij patch effort is part of the backlog.

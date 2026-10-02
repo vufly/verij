@@ -19,8 +19,20 @@ This document records the agreed MVP behavior for coding agent monitoring in Ver
 | Exit | Remove the agent row when the agent exits or its pane closes. Do not retain closed-pane completion rows. |
 | Titles | Use the effective Zellij pane title by default. Allow per-agent title-source and fallback-order overrides. |
 | Presentation | Extend the existing tree-format system with agent rows, status indicators, and parent summaries. |
+| Dependency boundary | Use **stock, unmodified Zellij**. Do not patch, maintain, build or distribute a Zellij fork for this feature. Handle dependency limitations in Verij. |
 
 These decisions do not require another product-design round. Engineering uncertainties are listed in the implementation guide and should be resolved through targeted investigation and tests.
+
+### 1.1 Accepted integration limits — 2026-10-02
+
+The user rejected a patched-Zellij production dependency and explicitly accepted native shared-stack behavior and the documented Agy capability limits. These decisions supersede the earlier isolated-fork direction.
+
+- Implement monitoring and navigation using stock Zellij's public CLI/plugin interfaces and Verij-owned code. Known routing/confirmation limitations are acceptable Verij limitations; do not spend further effort extending Zellij's transport or repairing its internal behavior.
+- Native stack expansion and mirrored focus may affect another attached client's visible pane. Accept that behavior while keeping acknowledgement records host-local.
+- Agy question/cancellation/deadline signals remain capability-limited. Use verified callbacks, lifecycle and runner sources; keep uncertainty explicit. The rejected permission-hook experiment is not a production observer.
+- Exact activation and visits remain the preferred behavior where stock APIs establish them. Otherwise navigation is best-effort or unavailable, with the capability distinction exposed. A dispatched/successful command or an ambiguous inner focus observation does not prove a host-local visit; preserve Done until the visit can be verified.
+
+Acceptance of dependency flaws does not authorize fabricated process ownership, Needs input or Done, permission overrides, or replacing a user's callback. Later human verification judges the stock-only Verij behavior against these accepted constraints.
 
 ## 2. Scope
 

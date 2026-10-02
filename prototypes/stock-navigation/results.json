@@ -1,0 +1,213 @@
+{
+  "status": "PASS",
+  "root": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-stock-kclnbnt6",
+  "stock_binary": "/home/vudinhn/.local/share/mise/installs/zellij/0.45.1/zellij",
+  "checks": [
+    {
+      "focused_plugin_keyboard_registration_distinct_clients": true,
+      "a": {
+        "client_id": 1,
+        "epoch": "1790954114001031379",
+        "focused_pane": "terminal_0",
+        "focused_tab_index": 0,
+        "plugin_id": 1,
+        "ready": true,
+        "sample": 12,
+        "sequence": 1,
+        "server_pid": 1831053,
+        "session": "shared",
+        "time_ns": "1790954117946666196"
+      },
+      "b": {
+        "client_id": 2,
+        "epoch": "1790954114882173957",
+        "focused_pane": "terminal_1",
+        "focused_tab_index": 0,
+        "plugin_id": 1,
+        "ready": true,
+        "sample": 7,
+        "sequence": 1,
+        "server_pid": 1831053,
+        "session": "shared",
+        "time_ns": "1790954117953396614"
+      },
+      "epochs_are_verij_plugin_loads_not_stock_socket_nonces": true
+    },
+    {
+      "CLI_pipe_cannot_register_host_context": true
+    },
+    {
+      "explicit_stock_sidebar_focus_observed": true
+    },
+    {
+      "two_actual_hosts_addressed_tiled_focus_and_keyboard": true
+    },
+    {
+      "sidebar_focus_does_not_promote_remembered_inner_focus_to_visit": true,
+      "query": {
+        "acknowledge_done": false,
+        "guarantee": "stock plugin observation; no upstream execution barrier",
+        "observation": {
+          "client_id": 1,
+          "epoch": "1790954114001031379",
+          "focused_pane": "terminal_0",
+          "focused_tab_index": 0,
+          "plugin_id": 1,
+          "ready": true,
+          "sample": 19,
+          "sequence": 2,
+          "server_pid": 1831053,
+          "session": "shared",
+          "time_ns": "1790954120475660479"
+        },
+        "request": {
+          "client_id": 1,
+          "epoch": "1790954114001031379",
+          "operation": "query",
+          "plugin_id": 1,
+          "request_id": "7035b48ddcc4413cb4887061ca8242a4",
+          "sequence": 0,
+          "server_pid": 1831053,
+          "target_session": null,
+          "terminal_id": 0
+        },
+        "status": "observed",
+        "whole_host_verified": false
+      }
+    },
+    {
+      "passive_query_keeps_local_journal_unchanged": true
+    },
+    {
+      "actual_sidebar_selection_only_then_enter_activation": true
+    },
+    {
+      "hidden_float_and_return_tiled_keyboard": true
+    },
+    {
+      "fullscreen_other_target_revealed_and_keyboard": true
+    },
+    {
+      "background_tab_target_client_and_keyboard": true,
+      "peer_tiled_focus_unchanged": true
+    },
+    {
+      "missing_target_duplicate_and_stale_plugin_epoch_fail_closed": true,
+      "results": [
+        {
+          "acknowledge_done": false,
+          "guarantee": "stock plugin observation; no upstream execution barrier",
+          "observation": {
+            "client_id": 1,
+            "epoch": "1790954114001031379",
+            "focused_pane": "terminal_0",
+            "focused_tab_index": 0,
+            "plugin_id": 1,
+            "ready": true,
+            "sample": 46,
+            "sequence": 10,
+            "server_pid": 1831053,
+            "session": "shared",
+            "time_ns": "1790954128646981749"
+          },
+          "request": {
+            "client_id": 1,
+            "epoch": "1790954114001031379",
+            "operation": "focus",
+            "plugin_id": 1,
+            "request_id": "8e44283644794defa26eafb4f972504b",
+            "sequence": 10,
+            "server_pid": 1831053,
+            "target_session": null,
+            "terminal_id": 4294967295
+          },
+          "status": "pane_missing",
+          "whole_host_verified": false
+        },
+        {
+          "acknowledge_done": false,
+          "guarantee": "stock plugin observation; no upstream execution barrier",
+          "observation": {
+            "client_id": 1,
+            "epoch": "1790954114001031379",
+            "focused_pane": "terminal_0",
+            "focused_tab_index": 0,
+            "plugin_id": 1,
+            "ready": true,
+            "sample": 48,
+            "sequence": 10,
+            "server_pid": 1831053,
+            "session": "shared",
+            "time_ns": "1790954128961923049"
+          },
+          "request": {
+            "client_id": 1,
+            "epoch": "1790954114001031379",
+            "operation": "focus",
+            "plugin_id": 1,
+            "request_id": "0e08d132d1e448fba8015d210fa73f65",
+            "sequence": 10,
+            "server_pid": 1831053,
+            "target_session": null,
+            "terminal_id": 1
+          },
+          "status": "superseded",
+          "whole_host_verified": false
+        },
+        {
+          "acknowledge_done": false,
+          "guarantee": "stock plugin observation; no upstream execution barrier",
+          "observation": {
+            "client_id": 1,
+            "epoch": "1790954114001031379",
+            "focused_pane": "terminal_0",
+            "focused_tab_index": 0,
+            "plugin_id": 1,
+            "ready": true,
+            "sample": 50,
+            "sequence": 10,
+            "server_pid": 1831053,
+            "session": "shared",
+            "time_ns": "1790954129341875780"
+          },
+          "request": {
+            "client_id": 1,
+            "epoch": "stale-verij-epoch",
+            "operation": "focus",
+            "plugin_id": 1,
+            "request_id": "c2df6effe223470ba1bd3b984319940f",
+            "sequence": 12,
+            "server_pid": 1831053,
+            "target_session": null,
+            "terminal_id": 1
+          },
+          "status": "stale_plugin_epoch",
+          "whole_host_verified": false
+        }
+      ]
+    },
+    {
+      "stock_plugin_cross_session_rebind_and_peer_keyboard": true,
+      "dispatch_itself_not_completion": true
+    },
+    {
+      "native_mouse_returns_to_sidebar_without_activation": true
+    },
+    {
+      "actual_outer_mouse_click_fixture_row_activates_workspace": true
+    },
+    {
+      "native_stack_reveal_and_keyboard_without_unstacking": true,
+      "shared_stack_side_effects_accepted": true
+    }
+  ],
+  "limitations": [
+    "Earlier F11 return was intercepted in Descend mode; use host-pane mouse focus or explicit sidebar helper.",
+    "No production Done/acknowledgement logic. Every control result keeps acknowledge_done=false.",
+    "Local plugin epoch/sequence filtering cannot cancel an action already queued in stock Zellij.",
+    "Explicit focused-plugin keyboard registration is required; no client binding inferred from server environment or cwd.",
+    "Outer confirmation covers this single-display private host fixture; plugin observation is point-in-time, not whole-host guarantee."
+  ],
+  "acknowledge_done": false,
+  "stock_version": "zellij 0.45.1"
+}

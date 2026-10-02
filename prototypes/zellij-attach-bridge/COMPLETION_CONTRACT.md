@@ -1,5 +1,7 @@
 # Experimental focus completion and query contract
 
+**Archived experiment, not the production contract.** On 2026-10-02 the user selected stock Zellij and prohibited further dependency patch effort. The private transport, attachment tokens, sequence watermark and execution barriers below are historical findings; Verij production code must not depend on them.
+
 This extends the isolated Zellij v0.45.1 bridge for H0 investigation. It is not a released protocol, stock Zellij capability, Verij monitoring feature, or H0 approval.
 
 ## Wire and lifecycle
