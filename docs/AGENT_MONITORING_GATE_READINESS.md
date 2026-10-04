@@ -1,6 +1,6 @@
 # Agent monitoring: remaining gates and ownership
 
-Assessment date: **2026-10-02**. **H0 is approved by explicit user feedback; H1 is pending.** The [approved product design](AGENT_MONITORING.md) and [implementation checkpoints](AGENT_MONITORING_IMPLEMENTATION.md#101-human-verification-checkpoints) remain authoritative.
+Assessment updated: **2026-10-05**. **H0 and H1 are approved by explicit user feedback; H2 continuation is authorized.** The [approved product design](AGENT_MONITORING.md) and [implementation checkpoints](AGENT_MONITORING_IMPLEMENTATION.md#101-human-verification-checkpoints) remain authoritative.
 
 ## Recorded reviewer decisions
 
@@ -16,11 +16,11 @@ After the stock-only two-host demo handoff, the user replied **“approve”** a
 
 ## Where the work stands
 
-**H0 — integration contract is approved.** The accumulated changes include archived dependency prototypes, reproducible runtime harnesses, a stock-only Verij control fixture and qualified evidence. Production monitoring types, agent store/reducer, host-local acknowledgement and agent-pane navigation are not implemented.
+**H0 and H1 are approved.** Shared identities/full pane inventory, normalized reporter/store/reducer, host-local acknowledgement and client-bound stock control exist in production source. The user requested committing H1 before continuing H2. H2 tree presentation is authorized; H3/H4 live adapters remain pending.
 
 The stock-only [two-host review fixture](../prototypes/stock-navigation/README.md) has [15 scoped live checks](../prototypes/stock-navigation/results.json) and successful qualified Magy review. It exposes binding/observation limits and keeps ack=false. H0 approval does not finish production H1 phases.
 
-**H1 — topology and navigation** follows production phases 1–3: shared types/full pane inventory, reporter/store/reducer/acknowledgement, and exact asynchronous navigation. The prototypes prove useful native behavior, but they do not complete those phases or substitute for the H1 CLI/plugin build and human verification.
+**H1 — topology and navigation** covers production phases 1–3. The [H1 harness](../prototypes/h1-navigation/README.md) runs built production CLI/plugin artifacts and explicitly synthetic semantic records. The user approved this scope and its documented limits. Original automated evidence does not substitute for the separately recorded approval.
 
 ## Technical follow-ups after H0
 
@@ -59,7 +59,7 @@ The coding agent can encode version/capability detection and reliable fallback b
 
 **Resolved for H0: approved.** The coding agent prepared the disposable two-host test and the user supplied approve feedback. Later H1/H2 checks must confirm Workspace versus sidebar focus and host-local visits with the built feature.
 
-Do not ask the user to test agent-row Done visits against today's code: those rows and acknowledgement logic do not exist yet. The prescribed H1/H2 human checks occur after their respective implementation artifacts are available.
+H1 exposes normalized storage and verified acknowledgement through development CLI commands. Agent-row Done rendering follows at H2; do not describe the current two-level tree as completed agent monitoring.
 
 ## H1: implementation that can be done by the coding agent
 
@@ -85,10 +85,10 @@ The implementation guide explicitly requires a human approve/rework decision at 
 3. Exercise two hosts and rapid requests; check for wrong-client focus, duplicate attachment or older requests stealing focus.
 4. Confirm old snapshots still render sessions/tabs and failed focus never acknowledges completion.
 
-The coding agent can execute and present those scenarios. The user's real workflow/keyboard judgement and explicit sign-off cannot be replaced by an automated PASS. H1 is not approved by this assessment, and the remaining human checks are not evidence that implementation has already been completed.
+The coding agent executed and presented the scoped scenarios, and the user supplied explicit H1 approval on 2026-10-05. That approval is recorded separately from automated PASS results. Later H2–H5 checks remain mandatory for their own stages.
 
 ## Minimum input to unlock implementation
 
 The dependency, shared-stack and Agy capability choices are now supplied; do not repeat those questions. The coding agent owns re-scoping the contract to stock APIs and documenting honest navigation/confirmation limits.
 
-H0 contract approval is recorded. The user requested committing H0 first; next-stage authorization and later H1 verification remain separate. No further Zellij patch effort is part of the backlog.
+H0 approval is committed. H1 verification and explicit approval are recorded; the user requested the H1 commit followed by H2 implementation. H2 will stop for its own human feedback. No further Zellij patch effort is part of the backlog.

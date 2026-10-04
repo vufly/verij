@@ -1,0 +1,24 @@
+{
+  "status": "PASS",
+  "root": "/home/vudinhn/repos/workspaces/verij-agent-monitoring/artifacts/scratch/vj-h1-i57m0eid",
+  "stock_binary": "/home/vudinhn/.local/share/mise/installs/zellij/0.45.1/zellij",
+  "stock_sha256": "d006c521dcb475a6005d741e9dd7c5758e5a23b28dd60a5c10cebfa4876319dd",
+  "checks": [
+    "full_terminal_inventory_native_births_hidden_float_stack_unknown",
+    "two_owned_workspace_wrappers_exact_keyboard_registration",
+    "tiled_float_stack_actual_outer_keyboard",
+    "fullscreen_other_target_revealed_and_accepts_outer_input",
+    "passive_query_does_not_allocate_sequence_or_ack",
+    "actual_foreground_tty_verified_redirected_same_family_child_rejected",
+    "synthetic_reducer_real_native_visit_host_local_ack_race_and_wrong_pane_refusal",
+    "sidebar_focus_not_visit_and_initial_attachment_not_reinjected",
+    "cross_session_rebind_existing_attachment_and_peer_preserved",
+    "public_plugin_reload_preserves_native_server_pane_identity",
+    "session_and_background_title_rename_preserve_server_pane_tab_identity"
+  ],
+  "human_gate_approved": false,
+  "cleanup": {
+    "private_socket_removed": true,
+    "known_processes_exited": true
+  }
+}

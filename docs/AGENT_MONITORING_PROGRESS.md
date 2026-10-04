@@ -1,16 +1,16 @@
 # Agent Monitoring Progress
 
-Status: **H0 stock-only integration contract approved; H1 production implementation pending**. Last updated: **2026-10-02**.
+Status: **H0 and H1 approved; H1 checkpoint requested, H2 continuation authorized**. Last updated: **2026-10-05**.
 
 Source of truth for product behavior: [approved design](AGENT_MONITORING.md). Engineering sequence, gate deliverables, checkpoint guidelines and acceptance matrix: [implementation guide](AGENT_MONITORING_IMPLEMENTATION.md). This file records *actual* progress, not proposed behavior.
 
 ## Current position
 
 - Active durable workspace: `~/repos/workspaces/verij-agent-monitoring` (workflow `personal/verij/verij-agent-monitoring`). Work in `verij/` on branch `agent-monitoring`; sibling `zellij/` is now retained historical evidence only, and pinned OpenCode source is sibling `opencode-reference/`. Production targets installed stock Zellij. Exited-session fix `1f94cf2` was the migration baseline; master has progressed independently since then.
-- Monitoring feature code: **not started**. Existing Verij tree is Session → Tab. The patched bridge under [`prototypes/zellij-attach-bridge/`](../prototypes/zellij-attach-bridge/README.md) is archived, not a production dependency; private IPC/token/watermark evidence does not prove stock capabilities.
+- Monitoring feature code: **H1 foundation implemented**: shared identities/full terminal inventory, native normalized reporter/store/reducer, host-local acknowledgement and stock-capability pane navigation. Existing visible tree remains Session → Tab; H2 agent-row presentation and H3/H4 live adapters are pending. The patched bridge under [`prototypes/zellij-attach-bridge/`](../prototypes/zellij-attach-bridge/README.md) remains archived.
 - Latest tested versions: stock Zellij **0.45.1**, OpenCode **1.18.33**, Agy **1.2.14**. Earlier patched-Zellij fixtures retain their historical provenance. The read-only OpenCode reference remains pinned to **1.18.32**; earlier fixtures retain their dated versions. Version checks alone do not satisfy G1–G4.
-- Current checkpoint: **H0 — stock-only integration contract approved**. The user replied **“approve”** to the two-host review handoff on 2026-10-02, then requested committing H0 first. Stock Zellij, native shared-stack behavior and documented Agy limits are accepted. The public-API observer/controller has 15 scoped live checks; it is not production monitoring or Done acknowledgement. H1 implementation is pending. The G4 observer is implemented and verified later at H4.
-- Next human stop: **H1 — topology and navigation**, after production phases 1–3 and authorization to proceed. The two latest Magy workers completed successfully with qualified review artifacts; earlier failed/cancelled runs retain their original evidence. Profile health is transient.
+- Current checkpoint: **H1 approved**. The user replied **“approve. commit H1 then continue H2”** on 2026-10-05. Stock Zellij, shared-stack behavior and Agy limits remain accepted. H1 approval covers the documented topology/storage/navigation scope; synthetic semantic fixtures do not claim live adapters.
+- Next human stop: **H2 — tree and local completion**. Implementation is authorized after committing H1. H3–H5 remain pending. Magy inventory, store and navigation workers completed; main corrected reviewed gaps and validated the integrated code. Their baseline commit is not a hash of the concurrently changing source.
 
 ## Phase and checkpoint ledger
 
@@ -19,15 +19,39 @@ Source of truth for product behavior: [approved design](AGENT_MONITORING.md). En
 | Phase (guide §10) | Scope | State | Stop / review state |
 |---|---|---|---|
 | 0 | G1–G4 integration gates and fixtures | Approved within documented capability limits | H0 approved 2026-10-02 |
-| 1 | Shared types and pane inventory | Pending | H1 pending after phases 1–3 |
-| 2 | Reporter, store, reducer and acknowledgement | Pending | H1 pending after phases 1–3 |
-| 3 | Exact pane navigation | Pending | H1 pending after phases 1–3 |
-| 4 | Three-level TUI | Pending | H2 pending |
+| 1 | Shared types and pane inventory | Approved: native/WASM checks and live evidence | H1 approved 2026-10-05 |
+| 2 | Reporter, store, reducer and acknowledgement | Approved: synthetic semantics, real ownership/visit proof | H1 approved 2026-10-05 |
+| 3 | Stock-capability pane navigation | Approved within documented stock limits | H1 approved 2026-10-05 |
+| 4 | Three-level TUI | Authorized after H1 checkpoint | H2 pending |
 | 5 | OpenCode adapter | Pending | H3 pending |
 | 6–7 | Agy/Magy adapters; setup, doctor, documentation | Pending | H4 pending |
 | 8 | Automated and live acceptance | Pending | H5 pending |
 
 ## Gate evidence and blockers
+
+### H1 approval and H2 authorization — 2026-10-05
+
+The user explicitly approved H1 and requested **“commit H1 then continue H2”**. The reviewed instance **`vj-h1-3luxrt2u`** has been cleaned through its manifest-qualified helper; its private socket was removed. Approval is recorded separately in [approval.json](../prototypes/h1-navigation/approval.json); the original automated result remains unchanged. No additional per-scenario human observations are inferred. H2 is authorized, while H3/H4 adapters and later checkpoint approvals remain pending.
+
+### H1 production foundation — 2026-10-03
+
+The user authorized continuation after committing H0. Production source now includes optional full inventory with native server/process identities, stable tab membership and SDK pane PID locators; source-specific normalized execution records with ordered partial merges and a pure reducer; locked atomic registration/report/pruning; durable completion revisions and host-local acknowledgement; an independent agent watcher; owned Workspace attachment; and filtered, asynchronous public stock control.
+
+The [H1 reproduction and review harness](../prototypes/h1-navigation/README.md) runs the production CLI/WASM, not the H0 Python controller. Eleven scoped live scenarios passed in **`vj-h1-5n2783a1`**: full topology/births, exact two-host registration, tiled/float/stack keyboard, fullscreen reveal, passive query, actual foreground tty with redirected-child rejection, synthetic semantic records with real native visit/host-local acknowledgement and newer-revision/wrong-pane refusal, sidebar-not-visit and no repeated initial attach, cross-session rebind/peer preservation, plugin reload, and session/background-title rename. Original failure reports remain workspace artifacts; later evidence will identify the final release-built run.
+
+Important integration fixes: registration uses actual keyboard receipt rather than the first focused candidate heartbeat, because a floating dialog can be visible to multiple clients. An existing session still needs its registration keybinding; a newly attached client overlay alone did not establish it. A CLI outer focus command stayed on the sidebar in this fixture, so production activation now uses the **outer client's native SDK context** and a fresh native focus result. SDK outer pane PID, OS process birth, ancestry, foreground group and actual stdio tie the wrapper to its terminal. A passive outer/inner/outer observation brackets a visit; the proof completion timestamp comes from the final native observation, not a rewritten inner sample. One display per outer server is the verified scope.
+
+Initial worker drafts allowed caller-supplied acknowledgement flags and insufficient outer ownership checks. Those paths were replaced before live verification. Store bounds and schema/instance validation fail closed; source epochs/turn order and current conversation family qualify outcomes; registration/report/pruning locks preserve whole records. A typed, observed completion revision prevents a navigation race from consuming a later one. Fixtures are visibly synthetic; no OpenCode/Agy status is inferred from a receiver process.
+
+Completed Magy runs: inventory `run_2163e600702542c8`; store draft/rework `run_4d2dfcfa659542b3` / `run_7654472ce8f14d01`; navigation draft/rework `run_a9766b3fb0f54948` / `run_d654a8169cf64857`. Main performed integrated builds/tests rather than accepting unwired worker claims. A read-only final review is tracked separately. No dependency worktree edits or Zellij builds occurred; no H1 commit/push or approval is inferred.
+
+**Final verification:** `cargo check --workspace`, `cargo test --workspace` (**111 tests: 78 CLI unit, 8 host integration, 3 plugin and 22 shared-type**), `make check` (including WASM) and `make dev` pass without warnings. [The release-built automated evidence](../prototypes/h1-navigation/results.json) is PASS with 11 live checks in **`vj-h1-i57m0eid`**, now cleaned. `verify_evidence.py` corroborates original receiver tokens, process identities, explicitly synthetic records, host-a revision1 versus current completion2, absent host-b acknowledgement, and private cleanup, including new keyboard tokens after returning to the source and after rename/rebind.
+
+**Final review:** read-only `run_b684d99de2a9457c` completed/exit0. Main fixed source-name-dependent success/error precedence, preserved unscoped same-instance background-work hints without accepting their terminal outcomes for an owned family, and resolved the observer rebind plugin path absolutely. Two regression tests were added. Original report and main qualification remain workspace `artifacts/H1_FINAL_REVIEW*.md`; the qualification corrects unsupported cryptographic-proof language and inconsistent worker test counts. Main's final commands/results are authoritative.
+
+**Post-rebind correction:** preparing the review exposed a local journal reset when returning to a still-live plugin context. The plugin now publishes its **Verij-owned accepted application sequence**, and registration/request allocation resynchronizes to it. This is not a stock server execution watermark or completion barrier. A unit regression and actual post-return keyboard token cover it. Effective client focus can become unavailable after rename/reload even while OS identities survive; the harness explicitly re-registers before post-rename navigation, and missing focus refuses control/acknowledgement. Earlier post-rename timeouts remain original failure reports.
+
+**Reviewed instance:** **`vj-h1-3luxrt2u`** passed the corrected 11 checks and was retained for human review, then cleaned after H1 approval. Its old socket `/tmp/vj-h1-sock-ega2bbs5/terminal` and attach commands are no longer live. Both review-helper focus commands succeeded after setup. Earlier `vj-h1-knlvwl6o` was cleaned before the sequence correction. Setup **`vj-h1-u4hcea4s`** had a blank host-b frame and no wrapper marker within the bounded wait; it was cleaned and diagnostics retained. Its cause is not claimed fixed. The user requested committing H1 and authorized H2 as recorded above.
 
 **Evidence precedence:** Gate-table text contains historical preliminary claims. Dated, independently reviewed reproductions immediately below override stale table wording: G2 now has genuine two-pane shared-server idle binding and one `api.event.on("session.created")` broadcast; G3 has one live no-tool headless hook path, while earlier recorder files remain synthetic; G4 state has no `ndjson_path` field. Evaluate H0 against dated evidence and remaining limitations, not broad table PASS labels.
 

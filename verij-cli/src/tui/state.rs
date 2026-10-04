@@ -130,6 +130,12 @@ pub struct AppState {
 
     /// Whether the keyboard shortcut help bar is displayed at the bottom (toggled by '?').
     pub show_help: bool,
+
+    /// Session/tab requests are serialized outside terminal input/render.
+    pub activation: Option<crate::activation::Queue>,
+
+    /// Normalized native records; agent tree presentation follows at H2.
+    pub agents: Vec<crate::agent_watcher::AgentRecord>,
 }
 
 impl AppState {
@@ -459,7 +465,9 @@ mod tests {
                     },
                 ],
                 active_pane: None,
-                connected_clients: None, needs_resurrection: false,
+                connected_clients: None,
+                needs_resurrection: false,
+                inventory: None,
             },
             SessionSnapshot {
                 name: "frontend".to_string(),
@@ -472,6 +480,7 @@ mod tests {
                 active_pane: None,
                 connected_clients: None,
                 needs_resurrection: false,
+                inventory: None,
             },
         ]
     }
@@ -483,6 +492,7 @@ mod tests {
         sessions.push(SessionSnapshot {
             name: "_vj_main".to_string(), is_current: false,
             tabs: vec![], active_pane: None, connected_clients: None, needs_resurrection: false,
+            inventory: None,
         });
         state.reconcile(sessions);
 

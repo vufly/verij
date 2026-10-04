@@ -22,6 +22,10 @@ use crate::session::SessionStatus;
 /// `/tmp/verij -> /tmp/zellij-<uid>/verij` symlink so paths resolve identically
 /// across both the host OS and the WASM plugin environment.
 pub fn resolve_states_dir() -> PathBuf {
+    if let Some(directory) = std::env::var_os("VERIJ_STATES_DIR").map(PathBuf::from).filter(|path|path.is_absolute()) {
+        let _ = std::fs::create_dir_all(&directory);
+        return directory;
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -78,7 +82,7 @@ pub fn read_all_states(hosts: &HashSet<String>, unknown: &mut HashMap<String, bo
                         };
                         snapshot.needs_resurrection = matches!(status, crate::session::SessionStatus::Exited);
                     }
-
+                    crate::inventory::hydrate(&mut snapshot);
                     sessions.push(snapshot);
                 }
             }
@@ -92,7 +96,11 @@ pub fn read_all_states(hosts: &HashSet<String>, unknown: &mut HashMap<String, bo
         });
     }
 
-    sessions.sort_by(|a, b| a.name.cmp(&b.name));
+    sessions.sort_by(|a,b|a.name.cmp(&b.name).then_with(|| {
+        let stamp=|s:&SessionSnapshot|s.inventory.as_ref().map(|i|i.exported_at_ms).unwrap_or(0);
+        stamp(b).cmp(&stamp(a))
+    }));
+    sessions.dedup_by(|a,b|a.name==b.name);
     sessions
 }
 
@@ -117,6 +125,7 @@ fn add_missing_sessions(
             active_pane: None,
             connected_clients: None,
             needs_resurrection: matches!(status, SessionStatus::Exited),
+            inventory: None,
         });
     }
 }
@@ -246,6 +255,7 @@ mod tests {
             active_pane: Some("shell".into()),
             connected_clients: Some(1),
             needs_resurrection: false,
+            inventory: None,
         };
         let statuses = BTreeMap::from([
             ("inner".into(), SessionStatus::Live),

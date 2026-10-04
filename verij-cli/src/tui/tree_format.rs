@@ -523,6 +523,7 @@ mod tests {
             needs_resurrection: false,
             active_pane: None,
             connected_clients: None,
+            inventory: None,
             tabs: vec![
                 TabSnapshot {
                     name: "editor".into(),

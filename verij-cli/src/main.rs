@@ -12,6 +12,14 @@ use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 mod actions;
+mod activation;
+mod agent_cli;
+mod agent_store;
+mod agent_watcher;
+mod inventory;
+mod process;
+mod workspace;
+mod navigation;
 mod config;
 mod fs_watcher;
 mod host;
@@ -98,6 +106,30 @@ enum Commands {
     /// Connects to the verij-plugin via a Zellij native pipe and renders a
     /// live, navigable 2-level tree of sessions and tabs.
     Ui,
+
+    /// Inspect full terminal inventory and validated server/process identities.
+    Inventory {
+        #[arg(long)]
+        session: Option<String>,
+    },
+
+    /// Internal owned Workspace attachment; never infers native client IDs.
+    #[command(hide=true)]
+    Workspace {
+        session: String,
+        #[arg(long)] host: Option<String>,
+        #[arg(long)] plugin: Option<PathBuf>,
+        #[arg(long)] client_config: Option<PathBuf>,
+        #[arg(long)] force_run_commands: bool,
+    },
+
+    /// Agent registration, normalized reporting and inspection.
+    #[command(subcommand)]
+    Agent(agent_cli::AgentCommand),
+
+    /// Client-bound public stock control (explicit registration required).
+    #[command(subcommand)]
+    Navigate(navigation::NavigationCommand),
 
     /// Configuration helpers.
     #[command(subcommand)]
@@ -325,6 +357,15 @@ async fn main() -> Result<()> {
             let cfg = config::Config::load();
             tui::run(cfg).await
         }
+        Commands::Inventory { session } => {
+            let mut snapshots = inventory::read_states(&fs_watcher::resolve_states_dir());
+            if let Some(name) = session { snapshots.retain(|snapshot|snapshot.name==name); }
+            println!("{}",serde_json::to_string_pretty(&snapshots)?);
+            Ok(())
+        }
+        Commands::Workspace { session,host,plugin,client_config,force_run_commands } => workspace::attach(&session,host,plugin,client_config,force_run_commands),
+        Commands::Agent(command) => agent_cli::execute(command),
+        Commands::Navigate(command) => navigation::execute(command).await,
         Commands::Config(cmd) => match cmd {
             ConfigCommands::Init => config::write_default_config(),
             ConfigCommands::Path => {

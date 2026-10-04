@@ -40,7 +40,11 @@ pub fn create_inner_session(
     let default_layout = configured_zellij_layout();
 
     // The inner session inherits Zellij config; the layout is inspected only for readiness.
-    let zellij_cmd = format!("zellij attach -c {}", shell_quote(new_session_name));
+    let key=std::env::var("VERIJ_HOST_MARKER_KEY").ok();
+    let owned_config=key.as_deref().filter(|key|verij_types::identity::valid_record_key(key))
+        .map(|key|crate::workspace::prepare_config(key,plugin_path.map(Path::to_path_buf),None)).transpose()?;
+    let config_arg=owned_config.as_ref().map(|path|format!(" --config {}",shell_quote(&path.to_string_lossy()))).unwrap_or_default();
+    let zellij_cmd = format!("zellij{config_arg} attach -c {}", shell_quote(new_session_name));
 
     let mut fake_client = Command::new("script")
         .args(["-q", "-c", &zellij_cmd, "/dev/null"])
@@ -131,6 +135,16 @@ pub fn switch_session(
     tab_position: Option<usize>,
     workspace_pane_name: Option<&str>,
 ) -> Result<()> {
+    switch_session_if_current(old_active_session,target_session,tab_position,workspace_pane_name,||true)
+}
+
+/// The worker can suppress obsolete local follow-up actions, but cannot revoke
+/// a command already dispatched to stock Zellij.
+pub fn switch_session_if_current(
+    old_active_session:Option<&str>,target_session:&str,tab_position:Option<usize>,
+    workspace_pane_name:Option<&str>,is_current:impl Fn()->bool,
+) -> Result<()> {
+    if !is_current() { anyhow::bail!("navigation superseded locally"); }
     match old_active_session {
         Some(old) if old == target_session => {
             match tab_position {
@@ -160,37 +174,33 @@ pub fn switch_session(
             }
 
             // The Inception Switch: trigger switch from inside the current session
+            if !is_current() { anyhow::bail!("navigation superseded locally before dispatch"); }
             inception_switch(old, target_session)?;
+            set_workspace_session(target_session)?;
 
             // If a specific tab is requested, navigate after brief delay
             if let Some(pos) = tab_position {
-                if pos > 0 {
-                    let target = target_session.to_string();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(150));
-                        let _ = switch_tab(&target, pos);
-                    });
-                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                if !is_current() { anyhow::bail!("navigation superseded locally"); }
+                switch_tab(target_session,pos)?;
             }
         }
         None => {
             // First attach fallback: attach into the right pane
+            if !is_current() { anyhow::bail!("navigation superseded locally before first attach"); }
             attach_in_right_pane(target_session)?;
 
             if let Some(pos) = tab_position {
-                if pos > 0 {
-                    let target = target_session.to_string();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(200));
-                        let _ = switch_tab(&target, pos);
-                    });
-                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                if !is_current() { anyhow::bail!("navigation superseded locally"); }
+                switch_tab(target_session,pos)?;
             }
         }
     }
 
     // Ensure inner session ready before refocusing
     std::thread::sleep(std::time::Duration::from_millis(200));
+    if !is_current() { anyhow::bail!("navigation superseded locally"); }
     // Always re-focus the right pane so keyboard input goes to the attached workspace
     re_focus_right_pane()?;
 
@@ -367,6 +377,14 @@ pub fn inception_switch(old_active_session: &str, new_selected_session: &str) ->
 
 /// Re-focuses the right pane: `zellij action move-focus right`.
 pub fn re_focus_right_pane() -> Result<()> {
+    if let Some(pane)=workspace_pane()? {
+        let id=format!("terminal_{}",pane.id);
+        let output=Command::new("zellij").args(["action","focus-pane-id",&id]).output()?;
+        if !output.status.success() && !String::from_utf8_lossy(&output.stderr).contains("already focused") {
+            anyhow::bail!("failed to focus Workspace pane {id}");
+        }
+        return Ok(());
+    }
     let status = Command::new("zellij")
         .args(["action", "move-focus", "right"])
         .status()
@@ -409,6 +427,32 @@ pub fn switch_tab(session_name: &str, tab_position: usize) -> Result<()> {
 /// Initial attach fallback when no session was previously active in the right pane:
 /// sends `stty sane; zellij attach <target>\n` to the active pane.
 fn attach_in_right_pane(target_session: &str) -> Result<()> {
+    use fs2::FileExt;
+    let lock_path=workspace_marker_path().map(|path|path.with_extension("attach.lock"));
+    let _guard=if let Some(path)=lock_path {
+        if let Some(parent)=path.parent() { std::fs::create_dir_all(parent)?; }
+        let file=std::fs::OpenOptions::new().create(true).read(true).write(true).truncate(false).open(path)?;
+        file.lock_exclusive()?; Some(file)
+    } else {None};
+    if workspace_session().is_some() { anyhow::bail!("Workspace already has an attachment or pending attach; refusing duplicate attach"); }
+    // A wrapper can publish before the sidebar receives its first topology
+    // update. Do not write another attach into that already-owned live process.
+    let actual_host=std::env::var("ZELLIJ_SESSION_NAME").ok();
+    let actual_pane=workspace_pane()?.context("cannot identify exact Workspace pane for first attach")?;
+    if let Ok(entries)=std::fs::read_dir(crate::workspace::control_dir()) {
+        for entry in entries.flatten().filter(|entry|entry.file_name().to_string_lossy().starts_with("attachment-")) {
+            if let Ok(bytes)=std::fs::read(entry.path()) {
+                if let Ok(value)=serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    let owner=value.get("attachment_process").cloned().and_then(|value|serde_json::from_value::<verij_types::identity::ProcessIdentity>(value).ok());
+                    if value["source"]=="owned_workspace_wrapper" && value["host_session"].as_str()==actual_host.as_deref()
+                        && value["workspace_pane"].as_u64()==Some(u64::from(actual_pane.id))
+                        && owner.as_ref().is_some_and(crate::process::is_alive) {
+                        anyhow::bail!("Workspace wrapper is already live; explicit registration or recovery required, not another attach");
+                    }
+                }
+            }
+        }
+    }
     set_workspace_session(target_session)?;
     let marker_cleanup = workspace_marker_path()
         .map(|path| format!("; rm -f {}", shell_quote(&path.to_string_lossy())))
@@ -425,9 +469,11 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
     } else {
         ""
     };
+    let attach_program=if let Some(key)=std::env::var("VERIJ_HOST_MARKER_KEY").ok().filter(|key|verij_types::identity::valid_record_key(key)) {
+        format!("{} workspace {attach_options}{} --host {}",shell_quote(&crate::layout::resolve_verij_bin()),shell_quote(target_session),shell_quote(&key))
+    } else {format!("zellij attach {attach_options}{}",shell_quote(target_session))};
     let attach_cmd = format!(
-        "export {WORKSPACE_SESSION_ENV}={}; stty sane; zellij attach {attach_options}{}; unset {WORKSPACE_SESSION_ENV}{marker_cleanup}\n",
-        shell_quote(target_session),
+        "export {WORKSPACE_SESSION_ENV}={}; stty sane; {attach_program}; unset {WORKSPACE_SESSION_ENV}{marker_cleanup}\n",
         shell_quote(target_session),
     );
     let _ = Command::new("zellij")
@@ -435,8 +481,10 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
         .stdin(std::process::Stdio::null())
         .status();
 
+    let pane=workspace_pane()?.context("cannot identify exact Workspace pane for first attach")?;
+    let pane_id=format!("terminal_{}",pane.id);
     let status = Command::new("zellij")
-        .args(["action", "write-chars", &attach_cmd])
+        .args(["action", "write-chars", "--pane-id", &pane_id, &attach_cmd])
         .stdin(std::process::Stdio::null())
         .status()
         .with_context(|| {
@@ -448,10 +496,7 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
 
     if !status.success() {
         let _ = clear_workspace_session();
-        eprintln!(
-            "[verij-cli] Warning: initial attach write-chars exited with status: {}",
-            status
-        );
+        anyhow::bail!("initial attach write-chars failed: {status}");
     }
 
     Ok(())

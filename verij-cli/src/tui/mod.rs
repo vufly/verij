@@ -71,6 +71,8 @@ pub async fn run(config: Config) -> Result<()> {
 
 async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut state: AppState) -> Result<()> {
     let (tx, mut rx) = mpsc::channel(16);
+    let (agent_tx,mut agent_rx)=mpsc::channel(16);
+    if let Err(error)=crate::agent_watcher::spawn(agent_tx) { state.error=Some(format!("Agent watcher: {error}")); }
     state.plugin_path = crate::layout::resolve_plugin_path(None).ok();
 
     // Spawn filesystem watcher background task targeting /tmp/verij/states/
@@ -82,6 +84,7 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut s
     }
 
     restore_last_workspace_session(&mut state);
+    state.activation = Some(crate::activation::Queue::start());
 
     // Initial render
     terminal.draw(|frame| render::render(frame, &mut state))?;
@@ -90,6 +93,27 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut s
 
     loop {
         let mut needs_render = false;
+        while let Ok(records)=agent_rx.try_recv() {
+            state.agents=records;
+            needs_render=true;
+        }
+        let mut finished=Vec::new();
+        if let Some(queue)=state.activation.as_mut() {
+            while let Ok(result)=queue.receiver.try_recv() {
+                if queue.is_current(result.request.ticket) { queue.pending=false; finished.push(result); }
+            }
+        }
+        for completion in finished {
+            match completion.result {
+                Ok(()) => {
+                    state.active_session=Some(completion.request.session);
+                    if completion.request.title.is_some() { state.workspace_pane_name=completion.request.title; }
+                    state.error=None;
+                }
+                Err(error) => state.error=Some(error),
+            }
+            state.rebuild_nodes(); state.sync_list_state(); needs_render=true;
+        }
 
         // Poll for terminal events (100 ms timeout for animation & responsiveness)
         if event::poll(Duration::from_millis(100)).context("Failed to poll terminal events")? {
@@ -148,7 +172,8 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut s
                                 state.rebuild_nodes();
                             }
                         }
-                    } else if attached_session.as_deref() != state.active_session.as_deref() {
+                    } else if attached_session.as_deref() != state.active_session.as_deref()
+                        && !state.activation.as_ref().is_some_and(|queue|queue.pending) {
                         state.active_session = None;
                         let _ = actions::clear_workspace_session();
                         let default_name = state.config.workspace.pane_default.clone();
@@ -436,25 +461,10 @@ fn dispatch_action(state: &mut AppState) -> Result<()> {
         None
     };
 
-    let result = actions::switch_session(
-        old_active.as_deref(),
-        &target_session,
-        tab_position,
-        workspace_pane_name.as_deref(),
-    );
-
-    if let Err(e) = result {
-        state.error = Some(e.to_string());
-    } else {
-        state.active_session = Some(target_session);
-        if workspace_pane_name.is_some() {
-            state.workspace_pane_name = workspace_pane_name;
-        }
-        state.error = None;
+    let queue=state.activation.get_or_insert_with(crate::activation::Queue::start);
+    if let Err(error)=queue.enqueue(old_active,target_session,tab_position,workspace_pane_name) {
+        state.error=Some(error.to_string());
     }
-
-    state.rebuild_nodes();
-    state.sync_list_state();
 
     Ok(())
 }
@@ -470,7 +480,7 @@ mod tests {
         let mut state = AppState::default();
         state.reconcile(["first", "second"].into_iter().map(|name| SessionSnapshot {
             name: name.into(), is_current: false, tabs: vec![], active_pane: None,
-            connected_clients: None, needs_resurrection: false,
+            connected_clients: None, needs_resurrection: false, inventory: None,
         }).collect());
         state.list_state = ListState::default().with_offset(1);
         state.fold_hitboxes = vec![Some(0..2), Some(4..7)];
