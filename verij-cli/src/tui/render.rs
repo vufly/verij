@@ -81,27 +81,41 @@ fn render_session_tree(frame: &mut Frame, area: Rect, state: &mut AppState) {
             .iter()
             .enumerate()
             .map(|(i, node)| {
-                // Determine first and last tab in display order (position need not be dense).
-                let is_first_tab = matches!(node, TreeNode::Tab { .. })
-                    && i > 0
-                    && matches!(state.nodes.get(i - 1), Some(TreeNode::Session { .. }));
-                let is_last_tab = if let TreeNode::Tab { session_name, .. } = node {
-                    // Look ahead to next node; if next is Tab with same session, not last
-                    let next_is_same_session = state.nodes.get(i + 1).map(|next| matches!(next, TreeNode::Tab { session_name: ns, .. } if ns == session_name)).unwrap_or(false);
-                    !next_is_same_session
-                } else {
-                    false
+                // Determine first and last tab using explicit RowMeta if available, fallback to lookahead.
+                let is_first_tab = match node {
+                    TreeNode::Tab { meta, .. } => {
+                        if meta.sibling_count > 0 {
+                            meta.sibling_index == 0
+                        } else {
+                            i > 0 && matches!(state.nodes.get(i - 1), Some(TreeNode::Session { .. }))
+                        }
+                    }
+                    _ => false,
+                };
+                let is_last_tab = match node {
+                    TreeNode::Tab { session_name, meta, .. } => {
+                        if meta.sibling_count > 0 {
+                            meta.sibling_index + 1 == meta.sibling_count
+                        } else {
+                            let next_is_same_session = state.nodes.get(i + 1).map(|next| matches!(next, TreeNode::Tab { session_name: ns, .. } if ns == session_name)).unwrap_or(false);
+                            !next_is_same_session
+                        }
+                    }
+                    _ => false,
                 };
                 let session_index = match node {
-                    TreeNode::Session { session_index, .. } | TreeNode::Tab { session_index, .. } => *session_index,
+                    TreeNode::Session { session_index, .. }
+                    | TreeNode::Tab { session_index, .. }
+                    | TreeNode::AgentPane { session_index, .. } => *session_index,
                 };
-                let (item, hitbox) = state.tree_formatter.render(
+                let (item, hitbox) = state.tree_formatter.render_at_tick(
                     node,
                     state.sessions.get(session_index),
                     i == state.cursor,
                     state.active_session.as_deref() == Some(node.session_name()),
                     is_first_tab,
                     is_last_tab,
+                    state.tick,
                 );
                 hitboxes.push(hitbox);
                 item
@@ -161,9 +175,35 @@ fn status_bar_content(state: &AppState) -> Span<'static> {
                 .fg(c(colors.title))
                 .add_modifier(Modifier::BOLD),
         )
+    } else if state.show_help {
+        Span::styled(
+            " j/k: nav  h/l: fold/expand  Space: toggle (parent tab on agent)  Enter: activate  ?: hide  q: quit",
+            Style::default().fg(c(colors.muted)),
+        )
+    } else if let Some(TreeNode::AgentPane { view, .. }) = state.selected_node() {
+        let placement = if view.is_floating {
+            " [floating]"
+        } else if view.stacked == Some(true) {
+            " [stacked]"
+        } else {
+            ""
+        };
+        let fixture = if view.is_synthetic { " [fixture]" } else { "" };
+        let detail = if !view.detail.is_empty() {
+            format!(" · {}", view.detail)
+        } else {
+            String::new()
+        };
+        Span::styled(
+            format!(
+                " {} · pane {}{}{}{} (Enter: activate, Space: parent tab)",
+                view.title, view.pane.terminal.0, placement, fixture, detail
+            ),
+            Style::default().fg(c(colors.muted)),
+        )
     } else {
         Span::styled(
-            " j/k: nav  Enter: attach  n: new  R: rename host  ?: hide  q: quit",
+            " j/k: nav  h/l: fold  Space: toggle  Enter: attach  n: new  R: rename host  ?: help  q: quit",
             Style::default().fg(c(colors.muted)),
         )
     }

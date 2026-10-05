@@ -311,6 +311,24 @@ fn execute_inspect(args: InspectArgs) -> Result<()> {
 }
 
 fn execute_ack(args: AckArgs) -> Result<()> {
+    let ack = acknowledge_visit(args)?;
+    println!("{}", serde_json::to_string(&ack)?);
+    Ok(())
+}
+
+/// UI callers pass only the revision they actually observed. Native focus and
+/// ownership produce the proof; the selected sidebar row is not evidence.
+pub fn acknowledge_visit(args: AckArgs) -> Result<verij_types::agent::InstanceAck> {
+    acknowledge_visit_if_current(args, || true)
+}
+
+pub fn acknowledge_visit_if_current(
+    args: AckArgs,
+    is_current: impl Fn() -> bool,
+) -> Result<verij_types::agent::InstanceAck> {
+    if !is_current() {
+        bail!("visit superseded locally");
+    }
     let instance = AgentInstanceId(args.instance);
     let (identity, state) = agent_store::inspect(&instance)?;
     if args.revision == 0 || args.revision > state.completion_revision {
@@ -360,9 +378,11 @@ fn execute_ack(args: AckArgs) -> Result<()> {
         inner_focus_verified: true,
         verified_at_ms,
     };
-    let ack = agent_store::acknowledge(&proof)?;
-    println!("{}", serde_json::to_string(&ack)?);
-    Ok(())
+    if !is_current() {
+        bail!("visit superseded locally before acknowledgement");
+    }
+    let ack = agent_store::acknowledge_if_current(&proof, is_current)?;
+    Ok(ack)
 }
 
 fn execute_prune(args: PruneArgs) -> Result<()> {

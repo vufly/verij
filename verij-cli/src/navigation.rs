@@ -1273,10 +1273,8 @@ pub fn request(
         &["pipe", "--name", VERIJ_CONTROL_PIPE, "--", &payload],
         Duration::from_secs(6),
     );
-    if let Err(e) = dispatch_res {
-        let _ = lock_file.unlock();
-        return Err(e).context("Failed to send control request via Zellij named pipe");
-    }
+    // CLI pipe exit is not the control contract. A fully correlated native
+    // reply may exist even when the broadcast CLI transport times out.
 
     // Poll bounded for result-<request_id>.json while holding lock.
     let result_file = control_dir.join(format!("result-{}.json", request_id));
@@ -1384,6 +1382,12 @@ pub fn request(
 
     let _ = lock_file.unlock();
 
+    if found_result.is_none() {
+        if let Err(error) = dispatch_res {
+            return Err(error).context("Failed to send control request via Zellij named pipe");
+        }
+    }
+
     match found_result {
         Some(res) => Ok(res),
         None => Ok(ControlResult {
@@ -1448,6 +1452,18 @@ fn direct_request(
                     || !crate::process::is_alive(&server)
                 {
                     bail!("outer observer result identity/freshness mismatch");
+                }
+                // Retain the same reviewed identity/status projection as inner
+                // requests so whole-host visit brackets can be corroborated.
+                if let Ok(mut journal) = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(root.join("control-results.ndjson"))
+                {
+                    if let Ok(line) = serde_json::to_string(&result) {
+                        let _ = writeln!(journal, "{line}");
+                        let _ = journal.sync_all();
+                    }
                 }
                 fs::remove_file(path)?;
                 return Ok(result);
@@ -1791,6 +1807,86 @@ pub fn verified_visit(control_dir: &Path, host_key: &str) -> Option<(ControlResu
 // ---------------------------------------------------------------------------
 // Execute Entrypoint
 // ---------------------------------------------------------------------------
+
+/// UI targets are immutable instance/pane keys, with the completion revision
+/// captured by that UI. Resolve mutable location only inside the worker.
+pub fn activate_instance(
+    control_dir: &Path,
+    host: &str,
+    instance: &verij_types::identity::AgentInstanceId,
+    expected_pane: &PaneKey,
+    revision: Option<u64>,
+    is_current: impl Fn() -> bool,
+) -> Result<(ControlResult, Option<verij_types::agent::InstanceAck>)> {
+    if !is_current() {
+        bail!("agent navigation superseded locally");
+    }
+    let (identity, _) = crate::agent_store::inspect(instance)?;
+    if identity.pane_key != *expected_pane || !crate::process::is_alive(&identity.process) {
+        bail!("agent instance binding is no longer live");
+    }
+    let snapshots = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir());
+    let snapshot = snapshots
+        .iter()
+        .find(|snapshot| {
+            snapshot
+                .inventory
+                .as_ref()
+                .and_then(|inventory| inventory.session_instance_id.as_ref())
+                == Some(expected_pane.session.clone()).as_ref()
+        })
+        .context("agent server lifetime no longer exists")?;
+    let inventory = snapshot.inventory.as_ref().unwrap();
+    let pane = inventory
+        .panes
+        .iter()
+        .find(|pane| pane.terminal_id == expected_pane.terminal && !pane.exited)
+        .context("agent terminal no longer exists")?;
+    crate::process::verify_foreground(
+        inventory
+            .server_process
+            .as_ref()
+            .context("server birth unavailable")?,
+        pane.pane_process
+            .as_ref()
+            .context("pane birth unavailable")?,
+        &identity.process,
+    )?;
+    if !is_current() {
+        bail!("agent navigation superseded before dispatch");
+    }
+    let binding = load_binding(control_dir, host)?;
+    if SessionInstanceId::from_process(&binding.server_process) != expected_pane.session {
+        switch(control_dir, host, &snapshot.name, expected_pane.terminal)?;
+        let bound = load_binding(control_dir, host)?;
+        if SessionInstanceId::from_process(&bound.server_process) != expected_pane.session {
+            bail!("target incarnation changed during switch");
+        }
+    }
+    let result = activate(
+        control_dir,
+        host,
+        expected_pane.terminal,
+        Some(&snapshot.name),
+        Some(&is_current),
+    )?;
+    if result.status != ControlStatus::InnerFocusObserved {
+        bail!("agent activation unverified: {:?}", result.status);
+    }
+    let ack = if let Some(revision) = revision.filter(|revision| *revision > 0) {
+        Some(crate::agent_cli::acknowledge_visit_if_current(
+            crate::agent_cli::AckArgs {
+                instance: instance.0.clone(),
+                host: host.into(),
+                revision,
+            },
+            is_current,
+        )?)
+    } else {
+        None
+    };
+    Ok((result, ack))
+}
 
 /// Main router entrypoint for `Commands::Navigate(command)`.
 pub async fn execute(command: NavigationCommand) -> Result<()> {

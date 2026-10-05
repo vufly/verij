@@ -1,3 +1,5 @@
+pub mod agent_view;
+mod persistence;
 /// verij-cli/src/tui/mod.rs
 ///
 /// The Ratatui event loop for `verij ui`.
@@ -11,6 +13,9 @@
 pub mod render;
 pub mod state;
 pub mod tree_format;
+pub mod tree_model;
+mod visits;
+mod workspace;
 
 use anyhow::{Context, Result};
 use crossterm::{
@@ -21,7 +26,10 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{backend::{Backend, CrosstermBackend}, Terminal};
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    Terminal,
+};
 use std::io;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -69,19 +77,55 @@ pub async fn run(config: Config) -> Result<()> {
 // Event loop
 // ---------------------------------------------------------------------------
 
-async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut state: AppState) -> Result<()> {
+async fn event_loop(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    mut state: AppState,
+) -> Result<()> {
+    let host_key = std::env::var("VERIJ_HOST_MARKER_KEY")
+        .ok()
+        .filter(|key| verij_types::identity::valid_record_key(key));
+    let mut acknowledgements = host_key
+        .as_deref()
+        .and_then(|host| visits::read_acknowledgements(host).ok())
+        .unwrap_or_default();
+    let mut focus = None;
+    let mut presentation_cache = agent_view::PresentationCache::default();
+    let mut last_model_refresh = Instant::now();
+    let mut focus_monitor = host_key.clone().map(visits::Monitor::start);
+    let saved = host_key
+        .as_deref()
+        .and_then(|host| persistence::load(host).ok())
+        .flatten();
+    if let Some(saved) = saved.as_ref() {
+        persistence::restore_folds(&mut state, saved);
+    }
+    let mut saved_selection_restored = false;
+    let mut topology_ready = false;
+    let mut records_ready = false;
+    let mut ready_reported = false;
+    let mut last_persisted = saved.clone();
+    let mut last_focus_poll = Instant::now() - Duration::from_secs(2);
+    let mut workspace_presentation = workspace::Presentation::start();
+    let mut recovered_workspace_title = None;
     let (tx, mut rx) = mpsc::channel(16);
-    let (agent_tx,mut agent_rx)=mpsc::channel(16);
-    if let Err(error)=crate::agent_watcher::spawn(agent_tx) { state.error=Some(format!("Agent watcher: {error}")); }
+    let (agent_tx, mut agent_rx) = mpsc::channel(16);
+    let agent_watcher = match crate::agent_watcher::spawn(agent_tx) {
+        Ok(handle) => Some(handle),
+        Err(error) => {
+            state.error = Some(format!("Agent watcher: {error}"));
+            None
+        }
+    };
     state.plugin_path = crate::layout::resolve_plugin_path(None).ok();
 
     // Spawn filesystem watcher background task targeting /tmp/verij/states/
-    match fs_watcher::spawn_fs_watcher(tx) {
-        Ok(_handle) => {}
+    let topology_watcher = match fs_watcher::spawn_fs_watcher(tx) {
+        Ok(handle) => Some(handle),
         Err(e) => {
             state.error = Some(format!("FS watcher error: {e}"));
+            None
         }
-    }
+    };
 
     restore_last_workspace_session(&mut state);
     state.activation = Some(crate::activation::Queue::start());
@@ -93,39 +137,91 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut s
 
     loop {
         let mut needs_render = false;
-        while let Ok(records)=agent_rx.try_recv() {
-            state.agents=records;
-            needs_render=true;
+        let mut model_changed = false;
+        if let Some(update) = workspace_presentation.take_update() {
+            if let Some(error) = update.error {
+                state.error = Some(error);
+            }
+            if let Some(title) = update.title {
+                recovered_workspace_title = Some(title.clone());
+                state.workspace_pane_name = Some(title);
+            }
+            needs_render = true;
         }
-        let mut finished=Vec::new();
-        if let Some(queue)=state.activation.as_mut() {
-            while let Ok(result)=queue.receiver.try_recv() {
-                if queue.is_current(result.request.ticket) { queue.pending=false; finished.push(result); }
+        for _ in 0..16 {
+            let Ok(records) = agent_rx.try_recv() else {
+                break;
+            };
+            state.agents = records;
+            records_ready = true;
+            model_changed = true;
+            needs_render = true;
+        }
+        if let Some(monitor) = focus_monitor.as_mut() {
+            if let Some(update) = monitor.take_update() {
+                focus = update.focus;
+                state.apply_focus(focus.clone());
+                if let Some(acks) = update.acknowledgements {
+                    merge_acknowledgements(&mut acknowledgements, acks);
+                }
+                if let Some(error) = update.error {
+                    state.error = Some(error);
+                }
+                model_changed = true;
+                needs_render = true;
+            }
+        }
+        let mut finished = Vec::new();
+        if let Some(queue) = state.activation.as_mut() {
+            while let Ok(result) = queue.receiver.try_recv() {
+                if queue.is_current(result.request.ticket) {
+                    queue.pending = false;
+                    finished.push(result);
+                }
             }
         }
         for completion in finished {
             match completion.result {
-                Ok(()) => {
-                    state.active_session=Some(completion.request.session);
-                    if completion.request.title.is_some() { state.workspace_pane_name=completion.request.title; }
-                    state.error=None;
+                Ok(crate::activation::Outcome::Legacy) => {
+                    state.active_session = Some(completion.request.session);
+                    if completion.request.title.is_some() {
+                        state.workspace_pane_name = completion.request.title;
+                    }
+                    state.error = None;
                 }
-                Err(error) => state.error=Some(error),
+                Ok(crate::activation::Outcome::Agent {
+                    session,
+                    pane,
+                    ack,
+                    instance,
+                }) => {
+                    focus = Some(pane);
+                    if let Some(ack) = ack {
+                        merge_acknowledgements(&mut acknowledgements, [(instance.0, ack)]);
+                    }
+                    state.active_session = Some(session.clone());
+                    let _ = actions::set_workspace_session(&session);
+                    model_changed = true;
+                    state.error = None;
+                }
+                Err(error) => state.error = Some(error),
             }
-            state.rebuild_nodes(); state.sync_list_state(); needs_render=true;
+            state.rebuild_nodes();
+            state.sync_list_state();
+            needs_render = true;
         }
 
         // Poll for terminal events (100 ms timeout for animation & responsiveness)
         if event::poll(Duration::from_millis(100)).context("Failed to poll terminal events")? {
             match event::read().context("Failed to read terminal event")? {
                 CEvent::Key(key) => {
-                    if handle_key(&mut state, key)? {
+                    if handle_key(&mut state, key, focus_monitor.as_mut())? {
                         break;
                     }
                     needs_render = true;
                 }
                 CEvent::Mouse(mouse) => {
-                    handle_mouse(&mut state, mouse, &mut last_click)?;
+                    handle_mouse(&mut state, mouse, &mut last_click, focus_monitor.as_mut())?;
                     needs_render = true;
                 }
                 CEvent::Resize(_cols, _rows) => {
@@ -139,17 +235,18 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut s
         }
 
         // Drain pending session updates from the filesystem watcher
-        loop {
+        for _ in 0..16 {
             match rx.try_recv() {
                 Ok(snapshot) => {
-                    state.error = None;
-
                     state.reconcile(snapshot);
+                    topology_ready = true;
+                    model_changed = true;
 
                     // Restore or clear Workspace attachment from host-pane marker.
                     let marked_session = actions::workspace_session();
                     let recovered_title = if marked_session.is_none() {
-                        actions::workspace_pane_title().ok().flatten()
+                        workspace_presentation.request(None);
+                        recovered_workspace_title.clone()
                     } else {
                         None
                     };
@@ -158,13 +255,19 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut s
                             state
                                 .sessions
                                 .iter()
-                                .find(|session| state.format_workspace_pane_name(&session.name) == title)
+                                .find(|session| {
+                                    state.format_workspace_pane_name(&session.name) == title
+                                })
                                 .map(|session| session.name.clone())
                         })
                     });
                     if state.active_session.is_none() {
                         if let Some(session_name) = attached_session.as_deref() {
-                            if state.sessions.iter().any(|session| session.name == session_name) {
+                            if state
+                                .sessions
+                                .iter()
+                                .any(|session| session.name == session_name)
+                            {
                                 state.active_session = Some(session_name.to_string());
                                 if marked_session.is_none() {
                                     let _ = actions::set_workspace_session(session_name);
@@ -173,26 +276,19 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut s
                             }
                         }
                     } else if attached_session.as_deref() != state.active_session.as_deref()
-                        && !state.activation.as_ref().is_some_and(|queue|queue.pending) {
+                        && !state.activation.as_ref().is_some_and(|queue| queue.pending)
+                    {
                         state.active_session = None;
                         let _ = actions::clear_workspace_session();
                         let default_name = state.config.workspace.pane_default.clone();
-                        if let Err(e) = actions::rename_workspace_pane(&default_name) {
-                            state.error = Some(e.to_string());
-                        } else {
-                            state.workspace_pane_name = Some(default_name);
-                        }
+                        workspace_presentation.request(Some(default_name));
                         state.rebuild_nodes();
                     }
 
                     if let Some(active) = state.active_session.clone() {
                         let desired_name = state.format_workspace_pane_name(&active);
                         if state.workspace_pane_name.as_deref() != Some(&desired_name) {
-                            if let Err(e) = actions::rename_workspace_pane(&desired_name) {
-                                state.error = Some(e.to_string());
-                            } else {
-                                state.workspace_pane_name = Some(desired_name);
-                            }
+                            workspace_presentation.request(Some(desired_name));
                         }
                     }
                     needs_render = true;
@@ -206,18 +302,119 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut s
             }
         }
 
+        if model_changed || last_model_refresh.elapsed() >= Duration::from_secs(1) {
+            let views = presentation_cache.refresh(
+                &state.sessions,
+                &state.agents,
+                &acknowledgements,
+                &state.config.agents,
+                focus.as_ref(),
+            );
+            state.set_agent_views(views);
+            last_model_refresh = Instant::now();
+            needs_render = true;
+        }
+        if topology_ready && records_ready && !saved_selection_restored {
+            if let Some(saved) = saved.as_ref() {
+                persistence::restore_selection(&mut state, saved);
+            }
+            saved_selection_restored = true;
+            needs_render = true;
+        }
+        if last_focus_poll.elapsed() >= Duration::from_secs(1)
+            && !state.agent_views.is_empty()
+            && !state.activation.as_ref().is_some_and(|queue| queue.pending)
+        {
+            if let Some(monitor) = focus_monitor.as_mut() {
+                let candidates = state
+                    .agent_views
+                    .iter()
+                    .filter(|view| {
+                        view.navigable && view.status == verij_types::agent::AgentStatus::Done
+                    })
+                    .map(|view| {
+                        (
+                            view.instance.clone(),
+                            view.pane.clone(),
+                            view.completion_revision,
+                        )
+                    })
+                    .collect();
+                if monitor.request(candidates) {
+                    last_focus_poll = Instant::now();
+                }
+            }
+        }
+
         // Tick counter for animations (e.g. connecting spinner)
         state.tick = state.tick.wrapping_add(1);
-        if state.nodes.is_empty() {
+        if state.nodes.is_empty() || state.nodes.iter().any(|node|node.summary().working>0
+            || matches!(node,state::TreeNode::AgentPane {view,..} if view.status==verij_types::agent::AgentStatus::Working)) {
             needs_render = true;
         }
 
         if needs_render {
             terminal.draw(|frame| render::render(frame, &mut state))?;
+            if !ready_reported
+                && topology_ready
+                && records_ready
+                && saved_selection_restored
+                && !state.nodes.is_empty()
+            {
+                // Opt-in private harness readiness: emitted only after this
+                // process rendered its hydrated/restored model. Contains no
+                // terminal text, conversation data or semantic assertions.
+                if let Some(path) = std::env::var_os("VERIJ_UI_READY_FILE")
+                    .map(std::path::PathBuf::from)
+                    .filter(|path| path.is_absolute())
+                {
+                    if let Ok(process) = crate::process::identity(std::process::id()) {
+                        let _ = crate::agent_store::atomic_write_json(&path, &process);
+                    }
+                }
+                ready_reported = true;
+            }
+        }
+        if saved_selection_restored && !state.nodes.is_empty() {
+            if let Some(host) = host_key.as_deref() {
+                let current = persistence::capture(&state);
+                if last_persisted.as_ref() != Some(&current) {
+                    if let Err(error) = persistence::save(host, &current) {
+                        state.error = Some(format!("Tree state: {error}"));
+                    } else {
+                        last_persisted = Some(current);
+                    }
+                }
+            }
         }
     }
 
+    drop(rx);
+    drop(agent_rx);
+    if let Some(watcher) = topology_watcher {
+        watcher.stop();
+    }
+    if let Some(watcher) = agent_watcher {
+        watcher.stop();
+    }
     Ok(())
+}
+
+/// Poll results can race with a newer activation receipt. Host acknowledgements
+/// only advance; a delayed snapshot must not resurrect an already-read turn.
+fn merge_acknowledgements(
+    current: &mut std::collections::BTreeMap<String, verij_types::agent::InstanceAck>,
+    incoming: impl IntoIterator<Item = (String, verij_types::agent::InstanceAck)>,
+) {
+    for (instance, ack) in incoming {
+        let replace = current.get(&instance).map_or(true, |existing| {
+            (ack.acknowledged_revision, ack.acknowledged_at_ms)
+                > (existing.acknowledged_revision, existing.acknowledged_at_ms)
+        });
+        if replace {
+            current.insert(instance, ack);
+        }
+    }
 }
 
 /// Reconnects the host Workspace pane to its durable last inner session.
@@ -259,21 +456,13 @@ fn restore_last_workspace_session(state: &mut AppState) {
         .config
         .workspace
         .format_pane_name(&last_session, None, None);
-    if let Err(error) = actions::switch_session(
-        None,
-        &last_session,
-        None,
-        Some(&pane_name),
-    ) {
+    if let Err(error) = actions::switch_session(None, &last_session, None, Some(&pane_name)) {
         state.error = Some(format!("Failed to restore '{last_session}': {error}"));
     }
 }
 
 fn title_matches_session(title: &str, session: &str) -> bool {
-    title == session
-        || title
-            .split(" | ")
-            .any(|part| part.trim() == session)
+    title == session || title.split(" | ").any(|part| part.trim() == session)
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +470,11 @@ fn title_matches_session(title: &str, session: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Process keyboard events. Returns `true` if TUI should quit.
-fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
+fn handle_key(
+    state: &mut AppState,
+    key: KeyEvent,
+    monitor: Option<&mut visits::Monitor>,
+) -> Result<bool> {
     if state.input_mode != InputMode::Normal {
         match key.code {
             KeyCode::Esc => {
@@ -371,7 +564,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
 
         // Action: The Inception Switch
         KeyCode::Enter => {
-            dispatch_action(state)?;
+            dispatch_action(state, monitor)?;
         }
 
         _ => {}
@@ -385,6 +578,7 @@ fn handle_mouse(
     state: &mut AppState,
     mouse: MouseEvent,
     last_click: &mut Option<(Instant, usize)>,
+    monitor: Option<&mut visits::Monitor>,
 ) -> Result<()> {
     match mouse.kind {
         MouseEventKind::ScrollDown => {
@@ -400,7 +594,9 @@ fn handle_mouse(
             let target_index = offset + visual_index;
 
             if target_index < state.nodes.len() {
-                let clicked_caret = state.fold_hitboxes.get(target_index)
+                let clicked_caret = state
+                    .fold_hitboxes
+                    .get(target_index)
                     .and_then(|range| range.as_ref())
                     .is_some_and(|range| range.contains(&mouse.column));
                 state.select_index(target_index);
@@ -412,7 +608,7 @@ fn handle_mouse(
                 }
 
                 if state.config.tui.single_click_action {
-                    dispatch_action(state)?;
+                    dispatch_action(state, monitor)?;
                     *last_click = None;
                     return Ok(());
                 }
@@ -423,7 +619,7 @@ fn handle_mouse(
                     if prev_idx == target_index
                         && now.duration_since(prev_time) < Duration::from_millis(400)
                     {
-                        dispatch_action(state)?;
+                        dispatch_action(state, monitor)?;
                         *last_click = None;
                         return Ok(());
                     }
@@ -443,10 +639,46 @@ fn handle_mouse(
 // ---------------------------------------------------------------------------
 
 /// Translate the currently selected `TreeNode` into session/tab switch action.
-fn dispatch_action(state: &mut AppState) -> Result<()> {
-    let Some(node) = state.selected_node() else {
+fn dispatch_action(state: &mut AppState, monitor: Option<&mut visits::Monitor>) -> Result<()> {
+    let Some(node) = state.selected_node().cloned() else {
         return Ok(());
     };
+    // New navigation intent invalidates older passive visit work before either
+    // queue can dispatch a follow-up or publish a stale focus/ack snapshot.
+    if let Some(monitor) = monitor {
+        monitor.invalidate();
+    }
+    if let state::TreeNode::AgentPane {
+        view, session_name, ..
+    } = &node
+    {
+        if !view.navigable {
+            state.error =
+                Some("Agent ownership is unavailable; no activation or acknowledgement".into());
+            return Ok(());
+        }
+        let Some(host) = std::env::var("VERIJ_HOST_MARKER_KEY")
+            .ok()
+            .filter(|key| verij_types::identity::valid_record_key(key))
+        else {
+            state.error = Some("Agent navigation requires a registered host binding".into());
+            return Ok(());
+        };
+        let target = crate::activation::AgentTarget {
+            host,
+            instance: view.instance.clone(),
+            pane: view.pane.clone(),
+            revision: (view.status == verij_types::agent::AgentStatus::Done)
+                .then_some(view.completion_revision),
+        };
+        let queue = state
+            .activation
+            .get_or_insert_with(crate::activation::Queue::start);
+        if let Err(error) = queue.enqueue_agent(session_name.clone(), target) {
+            state.error = Some(error.to_string());
+        }
+        return Ok(());
+    }
 
     let target_session = node.session_name().to_string();
     let tab_position = node.tab_position();
@@ -461,9 +693,16 @@ fn dispatch_action(state: &mut AppState) -> Result<()> {
         None
     };
 
-    let queue=state.activation.get_or_insert_with(crate::activation::Queue::start);
-    if let Err(error)=queue.enqueue(old_active,target_session,tab_position,workspace_pane_name) {
-        state.error=Some(error.to_string());
+    let queue = state
+        .activation
+        .get_or_insert_with(crate::activation::Queue::start);
+    if let Err(error) = queue.enqueue(
+        old_active,
+        target_session,
+        tab_position,
+        workspace_pane_name,
+    ) {
+        state.error = Some(error.to_string());
     }
 
     Ok(())
@@ -476,19 +715,56 @@ mod tests {
     use verij_types::SessionSnapshot;
 
     #[test]
+    fn delayed_monitor_snapshot_cannot_regress_activation_acknowledgement() {
+        use verij_types::agent::InstanceAck;
+        let ack = |revision, time| InstanceAck {
+            acknowledged_revision: revision,
+            acknowledged_at_ms: time,
+            turn_id: None,
+            request_id: format!("request-{revision}"),
+        };
+        let mut current = std::collections::BTreeMap::from([("agent-a".into(), ack(2, 20))]);
+        merge_acknowledgements(
+            &mut current,
+            [
+                ("agent-a".into(), ack(1, 30)),
+                ("agent-b".into(), ack(1, 10)),
+            ],
+        );
+        assert_eq!(current["agent-a"].acknowledged_revision, 2);
+        assert_eq!(current["agent-b"].acknowledged_revision, 1);
+        merge_acknowledgements(&mut current, []);
+        assert_eq!(current.len(), 2);
+        merge_acknowledgements(&mut current, [("agent-a".into(), ack(3, 40))]);
+        assert_eq!(current["agent-a"].acknowledged_revision, 3);
+    }
+
+    #[test]
     fn mouse_fold_uses_scrolled_row_and_rendered_marker_columns() {
         let mut state = AppState::default();
-        state.reconcile(["first", "second"].into_iter().map(|name| SessionSnapshot {
-            name: name.into(), is_current: false, tabs: vec![], active_pane: None,
-            connected_clients: None, needs_resurrection: false, inventory: None,
-        }).collect());
+        state.reconcile(
+            ["first", "second"]
+                .into_iter()
+                .map(|name| SessionSnapshot {
+                    name: name.into(),
+                    is_current: false,
+                    tabs: vec![],
+                    active_pane: None,
+                    connected_clients: None,
+                    needs_resurrection: false,
+                    inventory: None,
+                })
+                .collect(),
+        );
         state.list_state = ListState::default().with_offset(1);
         state.fold_hitboxes = vec![Some(0..2), Some(4..7)];
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: 5, row: 0, modifiers: KeyModifiers::empty(),
+            column: 5,
+            row: 0,
+            modifiers: KeyModifiers::empty(),
         };
-        handle_mouse(&mut state, click, &mut None).unwrap();
+        handle_mouse(&mut state, click, &mut None, None).unwrap();
         assert!(state.collapsed.contains("second"));
         assert!(!state.collapsed.contains("first"));
     }

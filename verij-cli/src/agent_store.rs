@@ -548,7 +548,21 @@ pub fn inspect(instance_id: &AgentInstanceId) -> Result<(AgentIdentity, AgentSta
 /// Proof age must be fresh (<= 2 seconds), future-bounded, with valid request ID and live process.
 /// Never decreases acknowledgement revision and never consumes newer completions.
 /// Fails closed on corrupt host ack store.
+#[cfg(test)]
 pub fn acknowledge(proof: &VisitProof) -> Result<InstanceAck> {
+    acknowledge_if_current(proof, || true)
+}
+
+/// Recheck local intent after acquiring persistence locks and immediately
+/// before publication. A superseded worker must not acknowledge after waiting
+/// behind another reporter or host writer.
+pub fn acknowledge_if_current(
+    proof: &VisitProof,
+    is_current: impl Fn() -> bool,
+) -> Result<InstanceAck> {
+    if !is_current() {
+        bail!("visit superseded locally before persistence");
+    }
     if !proof.whole_host_focused {
         bail!("refusing unverified visit proof: whole_host_focused is false");
     }
@@ -655,7 +669,16 @@ pub fn acknowledge(proof: &VisitProof) -> Result<InstanceAck> {
 
     // Host-local persistence under host lock
     let hosts_dir = resolve_hosts_dir()?;
+    if !is_current() {
+        bail!("visit superseded locally before host persistence lock");
+    }
     let _host_lock = HostLock::acquire(&hosts_dir, &proof.host_key.0)?;
+    if !is_current() {
+        bail!("visit superseded locally while waiting for persistence");
+    }
+    if now_ms().saturating_sub(proof.verified_at_ms) > 2000 {
+        bail!("visit proof expired while waiting for persistence");
+    }
     let host_file = hosts_dir.join(format!("{}.json", proof.host_key.0));
 
     // Corrupt host ack store must FAIL CLOSED, never silently reset
@@ -709,6 +732,9 @@ pub fn acknowledge(proof: &VisitProof) -> Result<InstanceAck> {
         .insert(proof.agent_instance_id.0.clone(), ack.clone());
     host_store.updated_at_ms = now;
 
+    if !is_current() {
+        bail!("visit superseded locally before publication");
+    }
     atomic_write_json(&host_file, &host_store)?;
 
     Ok(ack)
@@ -1058,6 +1084,34 @@ mod tests {
         };
         let ack = acknowledge(&valid_proof).unwrap();
         assert_eq!(ack.acknowledged_revision, 1);
+
+        // An obsolete visit waiting for the host lock must not publish an ack
+        // after the new intent wins, even though its native proof was valid.
+        let guarded_proof = VisitProof {
+            host_key: HostKey("host-beta".into()),
+            ..valid_proof.clone()
+        };
+        let hosts_dir = resolve_hosts_dir().unwrap();
+        let lock = HostLock::acquire(&hosts_dir, "host-beta").unwrap();
+        let current = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let worker_current = current.clone();
+        let (entered, waiting) = std::sync::mpsc::channel();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let worker = std::thread::spawn(move || {
+            acknowledge_if_current(&guarded_proof, || {
+                if calls.fetch_add(1, std::sync::atomic::Ordering::AcqRel) == 1 {
+                    let _ = entered.send(());
+                }
+                worker_current.load(std::sync::atomic::Ordering::Acquire)
+            })
+        });
+        waiting
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+        current.store(false, std::sync::atomic::Ordering::Release);
+        drop(lock);
+        assert!(worker.join().unwrap().is_err());
+        assert!(!hosts_dir.join("host-beta.json").exists());
 
         // For host-alpha, display status is now Idle
         assert_eq!(

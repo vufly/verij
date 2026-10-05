@@ -1,0 +1,13 @@
+{
+  "checkpoint": "H2",
+  "date": "2026-10-05",
+  "feedback": "approve H2. commit and push",
+  "approved": true,
+  "scope": "Three-level agent tree, host-local completion presentation, persistent tree state and confirmed-visit activation within documented stock limits; semantic fixtures are synthetic",
+  "review_root": "vj-h2-m3q16cxs",
+  "review_fixture_cleaned": true,
+  "commit_requested": true,
+  "push_requested": true,
+  "next_stage_authorized": null,
+  "live_agent_adapters_approved": false
+}

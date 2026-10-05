@@ -16,6 +16,7 @@ pub struct Control {
     session: Option<String>,
     pending: Option<(ControlRequest, u8)>,
     observer: bool,
+    trace: bool,
 }
 
 fn millis() -> u64 {
@@ -37,7 +38,7 @@ impl Control {
             .as_nanos()
             .to_string();
         subscribe(&[EventType::Timer, EventType::Key]);
-        set_timeout(0.2);
+        set_timeout(1.0);
         Self {
             context: PluginContext {
                 server_pid: ids.zellij_pid,
@@ -56,6 +57,9 @@ impl Control {
             pending: None,
             observer: configuration
                 .get("observer")
+                .is_some_and(|value| value == "true"),
+            trace: configuration
+                .get("trace_control")
                 .is_some_and(|value| value == "true"),
         }
     }
@@ -80,7 +84,16 @@ impl Control {
 
     fn observation(&self) -> FocusObservation {
         let focus = if self.ready {
-            get_focused_pane_info().ok().map(|(_, pane)| pane)
+            match get_focused_pane_info() {
+                Ok((_, pane)) => Some(pane),
+                Err(error) => {
+                    if self.trace {
+                        self.write(&format!("diagnostic-{}-{}-{}-{}",self.context.server_pid,self.context.plugin_id,self.context.client_id,self.context.epoch),
+                        &serde_json::json!({"context":self.context,"observed_at_ms":millis(),"operation":"get_focused_pane_info","error":error}));
+                    }
+                    None
+                }
+            }
         } else {
             None
         };
@@ -108,8 +121,16 @@ impl Control {
     }
 
     fn result(&self, request: ControlRequest, status: ControlStatus) {
+        self.result_with_observation(request, status, self.observation());
+    }
+
+    fn result_with_observation(
+        &self,
+        request: ControlRequest,
+        status: ControlStatus,
+        mut observation: FocusObservation,
+    ) {
         let name = format!("result-{}", request.request_id);
-        let mut observation = self.observation();
         if let ControlOperation::Locate { terminal } = &request.operation {
             observation.queried_terminal = Some(*terminal);
             observation.pane_pid = get_pane_pid(PaneId::Terminal(terminal.0))
@@ -179,6 +200,7 @@ impl Control {
                 }
             }
             Event::Timer(_) => {
+                let observation = self.observation();
                 if self.ready {
                     self.write(
                         &format!(
@@ -188,7 +210,7 @@ impl Control {
                             self.context.client_id,
                             self.context.epoch
                         ),
-                        &self.observation(),
+                        &observation,
                     );
                 }
                 if let Some((request, polls)) = self.pending.take() {
@@ -196,15 +218,26 @@ impl Control {
                         ControlOperation::Focus { terminal } => Some(terminal),
                         _ => None,
                     };
-                    if self.observation().terminal == target {
-                        self.result(request, ControlStatus::InnerFocusObserved);
+                    if observation.terminal == target {
+                        self.result_with_observation(
+                            request,
+                            ControlStatus::InnerFocusObserved,
+                            observation,
+                        );
                     } else if polls >= 25 {
-                        self.result(request, ControlStatus::Unavailable);
+                        self.result_with_observation(
+                            request,
+                            ControlStatus::Unavailable,
+                            observation,
+                        );
                     } else {
                         self.pending = Some((request, polls + 1));
                     }
                 }
-                set_timeout(0.2);
+                // Passive heartbeats do not need a 5Hz SDK query stream from
+                // every plugin/client instance. Pending focus still polls at
+                // 200ms, with one native focus observation reused for its reply.
+                set_timeout(if self.pending.is_some() { 0.2 } else { 1.0 });
             }
             _ => {}
         }

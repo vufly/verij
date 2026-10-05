@@ -1,16 +1,16 @@
 # Agent Monitoring Progress
 
-Status: **H0 and H1 approved; H1 checkpoint requested, H2 continuation authorized**. Last updated: **2026-10-05**.
+Status: **H0–H2 approved; H2 commit and push requested**. Last updated: **2026-10-05**.
 
 Source of truth for product behavior: [approved design](AGENT_MONITORING.md). Engineering sequence, gate deliverables, checkpoint guidelines and acceptance matrix: [implementation guide](AGENT_MONITORING_IMPLEMENTATION.md). This file records *actual* progress, not proposed behavior.
 
 ## Current position
 
 - Active durable workspace: `~/repos/workspaces/verij-agent-monitoring` (workflow `personal/verij/verij-agent-monitoring`). Work in `verij/` on branch `agent-monitoring`; sibling `zellij/` is now retained historical evidence only, and pinned OpenCode source is sibling `opencode-reference/`. Production targets installed stock Zellij. Exited-session fix `1f94cf2` was the migration baseline; master has progressed independently since then.
-- Monitoring feature code: **H1 foundation implemented**: shared identities/full terminal inventory, native normalized reporter/store/reducer, host-local acknowledgement and stock-capability pane navigation. Existing visible tree remains Session → Tab; H2 agent-row presentation and H3/H4 live adapters are pending. The patched bridge under [`prototypes/zellij-attach-bridge/`](../prototypes/zellij-attach-bridge/README.md) remains archived.
+- Monitoring feature code: **H1 foundation committed; H2 tree implemented and verified**. H2 adds stable Session → Tab → Agent rows, nested folds, host-local statuses/summaries, title policy, rendering and asynchronous activation/visits. The extended live fixture passes ten checks with corroborated evidence. H3/H4 live adapters remain pending. The patched bridge under [`prototypes/zellij-attach-bridge/`](../prototypes/zellij-attach-bridge/README.md) remains archived.
 - Latest tested versions: stock Zellij **0.45.1**, OpenCode **1.18.33**, Agy **1.2.14**. Earlier patched-Zellij fixtures retain their historical provenance. The read-only OpenCode reference remains pinned to **1.18.32**; earlier fixtures retain their dated versions. Version checks alone do not satisfy G1–G4.
-- Current checkpoint: **H1 approved**. The user replied **“approve. commit H1 then continue H2”** on 2026-10-05. Stock Zellij, shared-stack behavior and Agy limits remain accepted. H1 approval covers the documented topology/storage/navigation scope; synthetic semantic fixtures do not claim live adapters.
-- Next human stop: **H2 — tree and local completion**. Implementation is authorized after committing H1. H3–H5 remain pending. Magy inventory, store and navigation workers completed; main corrected reviewed gaps and validated the integrated code. Their baseline commit is not a hash of the concurrently changing source.
+- Current checkpoint: **H2 approved**. The user replied **“approve H2. commit and push”** on 2026-10-05. Stock Zellij, shared-stack behavior and Agy limits remain accepted. Approval covers the documented tree/local-completion scope; synthetic semantic fixtures do not claim live adapters.
+- Next checkpoint: **H3 — OpenCode adapter**. H1 was committed as `bd2cc4f`; H2 commit and push are requested. H3–H5 remain pending. Magy workers had disjoint file ownership; their baseline commit is not a hash of concurrently changing source.
 
 ## Phase and checkpoint ledger
 
@@ -22,12 +22,40 @@ Source of truth for product behavior: [approved design](AGENT_MONITORING.md). En
 | 1 | Shared types and pane inventory | Approved: native/WASM checks and live evidence | H1 approved 2026-10-05 |
 | 2 | Reporter, store, reducer and acknowledgement | Approved: synthetic semantics, real ownership/visit proof | H1 approved 2026-10-05 |
 | 3 | Stock-capability pane navigation | Approved within documented stock limits | H1 approved 2026-10-05 |
-| 4 | Three-level TUI | Authorized after H1 checkpoint | H2 pending |
+| 4 | Three-level TUI | Approved: native/WASM checks, 170 Rust tests, ten live checks | H2 approved 2026-10-05 |
 | 5 | OpenCode adapter | Pending | H3 pending |
 | 6–7 | Agy/Magy adapters; setup, doctor, documentation | Pending | H4 pending |
 | 8 | Automated and live acceptance | Pending | H5 pending |
 
 ## Gate evidence and blockers
+
+### H2 approval and review cleanup — 2026-10-05
+
+The user explicitly approved H2 and requested **“commit and push”**. Approval is recorded separately in [approval.json](../prototypes/h2-tree/approval.json); the original automated results remain unchanged. No additional per-scenario human observations are inferred. The reviewed private root **`vj-h2-m3q16cxs`** was cleaned through its manifest-qualified helper: private socket removed and known receivers, sidebars, attachment clients and servers exited. Former attach commands are no longer live. H3/H4 live adapters and later approvals remain pending.
+
+### H2 completed verification and human-review handoff — 2026-10-05
+
+Final checks pass without warnings: `cargo test --workspace` (**170 tests: 136 CLI unit, eight host integration, four plugin, 22 shared-type**), native/WASM `make check`, and release `make dev`. The [H2 results](../prototypes/h2-tree/results.json) pass all ten scoped live checks in **`vj-h2-sqlylf7p`**, cleaned. The evidence validator matches real process identities, native inner/outer query brackets, actual receiver-0 and receiver-1 keyboard tokens, staged host-local acknowledgements, restart births/readiness, and original UI frames. The H1 regression also passes eleven checks in cleaned **`vj-h1-elhs90js`**.
+
+Final integration fixes: Workspace metadata inspection/renaming is bounded and off-thread; watcher channels coalesce without blocking shutdown, cached discovery cannot prune new sessions, and continuous events do not starve refresh. UI acknowledgements merge monotonically. New navigation intents and sidebar exit invalidate passive visit work; the store rechecks local intent after persistence lock waits. Direct PaneUpdate/TabUpdate facts supersede session-list bootstrap projections, preventing a late aggregate from reintroducing a closed pane with a fresh export timestamp. Synthetic semantic reports do not bypass native process liveness. Passive plugin heartbeats poll at one second; pending focus retains 200ms polling with one reused native observation. Missing proof still preserves Done.
+
+The restart fixture now requires old-process exit, a new native birth, and an opt-in receipt emitted after that process renders its restored/hydrated model. Needs-input activation waits for a fresh outer focus receipt and actual receiver keyboard input before returning to the sidebar. Earlier stale-frame and premature-return checks were corrected rather than accepted as completed visits.
+
+**Reviewed instance:** passing root **`vj-h2-m3q16cxs`**, former private tmux socket **`/tmp/vj-h2-sock-l0e6l59h/terminal`**. Preparation added a new real Unknown receiver and advanced visibly synthetic turns so Done, Needs input, Working, Error and Unknown could be inspected together. Both screens and passive native queries were checked; the [review guide](../prototypes/h2-tree/README.md#reviewed-instance-cleaned) records controls, reseed and qualified cleanup commands. This instance and earlier preparation instances were cleaned. Subsequent H2 approval is recorded above.
+
+Default-model workers completed watcher, presentation/persistence and cancellation-race work. Sonnet 4.6 Thinking supplied a read-only diagnosis after the requested 5.5 model was rejected. Main rejected its missing-unblock claim because current code already initializes Control for every instance and unblocks both structured and legacy CLI paths; its SDK latency claims remain hypotheses. Main strengthened tests that originally did not exercise real verified ownership or host-local presentation. Final integrated commands above are authoritative.
+
+One worker reported reinstalling Rust 1.98.1; the selected toolchain then lacked `wasm32-wasip1`. Final builds use private `/tmp/opencode/verij-rustup` rather than changing the selected global toolchain further. Installed stock Zellij and the historical dependency worktree remain unchanged; the sibling worktree is clean.
+
+### H2 earlier integration investigation — 2026-10-05
+
+The [H2 fixture](../prototypes/h2-tree/README.md) exercises production CLI/plugin with real stock navigation and explicitly synthetic semantic reports. The tree model uses native session/pane identities and stable tab keys, restores folds and selection, joins foreground-owned agent instances, and retains bounded Unknown presentation during topology uncertainty. Configuration supports title-source policy and agent templates/styles. Activation and native visit monitoring run outside input/render; completion acknowledgements remain host-local and revision-qualified.
+
+The extended two-host fixture is **not yet PASS**. Original attempt21, `vj-h2-dfzi_ajm`, passed four checks (tree/status presentation, cursor/sidebar non-acknowledgement, Enter keyboard/host-local acknowledgement, leaf tab folding), then failed during host-b mouse activation with a named-pipe timeout. Earlier runs also exposed bootstrap and sidebar restart failures. No universal cause is claimed. Failed private actors were cleaned; original evidence remains in workspace artifacts.
+
+Watcher review identified unbounded subprocess queries, blocking publication and stale topology-cache pruning risks. Default-model workers are correcting watcher lifecycle/cache handling, testing presentation/persistence, and guarding in-flight visit/activation supersession. Main strengthened restart verification to require actual old/new sidebar process births and made UI acknowledgement merging monotonic. These changes still require final integrated verification.
+
+The user requested Sonnet planning and default-model Magy workers. `claude-sonnet-5-5-high` was rejected by the profile model registry, including a per-run Agy 1.2.16 selection; available Sonnet 4.6 Thinking is used for diagnosis. This tooling observation does not revise the separately recorded Agy runtime capability evidence. No H2 approval, commit, push or H3 implementation is inferred.
 
 ### H1 approval and H2 authorization — 2026-10-05
 

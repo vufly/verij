@@ -65,11 +65,6 @@ pub fn session_status(name: &str) -> Result<SessionStatus> {
     ))
 }
 
-/// Returns the status of every session known to Zellij in one command.
-pub fn session_statuses() -> Result<BTreeMap<String, SessionStatus>> {
-    checked_session_statuses()
-}
-
 /// Management commands must distinguish an empty inventory from a failed query.
 pub fn checked_session_statuses() -> Result<BTreeMap<String, SessionStatus>> {
     let output = Command::new("zellij")
@@ -89,7 +84,9 @@ pub fn checked_session_statuses() -> Result<BTreeMap<String, SessionStatus>> {
         bail!("'zellij list-sessions' failed: {}", stderr.trim());
     }
 
-    Ok(parse_session_statuses(&String::from_utf8_lossy(&output.stdout)))
+    Ok(parse_session_statuses(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
 }
 
 fn parse_session_statuses(output: &str) -> BTreeMap<String, SessionStatus> {
@@ -117,7 +114,9 @@ pub fn is_verij_host(name: &str) -> Result<bool> {
             return Ok(is_host);
         }
     }
-    let Some(layout) = resurrection_layout_path(name) else { return Ok(false); };
+    let Some(layout) = resurrection_layout_path(name) else {
+        return Ok(false);
+    };
     Ok(crate::registry::is_host_layout(&layout))
 }
 
@@ -138,14 +137,18 @@ fn live_host_panes(name: &str) -> Result<Option<bool>> {
         return Ok(None);
     }
     let panes: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)?;
-    Ok(Some(panes.iter().any(|pane| pane.get("pane_command")
-        .or_else(|| pane.get("terminal_command"))
-        .and_then(|v| v.as_str())
-        .is_some_and(|cmd| cmd.contains("verij ui")))))
+    Ok(Some(panes.iter().any(|pane| {
+        pane.get("pane_command")
+            .or_else(|| pane.get("terminal_command"))
+            .and_then(|v| v.as_str())
+            .is_some_and(|cmd| cmd.contains("verij ui"))
+    })))
 }
 
 pub fn rename_host(old: &str, new: &str) -> Result<()> {
-    if old == new { return Ok(()); }
+    if old == new {
+        return Ok(());
+    }
     crate::registry::validate_name(new)?;
     if !matches!(session_status(new)?, SessionStatus::Missing) {
         bail!("Zellij session '{new}' already exists");
@@ -153,7 +156,9 @@ pub fn rename_host(old: &str, new: &str) -> Result<()> {
     if crate::registry::marker_key(old)?.is_none() {
         bail!("Host '{old}' is not registered");
     }
-    if crate::registry::marker_key(new)?.is_some() || crate::config::load_hosts().hosts.contains_key(new) {
+    if crate::registry::marker_key(new)?.is_some()
+        || crate::config::load_hosts().hosts.contains_key(new)
+    {
         bail!("Host '{new}' already has registered state");
     }
     if !matches!(session_status(old)?, SessionStatus::Live) {
@@ -161,18 +166,25 @@ pub fn rename_host(old: &str, new: &str) -> Result<()> {
     }
     let status = Command::new("zellij")
         .args(["--session", old, "action", "rename-session", new])
-        .status().context("Failed to invoke Zellij rename-session")?;
-    if !status.success() { bail!("Zellij could not rename '{old}' to '{new}': {status}"); }
+        .status()
+        .context("Failed to invoke Zellij rename-session")?;
+    if !status.success() {
+        bail!("Zellij could not rename '{old}' to '{new}': {status}");
+    }
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
-        if matches!(session_status(new)?, SessionStatus::Live) { break; }
+        if matches!(session_status(new)?, SessionStatus::Live) {
+            break;
+        }
         std::thread::sleep(Duration::from_millis(50));
     }
     if !matches!(session_status(new)?, SessionStatus::Live) {
         bail!("Zellij did not report renamed host '{new}'");
     }
     if let Err(error) = crate::registry::rename(old, new) {
-        let _ = Command::new("zellij").args(["--session", new, "action", "rename-session", old]).status();
+        let _ = Command::new("zellij")
+            .args(["--session", new, "action", "rename-session", old])
+            .status();
         return Err(error);
     }
     std::env::set_var("ZELLIJ_SESSION_NAME", new);
@@ -232,7 +244,10 @@ pub fn start_host_session(
                 );
             }
 
-            eprintln!("Session '{}' already exists. Attaching to it...", session_name);
+            eprintln!(
+                "Session '{}' already exists. Attaching to it...",
+                session_name
+            );
             return attach_session(session_name, host_config_path);
         }
         SessionStatus::Missing => {}
@@ -244,11 +259,7 @@ pub fn start_host_session(
     exec_zellij(host_start_args(session_name, layout_path, host_config_path))
 }
 
-fn host_start_args(
-    session_name: &str,
-    layout_path: &Path,
-    host_config_path: &Path,
-) -> Vec<String> {
+fn host_start_args(session_name: &str, layout_path: &Path, host_config_path: &Path) -> Vec<String> {
     vec![
         "--config".to_string(),
         host_config_path.to_string_lossy().into_owned(),
@@ -285,7 +296,10 @@ pub fn resurrect_session(session_name: &str) -> Result<()> {
     resurrect_session_with_config(session_name, None)
 }
 
-fn resurrect_session_with_config(session_name: &str, host_config_path: Option<&Path>) -> Result<()> {
+fn resurrect_session_with_config(
+    session_name: &str,
+    host_config_path: Option<&Path>,
+) -> Result<()> {
     if !matches!(session_status(session_name)?, SessionStatus::Exited) {
         return Ok(());
     }
@@ -391,7 +405,10 @@ pub fn prepare_resurrection_layout(session_name: &str) -> Result<()> {
 }
 
 /// Rewrites a resurrected host's stale nested attach command to its durable target.
-pub fn prepare_host_workspace_layout(host_session: &str, target_session: Option<&str>) -> Result<()> {
+pub fn prepare_host_workspace_layout(
+    host_session: &str,
+    target_session: Option<&str>,
+) -> Result<()> {
     let Some(target_session) = target_session else {
         return Ok(());
     };
@@ -499,10 +516,7 @@ fn rewrite_host_workspace_attach(layout: &str, target_session: &str) -> String {
 }
 
 fn kdl_quote(value: &str) -> String {
-    format!(
-        "\"{}\"",
-        value.replace('\\', "\\\\").replace('"', "\\\"")
-    )
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 fn parse_session_status(output: &str, name: &str) -> SessionStatus {
@@ -524,20 +538,18 @@ fn parse_session_status(output: &str, name: &str) -> SessionStatus {
 #[cfg(test)]
 mod tests {
     use super::{
-        host_attach_args, host_start_args, parse_session_status, parse_session_statuses, resurrection_command,
-        terminal_tabs_have_tiled_plugin, SessionStatus,
+        host_attach_args, host_start_args, parse_session_status, parse_session_statuses,
+        resurrection_command, terminal_tabs_have_tiled_plugin, SessionStatus,
     };
     use serde_json::json;
     use std::path::Path;
 
     #[test]
     fn parses_live_exited_and_missing_sessions() {
-        let output = "backend [Created 1m ago]\nold [Created 2m ago] (EXITED - attach to resurrect)\n";
+        let output =
+            "backend [Created 1m ago]\nold [Created 2m ago] (EXITED - attach to resurrect)\n";
 
-        assert_eq!(
-            parse_session_status(output, "backend"),
-            SessionStatus::Live
-        );
+        assert_eq!(parse_session_status(output, "backend"), SessionStatus::Live);
         assert_eq!(parse_session_status(output, "old"), SessionStatus::Exited);
         assert_eq!(
             parse_session_status(output, "other"),
@@ -557,7 +569,9 @@ mod tests {
 
     #[test]
     fn inventory_includes_exited_sessions_and_exact_names() {
-        let statuses = parse_session_statuses("host [Created 1m ago]\nhost-old [Created 2m ago] (EXITED - attach to resurrect)\n");
+        let statuses = parse_session_statuses(
+            "host [Created 1m ago]\nhost-old [Created 2m ago] (EXITED - attach to resurrect)\n",
+        );
         assert_eq!(statuses.get("host"), Some(&SessionStatus::Live));
         assert_eq!(statuses.get("host-old"), Some(&SessionStatus::Exited));
         assert_eq!(statuses.get("missing"), None);
@@ -576,7 +590,8 @@ mod tests {
 
     #[test]
     fn rewrites_stale_host_workspace_attach() {
-        let layout = "layout {\n    pane command=\"zellij\" {\n        args \"attach\" \"old\"\n    }\n}\n";
+        let layout =
+            "layout {\n    pane command=\"zellij\" {\n        args \"attach\" \"old\"\n    }\n}\n";
 
         assert_eq!(
             super::rewrite_host_workspace_attach(layout, "new"),

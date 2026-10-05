@@ -30,10 +30,10 @@
 /// spinner      = 6   # Cyan
 /// current_mark = 2   # Green
 /// ```
-
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use verij_types::agent::AgentKind;
 
 // ---------------------------------------------------------------------------
 // Workspace default mode
@@ -95,12 +95,13 @@ fn default_true() -> bool {
     true
 }
 
-/// Tmux-like session and tab row formatting.
+/// Tmux-like session, tab, and agent row formatting.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct TreeConfig {
     pub session_format: String,
     pub tab_format: String,
+    pub agent_format: String,
     pub fold_collapsed: String,
     pub fold_expanded: String,
     pub branch_first: String,
@@ -108,6 +109,7 @@ pub struct TreeConfig {
     pub branch_last: String,
     pub session_styles: TreeRowStyles,
     pub tab_styles: TreeRowStyles,
+    pub agent_styles: TreeRowStyles,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -120,14 +122,16 @@ pub struct TreeRowStyles {
 }
 
 // These formats, rather than rendering branches, define the default appearance.
-pub const DEFAULT_SESSION_FORMAT: &str = "#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}";
-pub const DEFAULT_TAB_FORMAT: &str = "#{branch} #{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}";
+pub const DEFAULT_SESSION_FORMAT: &str = "#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}#{?has_agents,#{?agent_summary, #{agent_summary},},}";
+pub const DEFAULT_TAB_FORMAT: &str = "#{branch} #{?has_agents,#{fold_marker} ,}#{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}#{?has_agents,#{?agent_summary, #{agent_summary},},}";
+pub const DEFAULT_AGENT_FORMAT: &str = "#{tree_prefix}#{branch} #{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #{agent_name} #{agent_title}";
 
 impl Default for TreeConfig {
     fn default() -> Self {
         Self {
             session_format: DEFAULT_SESSION_FORMAT.into(),
             tab_format: DEFAULT_TAB_FORMAT.into(),
+            agent_format: DEFAULT_AGENT_FORMAT.into(),
             fold_collapsed: "▷".into(),
             fold_expanded: "▽".into(),
             branch_first: "├".into(),
@@ -143,6 +147,12 @@ impl Default for TreeConfig {
                 normal: "".into(),
                 selected: "fg=selected_fg,bg=selected_bg".into(),
                 active: "".into(),
+                both: "fg=selected_fg,bg=selected_bg".into(),
+            },
+            agent_styles: TreeRowStyles {
+                normal: "".into(),
+                selected: "fg=selected_fg,bg=selected_bg".into(),
+                active: "fg=active_fg,bg=active_bg".into(),
                 both: "fg=selected_fg,bg=selected_bg".into(),
             },
         }
@@ -213,10 +223,18 @@ pub struct ColorConfig {
     pub muted: u8,
     /// Error text (default: Red = 1).
     pub error: u8,
-    /// Connecting spinner (default: Cyan = 6).
+    /// Connecting spinner / working indicator (default: Cyan = 6).
     pub spinner: u8,
     /// "Current" marker — fold icon highlight, dialog border (default: Green = 2).
     pub current_mark: u8,
+    /// Needs input indicator (default: Amber = 3).
+    pub needs_input: u8,
+    /// Done indicator (default: Green = 2).
+    pub done: u8,
+    /// Idle indicator (default: Dark gray = 8).
+    pub idle: u8,
+    /// Unknown status indicator (default: Dark gray = 8).
+    pub unknown: u8,
 }
 
 impl Default for ColorConfig {
@@ -233,6 +251,10 @@ impl Default for ColorConfig {
             error: 1,
             spinner: 6,
             current_mark: 2,
+            needs_input: 3,
+            done: 2,
+            idle: 8,
+            unknown: 8,
         }
     }
 }
@@ -264,8 +286,7 @@ impl Default for WorkspaceConfig {
         Self {
             default_mode: WorkspaceMode::Descend,
             sidebar_width: "25%".to_string(),
-            pane_format: "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}"
-                .to_string(),
+            pane_format: "{session}{if tab} | {tab}{endif}{if pane} | {pane}{endif}".to_string(),
             pane_default: "Workspace".to_string(),
         }
     }
@@ -273,12 +294,7 @@ impl Default for WorkspaceConfig {
 
 impl WorkspaceConfig {
     /// Render the Workspace pane name using inner session, tab, and pane names.
-    pub fn format_pane_name(
-        &self,
-        session: &str,
-        tab: Option<&str>,
-        pane: Option<&str>,
-    ) -> String {
+    pub fn format_pane_name(&self, session: &str, tab: Option<&str>, pane: Option<&str>) -> String {
         let values = [
             ("session", Some(session)),
             ("tab", tab),
@@ -335,6 +351,126 @@ fn render_conditionals(template: &str, values: &[(&str, Option<&str>)]) -> Strin
 }
 
 // ---------------------------------------------------------------------------
+// Agents section
+// ---------------------------------------------------------------------------
+
+/// Title source policy and overrides for monitored coding agents.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct AgentsConfig {
+    pub title_sources: Vec<String>,
+    pub opencode: AgentOverride,
+    pub agy: AgentOverride,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct AgentOverride {
+    pub title_sources: Option<Vec<String>>,
+}
+
+impl Default for AgentsConfig {
+    fn default() -> Self {
+        Self {
+            title_sources: vec!["pane".into(), "conversation".into(), "agent".into()],
+            opencode: AgentOverride::default(),
+            agy: AgentOverride::default(),
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl AgentsConfig {
+    /// Resolves effective display title for an agent instance using configured source precedence.
+    pub fn title_for(&self, kind: AgentKind, pane: &str, conversation: &str) -> String {
+        let is_valid_source = |s: &str| matches!(s, "pane" | "conversation" | "agent");
+        let is_valid_list =
+            |list: &[String]| !list.is_empty() && list.iter().all(|s| is_valid_source(s));
+
+        let default_sources: Vec<String> =
+            vec!["pane".into(), "conversation".into(), "agent".into()];
+        let global_valid: &[String] = if is_valid_list(&self.title_sources) {
+            &self.title_sources
+        } else {
+            eprintln!(
+                "[verij] Invalid [agents].title_sources: {:?}; falling back to default",
+                self.title_sources
+            );
+            &default_sources
+        };
+
+        let override_opt = match kind {
+            AgentKind::Opencode => &self.opencode.title_sources,
+            AgentKind::Agy => &self.agy.title_sources,
+            AgentKind::Unknown => &None,
+        };
+
+        let effective_sources: &[String] = if let Some(sources) = override_opt {
+            if is_valid_list(sources) {
+                sources
+            } else {
+                eprintln!(
+                    "[verij] Invalid [agents.{}].title_sources: {:?}; falling back to inherited",
+                    kind, sources
+                );
+                global_valid
+            }
+        } else {
+            global_valid
+        };
+
+        for src in effective_sources {
+            match src.as_str() {
+                "pane" => {
+                    let s = sanitize_text(pane);
+                    if !s.is_empty() {
+                        return s;
+                    }
+                }
+                "conversation" => {
+                    let s = sanitize_text(conversation);
+                    if !s.is_empty() {
+                        return s;
+                    }
+                }
+                "agent" => {
+                    let s = agent_display_name(kind);
+                    if !s.is_empty() {
+                        return s;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        agent_display_name(kind)
+    }
+}
+
+#[allow(dead_code)]
+fn agent_display_name(kind: AgentKind) -> String {
+    match kind {
+        AgentKind::Opencode => "opencode".to_string(),
+        AgentKind::Agy => "agy".to_string(),
+        AgentKind::Unknown => "agent".to_string(),
+    }
+}
+
+#[allow(dead_code)]
+fn sanitize_text(s: &str) -> String {
+    let sanitized: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let trimmed = sanitized.trim();
+    if trimmed.chars().count() > 256 {
+        trimmed.chars().take(256).collect()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Top-level config
 // ---------------------------------------------------------------------------
 
@@ -345,6 +481,7 @@ pub struct Config {
     pub tui: TuiConfig,
     pub zellij: ZellijConfig,
     pub colors: ColorConfig,
+    pub agents: AgentsConfig,
 }
 
 /// Durable attachment state keyed by canonical host-session name.
@@ -387,7 +524,6 @@ impl Config {
             }
         }
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -463,7 +599,10 @@ fn state_file_path(name: &str) -> Option<PathBuf> {
     }
 }
 
-fn migrate_legacy_state_file(legacy: &std::path::Path, destination: &std::path::Path) -> anyhow::Result<()> {
+fn migrate_legacy_state_file(
+    legacy: &std::path::Path,
+    destination: &std::path::Path,
+) -> anyhow::Result<()> {
     let content = std::fs::read_to_string(legacy)?;
     toml::from_str::<toml::Value>(&content)
         .map_err(|error| anyhow::anyhow!("legacy TOML is invalid: {error}"))?;
@@ -550,7 +689,6 @@ pub fn rename_host_attachment(old: &str, new: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-
 pub(crate) fn write_hosts(path: &std::path::Path, hosts: &HostsConfig) -> anyhow::Result<()> {
     let parent = path
         .parent()
@@ -617,9 +755,20 @@ single_click_action = true
 
 # Tree formats use #{variable}, #{?flag,then,else}, and #[fg=color,bg=color,bold].
 # Colors can reference keys in [colors]. See README for available variables.
+[agents]
+# Precedence order for agent row display titles: "pane" | "conversation" | "agent"
+title_sources = ["pane", "conversation", "agent"]
+
+# Optional per-agent overrides
+# [agents.opencode]
+# title_sources = ["conversation", "pane", "agent"]
+# [agents.agy]
+# title_sources = ["pane", "conversation", "agent"]
+
 [tui.tree]
-session_format = '#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}'
-tab_format = '#{branch} #{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}'
+session_format = '#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}#{?has_agents,#{?agent_summary, #{agent_summary},},}'
+tab_format = '#{branch} #{?has_agents,#{fold_marker} ,}#{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}#{?has_agents,#{?agent_summary, #{agent_summary},},}'
+agent_format = '#{tree_prefix}#{branch} #{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #{agent_name} #{agent_title}'
 fold_collapsed = "▷"
 fold_expanded = "▽"
 branch_first = "├" # first of multiple tabs; a single tab uses branch_last
@@ -638,6 +787,12 @@ selected = "fg=selected_fg,bg=selected_bg"
 active = ""
 both = "fg=selected_fg,bg=selected_bg"
 
+[tui.tree.agent_styles]
+normal = ""
+selected = "fg=selected_fg,bg=selected_bg"
+active = "fg=active_fg,bg=active_bg"
+both = "fg=selected_fg,bg=selected_bg"
+
 [zellij]
 # Zellij options patched into generated configuration for Verij hosts.
 pane_frame_style = "titles"
@@ -654,8 +809,12 @@ selected_bg  = 15   # Bright white — cursor row background
 selected_fg  = 8    # Dark gray — cursor row foreground
 muted        = 8    # Dark gray — secondary text
 error        = 1    # Red — error message
-spinner      = 6    # Cyan — connecting spinner
+spinner      = 6    # Cyan — connecting spinner / working indicator
 current_mark = 2    # Green — fold icon / dialog border
+needs_input  = 3    # Amber — needs input indicator
+done         = 2    # Green — done indicator
+idle         = 8    # Dark gray — idle indicator
+unknown      = 8    # Dark gray — unknown status indicator
 "#;
 
 // ---------------------------------------------------------------------------
@@ -675,6 +834,10 @@ mod tests {
         assert_eq!(cfg.colors.active_fg, 255);
         assert_eq!(cfg.colors.selected_bg, 15);
         assert_eq!(cfg.colors.selected_fg, 8);
+        assert_eq!(cfg.colors.needs_input, 3);
+        assert_eq!(cfg.colors.done, 2);
+        assert_eq!(cfg.colors.idle, 8);
+        assert_eq!(cfg.colors.unknown, 8);
         assert!(cfg.tui.single_click_action);
         assert_eq!(cfg.tui.tree.branch_first, "├");
         assert_eq!(
@@ -685,21 +848,115 @@ mod tests {
             cfg.zellij.host_options()["focus_follows_mouse"],
             ZellijOption::Boolean(true)
         );
+        assert_eq!(
+            cfg.agents.title_sources,
+            vec!["pane", "conversation", "agent"]
+        );
     }
 
     #[test]
     fn starter_tree_config_matches_defaults() {
         let starter: Config = toml::from_str(DEFAULT_CONFIG_TOML).unwrap();
         let defaults = Config::default();
-        assert_eq!(starter.tui.tree.session_format, defaults.tui.tree.session_format);
+        assert_eq!(
+            starter.tui.tree.session_format,
+            defaults.tui.tree.session_format
+        );
         assert_eq!(starter.tui.tree.tab_format, defaults.tui.tree.tab_format);
-        assert_eq!(starter.tui.tree.branch_first, defaults.tui.tree.branch_first);
-        assert_eq!(starter.tui.tree.tab_styles.active, defaults.tui.tree.tab_styles.active);
-        assert_eq!(starter.tui.tree.tab_styles.both, defaults.tui.tree.tab_styles.both);
+        assert_eq!(
+            starter.tui.tree.agent_format,
+            defaults.tui.tree.agent_format
+        );
+        assert_eq!(
+            starter.tui.tree.branch_first,
+            defaults.tui.tree.branch_first
+        );
+        assert_eq!(
+            starter.tui.tree.tab_styles.active,
+            defaults.tui.tree.tab_styles.active
+        );
+        assert_eq!(
+            starter.tui.tree.tab_styles.both,
+            defaults.tui.tree.tab_styles.both
+        );
+        assert_eq!(
+            starter.tui.tree.agent_styles.active,
+            defaults.tui.tree.agent_styles.active
+        );
+        assert_eq!(
+            starter.tui.tree.agent_styles.both,
+            defaults.tui.tree.agent_styles.both
+        );
+        assert_eq!(starter.agents.title_sources, defaults.agents.title_sources);
+        assert_eq!(starter.colors.needs_input, defaults.colors.needs_input);
+        assert_eq!(starter.colors.done, defaults.colors.done);
+        assert_eq!(starter.colors.idle, defaults.colors.idle);
+        assert_eq!(starter.colors.unknown, defaults.colors.unknown);
 
         let partial: Config = toml::from_str("[tui.tree]\nbranch_first = '╞'\n").unwrap();
         assert_eq!(partial.tui.tree.branch_first, "╞");
         assert_eq!(partial.tui.tree.branch_middle, "├");
+    }
+
+    #[test]
+    fn agents_config_title_resolution_and_validation() {
+        let cfg = AgentsConfig::default();
+        assert_eq!(
+            cfg.title_for(AgentKind::Opencode, "my-pane", "conv-title"),
+            "my-pane"
+        );
+        assert_eq!(
+            cfg.title_for(AgentKind::Opencode, "", "conv-title"),
+            "conv-title"
+        );
+        assert_eq!(cfg.title_for(AgentKind::Opencode, "   ", "   "), "opencode");
+
+        // Per-agent override
+        let mut custom = AgentsConfig::default();
+        custom.opencode.title_sources = Some(vec!["conversation".into(), "agent".into()]);
+        assert_eq!(
+            custom.title_for(AgentKind::Opencode, "my-pane", "conv-title"),
+            "conv-title"
+        );
+        assert_eq!(
+            custom.title_for(AgentKind::Opencode, "my-pane", ""),
+            "opencode"
+        );
+        // agy still uses global default
+        assert_eq!(
+            custom.title_for(AgentKind::Agy, "my-pane", "conv-title"),
+            "my-pane"
+        );
+
+        // Invalid source name in override falls back to inherited
+        let mut invalid_override = AgentsConfig::default();
+        invalid_override.agy.title_sources = Some(vec!["bogus".into()]);
+        assert_eq!(
+            invalid_override.title_for(AgentKind::Agy, "my-pane", "conv-title"),
+            "my-pane"
+        );
+
+        // Empty override list falls back to inherited
+        let mut empty_override = AgentsConfig::default();
+        empty_override.opencode.title_sources = Some(vec![]);
+        assert_eq!(
+            empty_override.title_for(AgentKind::Opencode, "pane-1", "conv-1"),
+            "pane-1"
+        );
+
+        // Invalid global list falls back to default
+        let mut invalid_global = AgentsConfig::default();
+        invalid_global.title_sources = vec!["invalid".into()];
+        assert_eq!(
+            invalid_global.title_for(AgentKind::Opencode, "pane-1", "conv-1"),
+            "pane-1"
+        );
+
+        // Sanitization of control characters and newlines
+        assert_eq!(
+            cfg.title_for(AgentKind::Opencode, "evil\nname\r\t", "conv"),
+            "evil name"
+        );
     }
 
     #[test]
@@ -780,7 +1037,6 @@ sidebar_width = "30%"
         assert!(toml::from_str::<Config>("[zellij]\nmouse_mode = []\n").is_err());
     }
 
-
     #[test]
     fn test_pane_format_variables() {
         let config = WorkspaceConfig {
@@ -833,7 +1089,10 @@ spinner      = 5
 current_mark = 10
 "#;
         let cfg: Config = toml::from_str(toml).unwrap();
-        assert!(matches!(cfg.workspace.default_mode, WorkspaceMode::Fullscreen));
+        assert!(matches!(
+            cfg.workspace.default_mode,
+            WorkspaceMode::Fullscreen
+        ));
         assert_eq!(cfg.colors.title, 5);
         assert_eq!(cfg.colors.active_bg, 9);
     }

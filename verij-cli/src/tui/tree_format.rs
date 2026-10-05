@@ -9,10 +9,12 @@ use ratatui::{
 use verij_types::SessionSnapshot;
 
 use crate::config::{
-    ColorConfig, TreeConfig, TreeRowStyles, DEFAULT_SESSION_FORMAT, DEFAULT_TAB_FORMAT,
+    ColorConfig, TreeConfig, TreeRowStyles, DEFAULT_AGENT_FORMAT, DEFAULT_SESSION_FORMAT,
+    DEFAULT_TAB_FORMAT,
 };
 
-use super::state::TreeNode;
+use super::state::{RowMeta, TreeNode};
+use verij_types::agent::AgentStatus;
 
 #[derive(Debug, Clone)]
 enum Token {
@@ -70,8 +72,10 @@ impl CompiledStyles {
 pub struct TreeFormatter {
     session: Vec<Token>,
     tab: Vec<Token>,
+    agent: Vec<Token>,
     session_styles: CompiledStyles,
     tab_styles: CompiledStyles,
+    agent_styles: CompiledStyles,
     fold_collapsed: String,
     fold_expanded: String,
     branch_first: String,
@@ -111,6 +115,7 @@ impl TreeFormatter {
                 "session_format",
             ),
             tab: compile(&config.tab_format, DEFAULT_TAB_FORMAT, "tab_format"),
+            agent: compile(&config.agent_format, DEFAULT_AGENT_FORMAT, "agent_format"),
             session_styles: CompiledStyles::compile(
                 &config.session_styles,
                 &defaults.session_styles,
@@ -122,6 +127,12 @@ impl TreeFormatter {
                 &defaults.tab_styles,
                 colors,
                 "tab_styles",
+            ),
+            agent_styles: CompiledStyles::compile(
+                &config.agent_styles,
+                &defaults.agent_styles,
+                colors,
+                "agent_styles",
             ),
             fold_collapsed: glyph(
                 &config.fold_collapsed,
@@ -143,7 +154,7 @@ impl TreeFormatter {
         }
     }
 
-    pub fn render(
+    pub fn render_at_tick(
         &self,
         node: &TreeNode,
         snapshot: Option<&SessionSnapshot>,
@@ -151,6 +162,7 @@ impl TreeFormatter {
         attached: bool,
         first_tab: bool,
         last_tab: bool,
+        tick: usize,
     ) -> (ListItem<'static>, Option<Range<u16>>) {
         let active = match node {
             TreeNode::Session { is_attached, .. } => *is_attached,
@@ -158,10 +170,12 @@ impl TreeFormatter {
                 is_workspace_active,
                 ..
             } => *is_workspace_active,
+            TreeNode::AgentPane { view, .. } => view.is_active,
         };
         let (tokens, styles) = match node {
             TreeNode::Session { .. } => (&self.session, &self.session_styles),
             TreeNode::Tab { .. } => (&self.tab, &self.tab_styles),
+            TreeNode::AgentPane { .. } => (&self.agent, &self.agent_styles),
         };
         let base = styles.for_state(selected, active);
         let context = RowContext {
@@ -172,6 +186,7 @@ impl TreeFormatter {
             attached,
             first_tab,
             last_tab,
+            tick,
             formatter: self,
         };
         let mut output = RowOutput {
@@ -188,6 +203,19 @@ impl TreeFormatter {
             output.fold_range,
         )
     }
+
+    #[allow(dead_code)]
+    pub fn render(
+        &self,
+        node: &TreeNode,
+        snapshot: Option<&SessionSnapshot>,
+        selected: bool,
+        attached: bool,
+        first_tab: bool,
+        last_tab: bool,
+    ) -> (ListItem<'static>, Option<Range<u16>>) {
+        self.render_at_tick(node, snapshot, selected, attached, first_tab, last_tab, 0)
+    }
 }
 
 struct RowContext<'a> {
@@ -198,37 +226,171 @@ struct RowContext<'a> {
     attached: bool,
     first_tab: bool,
     last_tab: bool,
+    tick: usize,
     formatter: &'a TreeFormatter,
 }
 
 impl RowContext<'_> {
+    fn spinner_char(&self) -> &'static str {
+        const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        SPINNER_FRAMES[(self.tick / 2) % SPINNER_FRAMES.len()]
+    }
+
+    fn summary_string(&self) -> String {
+        let summary = self.node.summary();
+        let mut parts = Vec::new();
+        if summary.error > 0 {
+            parts.push(format!("×{}", summary.error));
+        }
+        if summary.needs_input > 0 {
+            parts.push(format!("!{}", summary.needs_input));
+        }
+        if summary.done > 0 {
+            parts.push(format!("✓{}", summary.done));
+        }
+        if summary.working > 0 {
+            parts.push(format!("{}{}", self.spinner_char(), summary.working));
+        }
+        if summary.unknown > 0 {
+            parts.push(format!("?{}", summary.unknown));
+        }
+        parts.join(" ")
+    }
+
+    fn compute_tree_prefix(&self, meta: &RowMeta) -> String {
+        let mut prefix = String::new();
+        if meta.depth >= 2 {
+            let continuations = if meta.ancestor_continuations.len() >= meta.depth {
+                &meta.ancestor_continuations[1..meta.depth]
+            } else {
+                &meta.ancestor_continuations[..]
+            };
+            for &cont in continuations {
+                if cont {
+                    prefix.push_str("│  ");
+                } else {
+                    prefix.push_str("   ");
+                }
+            }
+            let needed = (meta.depth - 1).saturating_sub(continuations.len());
+            for _ in 0..needed {
+                prefix.push_str("   ");
+            }
+        }
+        prefix
+    }
+
     fn flag(&self, flag: &str) -> bool {
         match flag {
             "selected" => self.selected,
             "active" => self.active,
             "attached" => self.attached,
-            "collapsed" => matches!(
-                self.node,
-                TreeNode::Session {
-                    is_collapsed: true,
+            "collapsed" => match self.node {
+                TreeNode::Session { is_collapsed, .. } => *is_collapsed,
+                TreeNode::Tab {
+                    is_collapsed,
+                    has_children,
                     ..
-                }
-            ),
-            "expanded" => matches!(
-                self.node,
-                TreeNode::Session {
-                    is_collapsed: false,
+                } => *has_children && *is_collapsed,
+                TreeNode::AgentPane { .. } => false,
+            },
+            "expanded" => match self.node {
+                TreeNode::Session { is_collapsed, .. } => !*is_collapsed,
+                TreeNode::Tab {
+                    is_collapsed,
+                    has_children,
                     ..
+                } => *has_children && !*is_collapsed,
+                TreeNode::AgentPane { .. } => false,
+            },
+            "first_tab" => match self.node {
+                TreeNode::Tab { meta, .. } => {
+                    if meta.sibling_count > 0 {
+                        meta.sibling_index == 0
+                    } else {
+                        self.first_tab
+                    }
                 }
-            ),
-            "first_tab" => matches!(self.node, TreeNode::Tab { .. }) && self.first_tab,
-            "last_tab" => matches!(self.node, TreeNode::Tab { .. }) && self.last_tab,
+                _ => false,
+            },
+            "last_tab" => match self.node {
+                TreeNode::Tab { meta, .. } => {
+                    if meta.sibling_count > 0 {
+                        meta.sibling_index + 1 == meta.sibling_count
+                    } else {
+                        self.last_tab
+                    }
+                }
+                _ => false,
+            },
+            "first_agent" => match self.node {
+                TreeNode::AgentPane { meta, .. } => {
+                    if meta.sibling_count > 0 {
+                        meta.sibling_index == 0
+                    } else {
+                        true
+                    }
+                }
+                _ => false,
+            },
+            "last_agent" => match self.node {
+                TreeNode::AgentPane { meta, .. } => {
+                    if meta.sibling_count > 0 {
+                        meta.sibling_index + 1 == meta.sibling_count
+                    } else {
+                        true
+                    }
+                }
+                _ => false,
+            },
             "exited" => self.snapshot.is_some_and(|s| s.needs_resurrection),
             "has_tabs" => self.snapshot.is_some_and(|s| !s.tabs.is_empty()),
             "has_active_tab" => self
                 .snapshot
                 .and_then(SessionSnapshot::active_tab)
                 .is_some(),
+            "has_agents" => match self.node {
+                TreeNode::Session { summary, .. } => summary.total > 0,
+                TreeNode::Tab {
+                    has_children,
+                    summary,
+                    ..
+                } => *has_children || summary.total > 0,
+                TreeNode::AgentPane { .. } => false,
+            },
+            "agent_summary" => !self.summary_string().is_empty(),
+            "working" => match self.node {
+                TreeNode::AgentPane { view, .. } => view.status == AgentStatus::Working,
+                _ => false,
+            },
+            "needs_input" => match self.node {
+                TreeNode::AgentPane { view, .. } => view.status == AgentStatus::NeedsInput,
+                _ => false,
+            },
+            "done" => match self.node {
+                TreeNode::AgentPane { view, .. } => view.status == AgentStatus::Done,
+                _ => false,
+            },
+            "idle" => match self.node {
+                TreeNode::AgentPane { view, .. } => view.status == AgentStatus::Idle,
+                _ => false,
+            },
+            "error" => match self.node {
+                TreeNode::AgentPane { view, .. } => view.status == AgentStatus::Error,
+                _ => false,
+            },
+            "unknown" => match self.node {
+                TreeNode::AgentPane { view, .. } => view.status == AgentStatus::Unknown,
+                _ => false,
+            },
+            "floating" => match self.node {
+                TreeNode::AgentPane { view, .. } => view.is_floating,
+                _ => false,
+            },
+            "stacked" => match self.node {
+                TreeNode::AgentPane { view, .. } => view.stacked == Some(true),
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -238,6 +400,7 @@ impl RowContext<'_> {
             "session_name" => self.node.session_name().to_string(),
             "tab_name" => match self.node {
                 TreeNode::Tab { name, .. } => name.clone(),
+                TreeNode::AgentPane { tab_name, .. } => tab_name.clone(),
                 _ => String::new(),
             },
             "tab_position" => self
@@ -252,6 +415,7 @@ impl RowContext<'_> {
                     .map(|i| i + 1)
                     .unwrap_or(position + 1)
                     .to_string(),
+                TreeNode::AgentPane { tab_position, .. } => (tab_position + 1).to_string(),
                 _ => String::new(),
             },
             "tab_count" => self
@@ -268,16 +432,136 @@ impl RowContext<'_> {
                     is_collapsed: true, ..
                 } => self.formatter.fold_collapsed.clone(),
                 TreeNode::Session { .. } => self.formatter.fold_expanded.clone(),
+                TreeNode::Tab {
+                    has_children: true,
+                    is_collapsed: true,
+                    ..
+                } => self.formatter.fold_collapsed.clone(),
+                TreeNode::Tab {
+                    has_children: true,
+                    is_collapsed: false,
+                    ..
+                } => self.formatter.fold_expanded.clone(),
                 _ => String::new(),
             },
             "branch" => match self.node {
-                TreeNode::Tab { .. } if self.last_tab => self.formatter.branch_last.clone(),
-                TreeNode::Tab { .. } if self.first_tab => self.formatter.branch_first.clone(),
-                TreeNode::Tab { .. } => self.formatter.branch_middle.clone(),
+                TreeNode::Tab { meta, .. } => {
+                    let is_last = if meta.sibling_count > 0 {
+                        meta.sibling_index + 1 == meta.sibling_count
+                    } else {
+                        self.last_tab
+                    };
+                    let is_first = if meta.sibling_count > 0 {
+                        meta.sibling_index == 0
+                    } else {
+                        self.first_tab
+                    };
+                    if is_last {
+                        self.formatter.branch_last.clone()
+                    } else if is_first {
+                        self.formatter.branch_first.clone()
+                    } else {
+                        self.formatter.branch_middle.clone()
+                    }
+                }
+                TreeNode::AgentPane { meta, .. } => {
+                    let is_last =
+                        meta.sibling_count > 0 && meta.sibling_index + 1 == meta.sibling_count;
+                    let is_first = meta.sibling_count > 0 && meta.sibling_index == 0;
+                    if is_last {
+                        self.formatter.branch_last.clone()
+                    } else if is_first {
+                        self.formatter.branch_first.clone()
+                    } else {
+                        self.formatter.branch_middle.clone()
+                    }
+                }
                 _ => String::new(),
             },
+            "tree_prefix" => match self.node {
+                TreeNode::AgentPane { meta, .. } => self.compute_tree_prefix(meta),
+                _ => String::new(),
+            },
+            "agent_name" => match self.node {
+                TreeNode::AgentPane { view, .. } => {
+                    let name = view.kind.to_string();
+                    name
+                }
+                _ => String::new(),
+            },
+            "agent_title" => match self.node {
+                TreeNode::AgentPane { view, .. } => {
+                    let title = sanitize_display_text(&view.title);
+                    if view.is_synthetic && !title.contains("[fixture]") {
+                        format!("{title} [fixture]")
+                    } else {
+                        title
+                    }
+                }
+                _ => String::new(),
+            },
+            "pane_title" => match self.node {
+                TreeNode::AgentPane { view, .. } => sanitize_display_text(&view.pane_title),
+                _ => String::new(),
+            },
+            "conversation_title" => match self.node {
+                TreeNode::AgentPane { view, .. } => sanitize_display_text(&view.conversation_title),
+                _ => String::new(),
+            },
+            "pane_id" => match self.node {
+                TreeNode::AgentPane { view, .. } => view.pane.terminal.0.to_string(),
+                _ => String::new(),
+            },
+            "agent_status" => match self.node {
+                TreeNode::AgentPane { view, .. } => match view.status {
+                    AgentStatus::Working => "working",
+                    AgentStatus::NeedsInput => "needs_input",
+                    AgentStatus::Done => "done",
+                    AgentStatus::Idle => "idle",
+                    AgentStatus::Error => "error",
+                    AgentStatus::Unknown => "unknown",
+                }
+                .to_string(),
+                _ => String::new(),
+            },
+            "status_icon" => match self.node {
+                TreeNode::AgentPane { view, .. } => match view.status {
+                    AgentStatus::Working => self.spinner_char().to_string(),
+                    AgentStatus::NeedsInput => "!".to_string(),
+                    AgentStatus::Done => "✓".to_string(),
+                    AgentStatus::Idle => "○".to_string(),
+                    AgentStatus::Error => "×".to_string(),
+                    AgentStatus::Unknown => "?".to_string(),
+                },
+                _ => String::new(),
+            },
+            "status_detail" => match self.node {
+                TreeNode::AgentPane { view, .. } => sanitize_display_text(&view.detail),
+                _ => String::new(),
+            },
+            "agent_summary" => self.summary_string(),
+            "agent_count" => self.node.summary().total.to_string(),
+            "working_count" => self.node.summary().working.to_string(),
+            "needs_input_count" => self.node.summary().needs_input.to_string(),
+            "done_count" => self.node.summary().done.to_string(),
+            "error_count" => self.node.summary().error.to_string(),
+            "unknown_count" => self.node.summary().unknown.to_string(),
+            "idle_count" => self.node.summary().idle.to_string(),
             _ => String::new(),
         }
+    }
+}
+
+fn sanitize_display_text(s: &str) -> String {
+    let sanitized: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let trimmed = sanitized.trim();
+    if trimmed.chars().count() > 256 {
+        trimmed.chars().take(256).collect()
+    } else {
+        trimmed.to_string()
     }
 }
 
@@ -313,15 +597,25 @@ impl RowOutput {
                 Token::Text(text) => self.text(text.clone()),
                 Token::Variable(name) => {
                     let value = context.value(name);
-                    if name == "fold_marker" && matches!(context.node, TreeNode::Session { .. }) {
-                        let start = self.column.min(u16::MAX as usize) as u16;
+                    let is_fold_target = match context.node {
+                        TreeNode::Session { .. } => name == "fold_marker",
+                        TreeNode::Tab { has_children, .. } => {
+                            name == "fold_marker" && *has_children
+                        }
+                        TreeNode::AgentPane { .. } => false,
+                    };
+                    if is_fold_target && !value.is_empty() {
                         let width = Line::raw(value.as_str()).width();
-                        self.fold_range =
-                            Some(start..start.saturating_add(width.min(u16::MAX as usize) as u16));
-                        self.after_fold = true;
+                        if width > 0 {
+                            let start = self.column.min(u16::MAX as usize) as u16;
+                            self.fold_range = Some(
+                                start..start.saturating_add(width.min(u16::MAX as usize) as u16),
+                            );
+                            self.after_fold = true;
+                        }
                     }
                     self.text(value);
-                    if name == "fold_marker" {
+                    if is_fold_target {
                         self.after_fold = true;
                     }
                 }
@@ -344,7 +638,25 @@ const VARIABLES: &[&str] = &[
     "active_tab_name",
     "fold_marker",
     "branch",
+    "tree_prefix",
+    "agent_name",
+    "agent_title",
+    "pane_title",
+    "conversation_title",
+    "pane_id",
+    "agent_status",
+    "status_icon",
+    "status_detail",
+    "agent_summary",
+    "agent_count",
+    "working_count",
+    "needs_input_count",
+    "done_count",
+    "error_count",
+    "unknown_count",
+    "idle_count",
 ];
+
 const FLAGS: &[&str] = &[
     "selected",
     "active",
@@ -356,6 +668,18 @@ const FLAGS: &[&str] = &[
     "exited",
     "has_tabs",
     "has_active_tab",
+    "has_agents",
+    "agent_summary",
+    "working",
+    "needs_input",
+    "done",
+    "idle",
+    "error",
+    "unknown",
+    "floating",
+    "stacked",
+    "first_agent",
+    "last_agent",
 ];
 
 fn parse_template(template: &str, colors: &ColorConfig) -> Result<Vec<Token>, String> {
@@ -504,6 +828,10 @@ fn parse_color(value: &str, colors: &ColorConfig) -> Result<Color, String> {
         "error" => colors.error,
         "spinner" => colors.spinner,
         "current_mark" => colors.current_mark,
+        "needs_input" => colors.needs_input,
+        "done" => colors.done,
+        "idle" => colors.idle,
+        "unknown" => colors.unknown,
         _ => value
             .parse::<u8>()
             .map_err(|_| format!("unknown color '{value}'"))?,
@@ -514,6 +842,9 @@ fn parse_color(value: &str, colors: &ColorConfig) -> Result<Color, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::agent_view::{AgentSummary, AgentView};
+    use crate::tui::state::NodeKey;
+    use verij_types::agent::AgentKind;
     use verij_types::TabSnapshot;
 
     fn snapshot() -> SessionSnapshot {
@@ -554,6 +885,8 @@ mod tests {
             active_tab: Some("editor".into()),
             tab_count: 3,
             session_index: 0,
+            meta: Default::default(),
+            summary: Default::default(),
         }
     }
 
@@ -566,16 +899,31 @@ mod tests {
         first: bool,
         last: bool,
     ) -> RowOutput {
+        output_at_tick(formatter, node, snap, selected, attached, first, last, 0)
+    }
+
+    fn output_at_tick(
+        formatter: &TreeFormatter,
+        node: &TreeNode,
+        snap: &SessionSnapshot,
+        selected: bool,
+        attached: bool,
+        first: bool,
+        last: bool,
+        tick: usize,
+    ) -> RowOutput {
         let active = match node {
             TreeNode::Session { is_attached, .. } => *is_attached,
             TreeNode::Tab {
                 is_workspace_active,
                 ..
             } => *is_workspace_active,
+            TreeNode::AgentPane { view, .. } => view.is_active,
         };
         let (tokens, styles) = match node {
             TreeNode::Session { .. } => (&formatter.session, &formatter.session_styles),
             TreeNode::Tab { .. } => (&formatter.tab, &formatter.tab_styles),
+            TreeNode::AgentPane { .. } => (&formatter.agent, &formatter.agent_styles),
         };
         let base = styles.for_state(selected, active);
         let context = RowContext {
@@ -586,6 +934,7 @@ mod tests {
             attached,
             first_tab: first,
             last_tab: last,
+            tick,
             formatter,
         };
         let mut output = RowOutput {
@@ -778,6 +1127,10 @@ mod tests {
             name: "editor".into(),
             position: 0,
             is_workspace_active: false,
+            meta: Default::default(),
+            summary: Default::default(),
+            is_collapsed: false,
+            has_children: false,
         };
         assert_eq!(
             content(&output(&formatter, &tab, &snap, false, false, true, false)),
@@ -931,5 +1284,568 @@ mod tests {
         {
             assert_eq!(span.style.fg, Some(Color::Indexed(12)));
         }
+    }
+
+    use verij_types::identity::{AgentInstanceId, PaneKey, SessionInstanceId, TerminalPaneId};
+
+    fn make_agent_view(
+        agent_id: &str,
+        kind: AgentKind,
+        status: AgentStatus,
+        active: bool,
+        synthetic: bool,
+    ) -> AgentView {
+        AgentView {
+            location: None,
+            instance: AgentInstanceId(agent_id.to_string()),
+            pane: PaneKey {
+                session: SessionInstanceId("backend".to_string()),
+                terminal: TerminalPaneId(42),
+            },
+            kind,
+            title: format!("{kind}-task"),
+            pane_title: "pane-42".to_string(),
+            conversation_title: "conv-1".to_string(),
+            status,
+            detail: "permission".to_string(),
+            is_floating: false,
+            stacked: None,
+            completion_revision: 1,
+            is_active: active,
+            is_synthetic: synthetic,
+            navigable: true,
+        }
+    }
+
+    #[test]
+    fn formatting_nested_branches_with_agent_children() {
+        let formatter = TreeFormatter::default();
+        let snap = snapshot();
+
+        // Agent 1 under non-last tab (tab has more siblings -> tab_has_more = true)
+        let agent1_meta = RowMeta {
+            key: NodeKey::Agent {
+                pane: PaneKey {
+                    session: SessionInstanceId("backend".to_string()),
+                    terminal: TerminalPaneId(1),
+                },
+                instance: AgentInstanceId("ag-1".to_string()),
+            },
+            parent: None,
+            depth: 2,
+            sibling_index: 0,
+            sibling_count: 2,
+            ancestor_continuations: vec![false, true],
+        };
+        let agent1 = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: make_agent_view(
+                "ag-1",
+                AgentKind::Opencode,
+                AgentStatus::Working,
+                false,
+                false,
+            ),
+            meta: agent1_meta,
+        };
+        let row1 = output(&formatter, &agent1, &snap, false, false, true, false);
+        assert_eq!(content(&row1), "│  ├ ⠋ opencode opencode-task");
+
+        // Agent 2 (last agent under non-last tab)
+        let agent2_meta = RowMeta {
+            key: NodeKey::Agent {
+                pane: PaneKey {
+                    session: SessionInstanceId("backend".to_string()),
+                    terminal: TerminalPaneId(2),
+                },
+                instance: AgentInstanceId("ag-2".to_string()),
+            },
+            parent: None,
+            depth: 2,
+            sibling_index: 1,
+            sibling_count: 2,
+            ancestor_continuations: vec![false, true],
+        };
+        let agent2 = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: make_agent_view(
+                "ag-2",
+                AgentKind::Agy,
+                AgentStatus::NeedsInput,
+                false,
+                false,
+            ),
+            meta: agent2_meta,
+        };
+        let row2 = output(&formatter, &agent2, &snap, false, false, false, true);
+        assert_eq!(content(&row2), "│  └ ! agy agy-task");
+
+        // Agent 3 under last tab (tab has NO more siblings -> tab_has_more = false)
+        let agent3_meta = RowMeta {
+            key: NodeKey::Agent {
+                pane: PaneKey {
+                    session: SessionInstanceId("backend".to_string()),
+                    terminal: TerminalPaneId(3),
+                },
+                instance: AgentInstanceId("ag-3".to_string()),
+            },
+            parent: None,
+            depth: 2,
+            sibling_index: 0,
+            sibling_count: 1,
+            ancestor_continuations: vec![false, false],
+        };
+        let agent3 = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "build".into(),
+            tab_position: 3,
+            view: make_agent_view("ag-3", AgentKind::Opencode, AgentStatus::Done, false, false),
+            meta: agent3_meta,
+        };
+        let row3 = output(&formatter, &agent3, &snap, false, false, true, true);
+        assert_eq!(content(&row3), "   └ ✓ opencode opencode-task");
+    }
+
+    #[test]
+    fn first_last_metadata() {
+        let mut config = TreeConfig::default();
+        config.agent_format = "#{?first_agent,F,f}#{?last_agent,LAST,last} #{branch}".into();
+        let formatter = TreeFormatter::new(&config, &ColorConfig::default());
+        let snap = snapshot();
+
+        // First of two
+        let agent_first = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: make_agent_view("ag-1", AgentKind::Opencode, AgentStatus::Idle, false, false),
+            meta: RowMeta {
+                key: NodeKey::Agent {
+                    pane: PaneKey {
+                        session: SessionInstanceId("backend".into()),
+                        terminal: TerminalPaneId(1),
+                    },
+                    instance: AgentInstanceId("ag-1".into()),
+                },
+                parent: None,
+                depth: 2,
+                sibling_index: 0,
+                sibling_count: 2,
+                ancestor_continuations: vec![false, true],
+            },
+        };
+        assert_eq!(
+            content(&output(
+                &formatter,
+                &agent_first,
+                &snap,
+                false,
+                false,
+                false,
+                false
+            )),
+            "Flast ├"
+        );
+
+        // Last of two
+        let agent_last = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: make_agent_view("ag-2", AgentKind::Opencode, AgentStatus::Idle, false, false),
+            meta: RowMeta {
+                key: NodeKey::Agent {
+                    pane: PaneKey {
+                        session: SessionInstanceId("backend".into()),
+                        terminal: TerminalPaneId(2),
+                    },
+                    instance: AgentInstanceId("ag-2".into()),
+                },
+                parent: None,
+                depth: 2,
+                sibling_index: 1,
+                sibling_count: 2,
+                ancestor_continuations: vec![false, true],
+            },
+        };
+        assert_eq!(
+            content(&output(
+                &formatter,
+                &agent_last,
+                &snap,
+                false,
+                false,
+                false,
+                false
+            )),
+            "fLAST └"
+        );
+
+        // Single child is both first and last
+        let agent_single = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: make_agent_view("ag-3", AgentKind::Opencode, AgentStatus::Idle, false, false),
+            meta: RowMeta {
+                key: NodeKey::Agent {
+                    pane: PaneKey {
+                        session: SessionInstanceId("backend".into()),
+                        terminal: TerminalPaneId(3),
+                    },
+                    instance: AgentInstanceId("ag-3".into()),
+                },
+                parent: None,
+                depth: 2,
+                sibling_index: 0,
+                sibling_count: 1,
+                ancestor_continuations: vec![false, true],
+            },
+        };
+        assert_eq!(
+            content(&output(
+                &formatter,
+                &agent_single,
+                &snap,
+                false,
+                false,
+                false,
+                false
+            )),
+            "FLAST └"
+        );
+    }
+
+    #[test]
+    fn tick_spinner() {
+        let formatter = TreeFormatter::default();
+        let snap = snapshot();
+
+        let working_agent = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: make_agent_view(
+                "ag-1",
+                AgentKind::Opencode,
+                AgentStatus::Working,
+                false,
+                false,
+            ),
+            meta: Default::default(),
+        };
+
+        // Frame changes with tick
+        let tick0 = content(&output_at_tick(
+            &formatter,
+            &working_agent,
+            &snap,
+            false,
+            false,
+            false,
+            false,
+            0,
+        ));
+        let tick2 = content(&output_at_tick(
+            &formatter,
+            &working_agent,
+            &snap,
+            false,
+            false,
+            false,
+            false,
+            2,
+        ));
+        let tick4 = content(&output_at_tick(
+            &formatter,
+            &working_agent,
+            &snap,
+            false,
+            false,
+            false,
+            false,
+            4,
+        ));
+        assert!(tick0.contains('⠋'));
+        assert!(tick2.contains('⠙'));
+        assert!(tick4.contains('⠹'));
+
+        // Done status does not change with tick
+        let done_agent = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: make_agent_view("ag-2", AgentKind::Opencode, AgentStatus::Done, false, false),
+            meta: Default::default(),
+        };
+        let done0 = content(&output_at_tick(
+            &formatter,
+            &done_agent,
+            &snap,
+            false,
+            false,
+            false,
+            false,
+            0,
+        ));
+        let done2 = content(&output_at_tick(
+            &formatter,
+            &done_agent,
+            &snap,
+            false,
+            false,
+            false,
+            false,
+            2,
+        ));
+        assert_eq!(done0, done2);
+        assert!(done0.contains('✓'));
+    }
+
+    #[test]
+    fn summaries_folded() {
+        let formatter = TreeFormatter::default();
+        let snap = snapshot();
+
+        let mut summary = AgentSummary::default();
+        summary.error = 1;
+        summary.needs_input = 2;
+        summary.done = 3;
+        summary.working = 4;
+        summary.unknown = 5;
+        summary.idle = 6;
+        summary.total = 21;
+
+        let session_node = TreeNode::Session {
+            name: "backend".into(),
+            is_current: false,
+            is_attached: false,
+            needs_resurrection: false,
+            is_collapsed: true,
+            active_tab: Some("editor".into()),
+            tab_count: 3,
+            session_index: 0,
+            meta: Default::default(),
+            summary: summary.clone(),
+        };
+
+        // Summary order: Error NeedsInput Done Working Unknown, non-zero only
+        let res = content(&output_at_tick(
+            &formatter,
+            &session_node,
+            &snap,
+            false,
+            false,
+            false,
+            false,
+            0,
+        ));
+        assert!(res.contains("×1 !2 ✓3 ⠋4 ?5"));
+
+        // Tab with children and summary
+        let tab_node = TreeNode::Tab {
+            session_name: "backend".into(),
+            session_index: 0,
+            name: "editor".into(),
+            position: 0,
+            is_workspace_active: false,
+            meta: Default::default(),
+            summary,
+            is_collapsed: true,
+            has_children: true,
+        };
+        let tab_res = content(&output_at_tick(
+            &formatter, &tab_node, &snap, false, false, false, false, 0,
+        ));
+        assert!(tab_res.contains("▷"));
+        assert!(tab_res.contains("×1 !2 ✓3 ⠋4 ?5"));
+    }
+
+    #[test]
+    fn selected_active_independent() {
+        let formatter = TreeFormatter::default();
+        let snap = snapshot();
+
+        let view_inactive =
+            make_agent_view("ag-1", AgentKind::Opencode, AgentStatus::Idle, false, false);
+        let view_active =
+            make_agent_view("ag-1", AgentKind::Opencode, AgentStatus::Idle, true, false);
+
+        let node_inactive = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: view_inactive,
+            meta: Default::default(),
+        };
+        let node_active = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: view_active,
+            meta: Default::default(),
+        };
+
+        let normal = output(
+            &formatter,
+            &node_inactive,
+            &snap,
+            false,
+            false,
+            false,
+            false,
+        );
+        assert_eq!(normal.base.bg, None);
+
+        let selected_only = output(&formatter, &node_inactive, &snap, true, false, false, false);
+        assert_eq!(selected_only.base.bg, Some(Color::Indexed(15)));
+
+        let active_only = output(&formatter, &node_active, &snap, false, false, false, false);
+        assert_eq!(active_only.base.bg, Some(Color::Indexed(1)));
+
+        let both = output(&formatter, &node_active, &snap, true, false, false, false);
+        assert_eq!(both.base.bg, Some(Color::Indexed(15)));
+    }
+
+    #[test]
+    fn narrow_buffer_and_wide_hitboxes() {
+        let formatter = TreeFormatter::default();
+        let snap = snapshot();
+
+        let session_node = session(false, false);
+        let session_row = output(&formatter, &session_node, &snap, false, false, false, false);
+        assert!(session_row.fold_range.is_some());
+
+        let tab_with_children = TreeNode::Tab {
+            session_name: "backend".into(),
+            session_index: 0,
+            name: "editor".into(),
+            position: 0,
+            is_workspace_active: false,
+            meta: Default::default(),
+            summary: AgentSummary {
+                total: 1,
+                working: 1,
+                ..Default::default()
+            },
+            is_collapsed: false,
+            has_children: true,
+        };
+        let tab_row = output(
+            &formatter,
+            &tab_with_children,
+            &snap,
+            false,
+            false,
+            false,
+            false,
+        );
+        assert!(tab_row.fold_range.is_some());
+
+        // Leaf nodes do NOT create fold targets
+        let tab_leaf = TreeNode::Tab {
+            session_name: "backend".into(),
+            session_index: 0,
+            name: "editor".into(),
+            position: 0,
+            is_workspace_active: false,
+            meta: Default::default(),
+            summary: Default::default(),
+            is_collapsed: false,
+            has_children: false,
+        };
+        let tab_leaf_row = output(&formatter, &tab_leaf, &snap, false, false, false, false);
+        assert_eq!(tab_leaf_row.fold_range, None);
+
+        let agent_leaf = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: make_agent_view("ag-1", AgentKind::Opencode, AgentStatus::Done, false, false),
+            meta: Default::default(),
+        };
+        let agent_row = output(&formatter, &agent_leaf, &snap, false, false, false, false);
+        assert_eq!(agent_row.fold_range, None);
+    }
+
+    #[test]
+    fn custom_formats_and_old_default_outputs_where_zero_agents() {
+        let formatter = TreeFormatter::default();
+        let snap = snapshot();
+
+        // Session with 0 agents produces exact legacy output
+        let session_zero = session(false, false);
+        assert_eq!(
+            content(&output(
+                &formatter,
+                &session_zero,
+                &snap,
+                false,
+                false,
+                false,
+                false
+            )),
+            "▽ backend (3)"
+        );
+
+        // Tab with 0 agents produces exact legacy output
+        let tab_zero = TreeNode::Tab {
+            session_name: "backend".into(),
+            session_index: 0,
+            name: "editor".into(),
+            position: 0,
+            is_workspace_active: false,
+            meta: Default::default(),
+            summary: Default::default(),
+            is_collapsed: false,
+            has_children: false,
+        };
+        assert_eq!(
+            content(&output(
+                &formatter, &tab_zero, &snap, false, false, false, false
+            )),
+            "├ editor"
+        );
+
+        // Synthetic fixtures are visibly marked [fixture]
+        let synthetic_agent = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: make_agent_view(
+                "ag-synth",
+                AgentKind::Opencode,
+                AgentStatus::Idle,
+                false,
+                true,
+            ),
+            meta: Default::default(),
+        };
+        let synth_row = content(&output(
+            &formatter,
+            &synthetic_agent,
+            &snap,
+            false,
+            false,
+            false,
+            false,
+        ));
+        assert!(synth_row.contains("[fixture]"));
     }
 }

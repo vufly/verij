@@ -1,6 +1,6 @@
 # Agent monitoring: remaining gates and ownership
 
-Assessment updated: **2026-10-05**. **H0 and H1 are approved by explicit user feedback; H2 continuation is authorized.** The [approved product design](AGENT_MONITORING.md) and [implementation checkpoints](AGENT_MONITORING_IMPLEMENTATION.md#101-human-verification-checkpoints) remain authoritative.
+Assessment updated: **2026-10-05**. **H0–H2 are approved; H2 commit and push are requested.** The [approved product design](AGENT_MONITORING.md) and [implementation checkpoints](AGENT_MONITORING_IMPLEMENTATION.md#101-human-verification-checkpoints) remain authoritative.
 
 ## Recorded reviewer decisions
 
@@ -16,11 +16,13 @@ After the stock-only two-host demo handoff, the user replied **“approve”** a
 
 ## Where the work stands
 
-**H0 and H1 are approved.** Shared identities/full pane inventory, normalized reporter/store/reducer, host-local acknowledgement and client-bound stock control exist in production source. The user requested committing H1 before continuing H2. H2 tree presentation is authorized; H3/H4 live adapters remain pending.
+**H0–H2 are approved.** Shared identities/full pane inventory, normalized reporter/store/reducer, host-local acknowledgement and client-bound stock control exist in production source. H2 adds the three-level tree and local-completion UI; 170 Rust tests, native/WASM checks, ten live H2 checks and eleven live H1 regression checks pass. The user requested the H2 commit and push; H3/H4 live adapters remain pending.
 
 The stock-only [two-host review fixture](../prototypes/stock-navigation/README.md) has [15 scoped live checks](../prototypes/stock-navigation/results.json) and successful qualified Magy review. It exposes binding/observation limits and keeps ack=false. H0 approval does not finish production H1 phases.
 
 **H1 — topology and navigation** covers production phases 1–3. The [H1 harness](../prototypes/h1-navigation/README.md) runs built production CLI/plugin artifacts and explicitly synthetic semantic records. The user approved this scope and its documented limits. Original automated evidence does not substitute for the separately recorded approval.
+
+**H2 — tree and local completion** was approved on 2026-10-05 through the [private two-host fixture](../prototypes/h2-tree/README.md#reviewed-instance-cleaned), covering nested folding and summaries, title/status display, highlight versus actual activation, host-local Done clearing, and persistent sidebar state. Semantic reports are visibly synthetic over real receiver processes and stock navigation. Approval is recorded separately from automated evidence; the reviewed instance is cleaned.
 
 ## Technical follow-ups after H0
 
@@ -59,7 +61,7 @@ The coding agent can encode version/capability detection and reliable fallback b
 
 **Resolved for H0: approved.** The coding agent prepared the disposable two-host test and the user supplied approve feedback. Later H1/H2 checks must confirm Workspace versus sidebar focus and host-local visits with the built feature.
 
-H1 exposes normalized storage and verified acknowledgement through development CLI commands. Agent-row Done rendering follows at H2; do not describe the current two-level tree as completed agent monitoring.
+H1 exposes normalized storage and verified acknowledgement through development CLI commands. H2 now renders agent rows and host-local Done; live OpenCode/Agy adapters belong to later checkpoints.
 
 ## H1: implementation that can be done by the coding agent
 
@@ -91,4 +93,4 @@ The coding agent executed and presented the scoped scenarios, and the user suppl
 
 The dependency, shared-stack and Agy capability choices are now supplied; do not repeat those questions. The coding agent owns re-scoping the contract to stock APIs and documenting honest navigation/confirmation limits.
 
-H0 approval is committed. H1 verification and explicit approval are recorded; the user requested the H1 commit followed by H2 implementation. H2 will stop for its own human feedback. No further Zellij patch effort is part of the backlog.
+H0 and H1 approvals are committed. H2 verification and explicit approval are recorded; the user requested committing and pushing H2. H3 remains the next checkpoint. No further Zellij patch effort is part of the backlog.

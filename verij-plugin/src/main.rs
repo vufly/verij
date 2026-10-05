@@ -66,6 +66,9 @@ pub struct State {
 
     /// Cached full pane manifest for this session.
     pub panes: PaneManifest,
+    /// Direct client events supersede the session-list bootstrap projection.
+    pub pane_updates_seen: bool,
+    pub tab_updates_seen: bool,
 
     /// Number of clients attached to this session.
     pub connected_clients: Option<usize>,
@@ -320,12 +323,22 @@ impl ZellijPlugin for State {
                     let clients_changed = self.connected_clients != connected_clients;
                     self.connected_clients = connected_clients;
 
-                    let (new_tabs, raw_tabs_changed) = self.update_tabs_from_info(&current.tabs);
+                    let (new_tabs, raw_tabs_changed) = if self.tab_updates_seen {
+                        (self.tabs.clone(), false)
+                    } else {
+                        self.update_tabs_from_info(&current.tabs)
+                    };
                     let tabs_changed = self.tabs != new_tabs;
                     self.tabs = new_tabs;
 
-                    let panes_changed = self.panes != current.panes;
-                    self.panes = current.panes;
+                    let panes_changed = if self.pane_updates_seen {
+                        false
+                    } else {
+                        let changed = Self::terminal_manifest(&self.panes)
+                            != Self::terminal_manifest(&current.panes);
+                        self.panes = current.panes;
+                        changed
+                    };
 
                     let active_pane = Self::active_pane_name(&self.raw_tabs, &self.panes);
                     let pane_changed = self.active_pane != active_pane;
@@ -354,6 +367,7 @@ impl ZellijPlugin for State {
                 }
 
                 // TabUpdate must retain pane cache, recalculate active title.
+                self.tab_updates_seen = true;
                 let (new_tabs, raw_tabs_changed) = self.update_tabs_from_info(&tabs);
                 let tabs_changed = self.tabs != new_tabs;
                 self.tabs = new_tabs;
@@ -373,7 +387,9 @@ impl ZellijPlugin for State {
                 }
 
                 // PaneUpdate caches full terminal panes and recalculates active pane
-                let panes_changed = self.panes != panes;
+                self.pane_updates_seen = true;
+                let panes_changed =
+                    Self::terminal_manifest(&self.panes) != Self::terminal_manifest(&panes);
                 self.panes = panes;
 
                 let active_pane = Self::active_pane_name(&self.raw_tabs, &self.panes);
@@ -453,7 +469,21 @@ impl State {
     }
 
     pub fn update_tabs_from_info(&mut self, tabs: &[TabInfo]) -> (Vec<TabSnapshot>, bool) {
-        let raw_tabs_changed = self.raw_tabs != tabs;
+        let facts = |tabs: &[TabInfo]| {
+            tabs.iter()
+                .map(|tab| {
+                    (
+                        tab.tab_id,
+                        tab.position,
+                        tab.name.clone(),
+                        tab.active,
+                        tab.are_floating_panes_visible,
+                        tab.is_fullscreen_active,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let raw_tabs_changed = facts(&self.raw_tabs) != facts(tabs);
         self.raw_tabs = tabs.to_vec();
 
         let new_tabs: Vec<TabSnapshot> = tabs
@@ -470,6 +500,28 @@ impl State {
             .collect();
 
         (new_tabs, raw_tabs_changed)
+    }
+
+    fn terminal_manifest(manifest: &PaneManifest) -> BTreeMap<usize, Vec<PaneInfo>> {
+        manifest
+            .panes
+            .iter()
+            .map(|(position, panes)| {
+                (
+                    *position,
+                    panes
+                        .iter()
+                        .filter(|pane| !pane.is_plugin)
+                        .cloned()
+                        .map(|mut pane| {
+                            // Cursor blinking and plugin bookkeeping are not inventory facts.
+                            pane.cursor_coordinates_in_pane = None;
+                            pane
+                        })
+                        .collect(),
+                )
+            })
+            .collect()
     }
 
     pub fn active_pane_name(tabs: &[TabInfo], panes: &PaneManifest) -> Option<String> {
@@ -600,12 +652,22 @@ impl State {
                     let clients_changed = self.connected_clients != connected_clients;
                     self.connected_clients = connected_clients;
 
-                    let (new_tabs, raw_tabs_changed) = self.update_tabs_from_info(&current.tabs);
+                    let (new_tabs, raw_tabs_changed) = if self.tab_updates_seen {
+                        (self.tabs.clone(), false)
+                    } else {
+                        self.update_tabs_from_info(&current.tabs)
+                    };
                     let tabs_changed = self.tabs != new_tabs;
                     self.tabs = new_tabs;
 
-                    let panes_changed = self.panes != current.panes;
-                    self.panes = current.panes;
+                    let panes_changed = if self.pane_updates_seen {
+                        false
+                    } else {
+                        let changed = Self::terminal_manifest(&self.panes)
+                            != Self::terminal_manifest(&current.panes);
+                        self.panes = current.panes;
+                        changed
+                    };
 
                     let active_pane = Self::active_pane_name(&self.raw_tabs, &self.panes);
                     let pane_changed = self.active_pane != active_pane;
@@ -937,6 +999,76 @@ mod tests {
         assert_eq!(inv.panes[1].terminal_id.0, 20);
         assert_eq!(inv.panes[1].tab_id, Some(2));
         assert_eq!(inv.panes[1].title, "bg-daemon");
+    }
+
+    #[test]
+    fn session_list_bootstrap_cannot_resurrect_closed_pane_or_undo_direct_tab_update() {
+        let directory = std::env::temp_dir().join(format!(
+            "verij-event-order-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut state = State::new();
+        state.export_dir = directory.to_string_lossy().into_owned();
+        let live = PaneInfo {
+            id: 0,
+            title: "live".into(),
+            is_focused: true,
+            ..Default::default()
+        };
+        let closed = PaneInfo {
+            id: 4,
+            title: "closed".into(),
+            ..Default::default()
+        };
+        let old = SessionInfo {
+            name: "fixture-events".into(),
+            is_current_session: true,
+            connected_clients: 2,
+            tabs: vec![TabInfo {
+                tab_id: 10,
+                position: 0,
+                name: "old".into(),
+                active: true,
+                ..Default::default()
+            }],
+            panes: PaneManifest {
+                panes: HashMap::from([(0, vec![live.clone(), closed])]),
+            },
+            ..Default::default()
+        };
+        state.update(Event::SessionUpdate(vec![old.clone()], vec![]));
+        state.update(Event::PaneUpdate(PaneManifest {
+            panes: HashMap::from([(0, vec![live])]),
+        }));
+        state.update(Event::TabUpdate(vec![TabInfo {
+            tab_id: 10,
+            position: 0,
+            name: "renamed".into(),
+            active: true,
+            ..Default::default()
+        }]));
+        let revision = state.revision;
+        for _ in 0..3 {
+            state.update(Event::SessionUpdate(vec![old.clone()], vec![]));
+        }
+        assert_eq!(
+            state.revision, revision,
+            "stale aggregate events must not republish alternating inventory"
+        );
+        assert_eq!(state.tabs[0].name, "renamed");
+        assert_eq!(
+            state.panes.panes[&0]
+                .iter()
+                .map(|pane| pane.id)
+                .collect::<Vec<_>>(),
+            vec![0]
+        );
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
