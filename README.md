@@ -241,8 +241,9 @@ New inner sessions receive a fake-PTY attach while their initial layout is creat
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
-- [Agent monitoring design](docs/AGENT_MONITORING.md) — approved MVP behavior; implementation pending
+- [Agent monitoring design](docs/AGENT_MONITORING.md) — approved behavior; H0–H2 implemented, live adapters pending
 - [Agent monitoring implementation guide](docs/AGENT_MONITORING_IMPLEMENTATION.md) — contracts, implementation sequence, and acceptance checks
+- [Continue agent monitoring on another computer](docs/AGENT_MONITORING_SETUP.md) — portable setup, local-only artifacts, verification and handoff
 - [Progress and roadmap](progress.md)
 
 ## License
