@@ -123,6 +123,8 @@ pane_default = "Workspace"
 
 [tui]
 single_click_action = true
+after_detach = "nearest"
+after_kill = "nearest"
 
 [tui.tree]
 # Optional: customize the two navigable row types.
@@ -197,6 +199,7 @@ Inline style directives affect text spans on top of the chosen row base. Changin
 | Key | Action |
 |---|---|
 | `j` / `k`, arrows | Move selection |
+| `Shift-j` / `J`, `Shift-k` / `K` | Jump to next/previous session row, skipping tabs |
 | `PageUp` / `PageDown` | Page navigation |
 | `g` / `Home` | Go to first item |
 | `G` / `End` | Go to last item |
@@ -204,11 +207,28 @@ Inline style directives affect text spans on top of the chosen row base. Changin
 | `h` / `Left` | Collapse or select parent |
 | `l` / `Right` | Expand or enter tab list |
 | `Enter` | Attach session or switch tab |
+| `d` (any row) | Detach the currently active inner session from this host's Workspace |
+| `x` (live session row) | Kill the selected inner session |
+| `x` (tab row) | Close the selected tab, even if another tab is active |
 | Mouse click | Attach or switch (select only when `single_click_action = false`) |
 | `n`, `c`, `+` | Create inner session |
 | `R` | Rename current host session |
 | `?` | Toggle help |
 | `q`, `Esc`, `Ctrl-c` | Exit sidebar |
+
+### After detach or kill
+
+Configure each follow-up independently in `~/.config/verij/config.toml`:
+
+```toml
+[tui]
+after_detach = "nearest" # "nearest" or "empty"
+after_kill = "empty"    # "nearest" or "empty"
+```
+
+`nearest` is the default for both actions. When the attached inner session is detached or killed, Verij opens the nearest other **live** session in sidebar order, preferring the next session on a tie. It never resurrects an exited session automatically for this fallback. If no other live session exists, Workspace remains empty. `empty` leaves a fresh Workspace shell with no active inner session and clears the host's remembered attachment, so restarting the sidebar or reattaching the host does not reconnect it.
+
+`d` works regardless of which row is selected and detaches only this host's nested client; the inner session and its other clients keep running. It does nothing when Workspace is already empty. Killing an unattached session or closing a tab in another session preserves the current Workspace attachment. Killing leaves the session's saved resurrection state intact. Closing the last tab of the attached session uses `after_kill`. These actions keep keyboard focus in the sidebar, including after opening a fallback session.
 
 ## Runtime Model
 

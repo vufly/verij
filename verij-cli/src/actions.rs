@@ -262,9 +262,7 @@ struct HostPaneInfo {
 
 /// Returns pane immediately right of current TUI pane.
 fn workspace_pane() -> Result<Option<HostPaneInfo>> {
-    let output = Command::new("zellij")
-        .args(["action", "list-panes", "--tab", "--json"])
-        .output()
+    let output = crate::session::zellij_output(&["action", "list-panes", "--tab", "--json"])
         .context("Failed to inspect host panes")?;
 
     if !output.status.success() {
@@ -314,6 +312,83 @@ pub fn rename_workspace_pane(name: &str) -> Result<()> {
         .context("Failed to rename workspace pane")
 }
 
+/// Replace only this host's nested client with a fresh shell. In-place replacement
+/// preserves the host layout and leaves the inner session's server running.
+pub fn reset_workspace(name: &str) -> Result<()> {
+    let old_pane = workspace_pane()?.context("Failed to identify host Workspace pane")?;
+    let pane_id = format!("terminal_{}", old_pane.id);
+    crate::session::zellij_action(&[
+        "action", "new-pane", "--in-place", "--close-replaced-pane", "--pane-id", &pane_id,
+        "--no-focus", "--name", name, "--borderless", "true",
+    ])?;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if workspace_pane()?.is_some_and(|pane| pane.id != old_pane.id) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    anyhow::bail!("Workspace pane replacement did not complete")
+}
+
+pub fn focus_sidebar() -> Result<()> {
+    let id = std::env::var("ZELLIJ_PANE_ID").context("Sidebar pane ID is not available")?;
+    let id = id.strip_prefix("terminal_").unwrap_or(&id).parse::<u32>()
+        .context("Invalid sidebar pane ID")?;
+    let output = crate::session::zellij_output(&["action", "focus-pane-id", &format!("terminal_{id}")])?;
+    let diagnostic = format!("{} {}", String::from_utf8_lossy(&output.stderr).trim(),
+        String::from_utf8_lossy(&output.stdout).trim());
+    // Zellij returns a nonzero status for this successful no-op.
+    if output.status.success()
+        || diagnostic.contains(&format!("Pane Terminal({id}) is already focused")) {
+        return Ok(());
+    }
+    anyhow::bail!("Failed to focus sidebar: {}", diagnostic.trim())
+}
+
+pub fn forget_workspace_session() -> Result<()> {
+    clear_workspace_session()?;
+    if let Ok(host) = std::env::var("VERIJ_HOST_NAME").or_else(|_| std::env::var("ZELLIJ_SESSION_NAME")) {
+        crate::config::clear_last_host_session(&host)?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct TabInfo {
+    tab_id: u32,
+    position: usize,
+    name: String,
+}
+
+/// Resolve the selected snapshot to a stable tab ID; never change active tabs
+/// merely to close one, and reject a stale position/name instead of closing another.
+pub fn close_tab(session_name: &str, position: usize, name: &str) -> Result<bool> {
+    let output = crate::session::zellij_output(&["--session", session_name, "action", "list-tabs", "--json"])?;
+    if !output.status.success() {
+        anyhow::bail!("Failed to inspect tabs in '{session_name}'");
+    }
+    let tabs: Vec<TabInfo> = serde_json::from_slice(&output.stdout).context("Invalid Zellij tab inventory")?;
+    let tab = tabs.iter().find(|tab| tab.position == position && tab.name == name)
+        .context("Selected tab changed; wait for sidebar to refresh and retry")?;
+    crate::session::zellij_action(&[
+        "--session", session_name, "action", "close-tab-by-id", &tab.tab_id.to_string(),
+    ])?;
+    Ok(tabs.len() == 1)
+}
+
+pub fn kill_session(session_name: &str) -> Result<()> {
+    crate::session::zellij_action(&["kill-session", session_name])?;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if crate::session::session_status(session_name)? != crate::session::SessionStatus::Live {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    anyhow::bail!("Session '{session_name}' did not stop")
+}
+
 /// Executes "The Inception Switch":
 /// `zellij -s <old_session> pipe --name verij_control -- switch:<new_session>`
 pub fn inception_switch(old_active_session: &str, new_selected_session: &str) -> Result<()> {
@@ -358,6 +433,8 @@ pub fn switch_tab(session_name: &str, tab_position: usize) -> Result<()> {
 /// Initial attach fallback when no session was previously active in the right pane:
 /// sends `stty sane; zellij attach <target>\n` to the active pane.
 fn attach_in_right_pane(target_session: &str) -> Result<()> {
+    let pane_id = workspace_pane()?.map(|pane| format!("terminal_{}", pane.id))
+        .context("Failed to identify host Workspace pane")?;
     set_workspace_session(target_session)?;
     let marker_cleanup = workspace_marker_path()
         .map(|path| format!("; rm -f {}", shell_quote(&path.to_string_lossy())))
@@ -379,9 +456,7 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
         shell_quote(target_session),
         shell_quote(target_session),
     );
-    let _ = crate::session::zellij_action(&["action", "move-focus", "right"]);
-
-    let result = crate::session::zellij_action(&["action", "write-chars", &attach_cmd])
+    let result = crate::session::zellij_action(&["action", "write-chars", "--pane-id", &pane_id, &attach_cmd])
         .with_context(|| {
             format!(
                 "Failed to send initial attach command for session '{}'",

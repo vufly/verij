@@ -241,7 +241,7 @@ fn query_zellij(command: &mut Command) -> Result<Output> {
 /// changes terminal cells and cursor behind Ratatui's back. Return failures so
 /// the event loop can render them in its status bar instead.
 pub fn zellij_action(args: &[&str]) -> Result<()> {
-    let output = query_zellij(Command::new("zellij").args(args))?;
+    let output = zellij_output(args)?;
     if !output.status.success() {
         let diagnostic = [
             String::from_utf8_lossy(&output.stderr).trim().to_string(),
@@ -255,6 +255,10 @@ pub fn zellij_action(args: &[&str]) -> Result<()> {
         );
     }
     Ok(())
+}
+
+pub fn zellij_output(args: &[&str]) -> Result<Output> {
+    query_zellij(Command::new("zellij").args(args))
 }
 
 /// Own the temporary PTY client even if readiness checks return an error.

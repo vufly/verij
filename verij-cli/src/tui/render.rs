@@ -168,7 +168,7 @@ fn status_bar_content(state: &AppState) -> Span<'static> {
         )
     } else {
         Span::styled(
-            " j/k: nav  Enter: attach  n: new  R: rename host  ?: hide  q: quit",
+            " j/k: nav  J/K: sessions  Enter: attach  d: detach active  x: kill session/close tab  n: new  R: rename host  ?: hide  q: quit",
             Style::default().fg(c(colors.muted)),
         )
     }

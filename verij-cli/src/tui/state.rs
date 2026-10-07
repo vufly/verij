@@ -79,6 +79,14 @@ pub enum InputMode {
     RenameHost,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingAction {
+    Activate,
+    DetachSession,
+    KillSession,
+    CloseTab,
+}
+
 /// The complete mutable state of the Verij TUI.
 #[derive(Default)]
 pub struct AppState {
@@ -129,7 +137,7 @@ pub struct AppState {
     pub error: Option<String>,
 
     /// Action queued by input, dispatched after drawing its progress status.
-    pub action_pending: bool,
+    pub pending_action: Option<PendingAction>,
 
     /// In-progress action message rendered inside the sidebar's status bar.
     pub progress: Option<String>,
@@ -333,6 +341,36 @@ impl AppState {
             self.cursor = (self.cursor + 1).min(self.nodes.len() - 1);
         }
         self.sync_list_state();
+    }
+
+    /// Session-only jumps skip all tab rows without changing attachment.
+    pub fn next_session(&mut self) {
+        if let Some(index) = ((self.cursor + 1)..self.nodes.len())
+            .find(|&index| matches!(self.nodes[index], TreeNode::Session { .. })) {
+            self.select_index(index);
+        }
+    }
+
+    pub fn previous_session(&mut self) {
+        let current = self.selected_node().map(TreeNode::session_name);
+        if let Some(index) = (0..self.cursor).rev()
+            .find(|&index| matches!(&self.nodes[index], TreeNode::Session { name, .. } if Some(name.as_str()) != current)) {
+            self.select_index(index);
+        }
+    }
+
+    /// Rank sessions, not visible rows, so expanded tab lists do not bias distance.
+    pub fn nearest_live_session(
+        &self,
+        removed: &str,
+        statuses: &std::collections::BTreeMap<String, crate::session::SessionStatus>,
+    ) -> Option<String> {
+        let origin = self.sessions.iter().position(|session| session.name == removed)?;
+        self.sessions.iter().enumerate()
+            .filter(|(_, session)| session.name != removed
+                && statuses.get(&session.name) == Some(&crate::session::SessionStatus::Live))
+            .min_by_key(|(index, _)| (index.abs_diff(origin), *index < origin))
+            .map(|(_, session)| session.name.clone())
     }
 
     /// Move cursor up by `step` rows (PageUp).
@@ -573,5 +611,43 @@ mod tests {
         state.toggle_collapse();
         assert!(!state.collapsed.contains("backend"));
         assert_eq!(state.nodes.len(), 5);
+    }
+
+    #[test]
+    fn session_jumps_skip_expanded_tabs_and_stop_at_boundaries() {
+        let mut state = AppState::default();
+        state.reconcile(make_test_sessions());
+        state.previous_session();
+        assert_eq!(state.cursor, 0);
+        state.next_session();
+        assert_eq!(state.cursor, 3);
+        state.next_session();
+        assert_eq!(state.cursor, 3);
+        state.cursor_down();
+        state.previous_session();
+        assert_eq!(state.cursor, 0);
+        state.toggle_collapse();
+        state.next_session();
+        assert_eq!(state.cursor, 1);
+    }
+
+    #[test]
+    fn nearest_session_uses_live_inventory_excludes_target_and_prefers_next_on_ties() {
+        use crate::session::SessionStatus;
+        let mut state = AppState::default();
+        state.reconcile(["a", "b", "c", "d"].into_iter().map(|name| SessionSnapshot {
+            name: name.into(), is_current: false, tabs: vec![], active_pane: None,
+            connected_clients: None, needs_resurrection: false,
+        }).collect());
+        let mut statuses = std::collections::BTreeMap::from([
+            ("a".into(), SessionStatus::Live), ("b".into(), SessionStatus::Live),
+            ("c".into(), SessionStatus::Live), ("d".into(), SessionStatus::Exited),
+        ]);
+        assert_eq!(state.nearest_live_session("b", &statuses).as_deref(), Some("c"));
+        statuses.insert("c".into(), SessionStatus::Exited);
+        assert_eq!(state.nearest_live_session("b", &statuses).as_deref(), Some("a"));
+        statuses.remove("a");
+        assert!(state.nearest_live_session("b", &statuses).is_none());
+        assert!(state.nearest_live_session("missing", &statuses).is_none());
     }
 }
