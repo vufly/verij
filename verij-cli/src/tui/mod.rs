@@ -114,6 +114,29 @@ async fn event_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut s
             }
         }
 
+        if let Some(name) = state.creation_pending.take() {
+            state.progress = Some(format!("Creating session '{name}'…"));
+            state.error = None;
+            terminal.draw(|frame| render::render(frame, &mut state))?;
+            let old_active = state.active_session.clone();
+            let workspace_pane_name = state.format_workspace_pane_name(&name);
+            let result = actions::create_inner_session(
+                old_active.as_deref(),
+                &name,
+                state.plugin_path.as_deref(),
+                &workspace_pane_name,
+            );
+            state.progress = None;
+            match result {
+                Ok(()) => {
+                    state.active_session = Some(name);
+                    state.workspace_pane_name = Some(workspace_pane_name);
+                }
+                Err(error) => state.error = Some(format!("Create error: {error:#}")),
+            }
+            needs_render = true;
+        }
+
         if let Some(action) = state.pending_action.take() {
             if let Some(message) = action_progress(&state, action) {
                 state.progress = Some(message);
@@ -295,24 +318,7 @@ fn handle_key(state: &mut AppState, key: KeyEvent) -> Result<bool> {
                         state.cancel_new_session_prompt();
                         return Ok(false);
                     }
-                    let old_active = state.active_session.clone();
-                    let workspace_pane_name = state.format_workspace_pane_name(&name);
-                    let res = actions::create_inner_session(
-                        old_active.as_deref(),
-                        &name,
-                        state.plugin_path.as_deref(),
-                        &workspace_pane_name,
-                    );
-                    match res {
-                        Ok(()) => {
-                            state.active_session = Some(name);
-                            state.workspace_pane_name = Some(workspace_pane_name);
-                            state.error = None;
-                        }
-                        Err(e) => {
-                            state.error = Some(format!("Create error: {e}"));
-                        }
-                    }
+                    state.creation_pending = Some(name);
                 }
                 state.cancel_new_session_prompt();
             }
@@ -802,6 +808,17 @@ esac
         assert!(state.active_session.is_none());
         assert!(crate::config::last_host_session("host").is_none());
         assert!(commands().contains("--session beta action close-tab-by-id 7\n"));
+    }
+
+    #[test]
+    fn confirming_new_session_queues_creation_before_progress_draw() {
+        let mut state = AppState::default();
+        state.start_new_session_prompt();
+        state.input_buffer = "o24".into();
+        handle_key(&mut state, KeyEvent::new(KeyCode::Enter, KeyModifiers::empty())).unwrap();
+        assert_eq!(state.creation_pending.as_deref(), Some("o24"));
+        assert_eq!(state.input_mode, InputMode::Normal);
+        assert!(state.active_session.is_none());
     }
 
     #[test]

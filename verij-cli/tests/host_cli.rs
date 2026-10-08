@@ -22,6 +22,10 @@ impl Fixture {
         fs::write(&zellij, r#"#!/bin/sh
 case "$1" in
   list-sessions)
+    if [ "${VERIJ_TEST_STARTUP_RACE:-}" = "1" ] && [ -f "$VERIJ_TEST_CLIENT_PID" ] && [ ! -f "$XDG_CACHE_HOME/zellij/contract_version_1/session_info/inner/session-metadata.kdl" ]; then
+      echo 'socket probed before FirstClientConnected' > "$VERIJ_TEST_ACTION"
+      exit 1
+    fi
     if [ "${VERIJ_TEST_LIST_HANG:-}" = "1" ]; then exec sleep 60; fi
     if [ "${VERIJ_TEST_LIST_FAIL:-}" = "1" ]; then
       echo 'inventory unavailable' >&2
@@ -132,6 +136,9 @@ esac
         fs::write(&script, r#"#!/bin/sh
 echo $$ > "$VERIJ_TEST_CLIENT_PID"
 if [ "${VERIJ_TEST_CLIENT_FAIL:-}" = "1" ]; then exit 7; fi
+if [ "${VERIJ_TEST_STARTUP_RACE:-}" = "1" ]; then sleep 0.3; fi
+mkdir -p "$XDG_CACHE_HOME/zellij/contract_version_1/session_info/inner"
+printf '%s\n' 'name "inner"' 'tabs { tab { position 0; }; }' > "$XDG_CACHE_HOME/zellij/contract_version_1/session_info/inner/session-metadata.kdl"
 printf '%s\n' 'work [Created 1m ago] (EXITED - attach to resurrect)' 'inner [Created 1m ago]' > "$VERIJ_TEST_SESSIONS"
 exec sleep 60
 "#).unwrap();
@@ -319,6 +326,17 @@ fn lingering_inner_client_is_reaped_before_attaching_host() {
     assert!(attached.stderr.is_empty(), "resurrection must not write into the sidebar terminal");
     let layout = fs::read_to_string(f.root.join("cache/zellij/contract_version_1/session_info/work/session-layout.kdl")).unwrap();
     assert!(layout.contains("args \"attach\" \"--force-run-commands\" \"inner\""));
+}
+
+#[test]
+fn session_startup_waits_for_publication_before_probing_new_socket() {
+    let f = Fixture::new();
+    f.exited_host(true);
+    f.fake_resurrection_client();
+    let attached = f.run(&["attach", "-c", "work"], &[("VERIJ_TEST_STARTUP_RACE", "1")]);
+    assert!(attached.status.success(), "{}", String::from_utf8_lossy(&attached.stderr));
+    assert!(!fs::read_to_string(f.action()).unwrap().contains("socket probed before FirstClientConnected"));
+    f.assert_client_stopped();
 }
 
 #[test]

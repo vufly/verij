@@ -26,6 +26,10 @@ pub fn create_inner_session(
     plugin_path: Option<&Path>,
     workspace_pane_name: &str,
 ) -> Result<()> {
+    crate::registry::validate_name(new_session_name)?;
+    if !matches!(crate::session::session_status(new_session_name)?, crate::session::SessionStatus::Missing) {
+        anyhow::bail!("Zellij session '{new_session_name}' already exists");
+    }
     // 1. Create the session with a fake PTY via `script` so zellij has a valid viewport.
     //
     // Zellij 0.45.x regression (zellij-org/zellij#5594): tabs created against a session
@@ -42,40 +46,24 @@ pub fn create_inner_session(
     // The inner session inherits Zellij config; the layout is inspected only for readiness.
     let zellij_cmd = format!("zellij attach -c {}", shell_quote(new_session_name));
 
-    let mut fake_client = Command::new("script")
-        .args(["-q", "-c", &zellij_cmd, "/dev/null"])
-        .env_remove("ZELLIJ")
-        .env_remove("ZELLIJ_SESSION_NAME")
-        .env_remove("ZELLIJ_PANE_ID")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
+    let mut fake_client = crate::session::TemporaryClient::start_zellij(new_session_name, &zellij_cmd)
         .with_context(|| {
             format!("Failed to create session '{new_session_name}' via fake-PTY attach")
         })?;
 
     // Wait for the actual first-tab status plugin, not an unrelated visible plugin.
     let expected_plugin = default_layout.as_deref().and_then(default_tab_plugin);
-    let layout_ready = if let Some(ref plugin) = expected_plugin {
-        wait_for_layout_plugin(new_session_name, plugin)
-    } else {
-        std::thread::sleep(Duration::from_millis(400));
-        true
-    };
+    wait_for_inner_layout(new_session_name, expected_plugin.as_deref(), &mut fake_client)?;
 
     // Detach the fake client — the session stays alive, layout already applied.
-    let _ = crate::session::zellij_action(&["-s", new_session_name, "action", "detach"]);
+    crate::session::zellij_action(&["-s", new_session_name, "action", "detach"])
+        .with_context(|| format!("Failed to detach temporary client for '{new_session_name}'"))?;
 
     // Wait for `script` to exit after zellij detaches (prevents zombie processes).
-    let _ = fake_client.wait();
+    fake_client.finish()?;
 
-    if let Some(plugin) = expected_plugin {
-        if !layout_ready || !session_has_visible_plugin(new_session_name, &plugin) {
-            anyhow::bail!(
-                "Session '{new_session_name}' started without its first-tab plugin '{plugin}'. Check Zellij plugin loading before using it."
-            );
-        }
+    if !session_layout_ready(new_session_name, expected_plugin.as_deref())? {
+        anyhow::bail!("Session '{new_session_name}' lost its initial layout after detaching temporary client");
     }
 
     // 2. Check if agent state file appears (auto-loaded via Zellij load_plugins).
@@ -518,40 +506,50 @@ fn kdl_option(config: &str, key: &str) -> Option<String> {
     })
 }
 
-fn wait_for_layout_plugin(session_name: &str, location: &str) -> bool {
+fn wait_for_inner_layout(
+    session_name: &str,
+    location: Option<&str>,
+    client: &mut crate::session::TemporaryClient,
+) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut stable_since = None;
     while Instant::now() < deadline {
-        if session_has_visible_plugin(session_name, location) {
+        if let Some(status) = client.try_wait()? {
+            anyhow::bail!("Creation client for '{session_name}' exited before its layout was ready: {status}");
+        }
+        if session_layout_ready(session_name, location)? {
             let since = stable_since.get_or_insert_with(Instant::now);
             if since.elapsed() >= Duration::from_millis(1200) {
-                return true;
+                return Ok(());
             }
         } else {
             stable_since = None;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    false
+    anyhow::bail!("Session '{session_name}' did not initialize its first-tab layout within 10s");
 }
 
-fn session_has_visible_plugin(session_name: &str, location: &str) -> bool {
-    let Ok(output) = Command::new("zellij")
+fn session_layout_ready(session_name: &str, location: Option<&str>) -> Result<bool> {
+    if !matches!(crate::session::session_status(session_name)?, crate::session::SessionStatus::Live) {
+        return Ok(false);
+    }
+    let output = crate::session::query_zellij(Command::new("zellij")
         .args(["--session", session_name, "action", "list-panes", "--all", "--json"])
-        .output()
-    else {
-        return false;
-    };
+    )?;
 
     if !output.status.success() {
-        return false;
+        return Ok(false);
     }
 
     let Ok(panes) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout) else {
-        return false;
+        return Ok(false);
     };
 
-    first_tab_plugin_ready(&panes, location)
+    Ok(match location {
+        Some(location) => first_tab_plugin_ready(&panes, location),
+        None => first_tab_has_terminal(&panes),
+    })
 }
 
 fn first_tab_plugin_ready(panes: &[serde_json::Value], location: &str) -> bool {
@@ -566,18 +564,34 @@ fn first_tab_plugin_ready(panes: &[serde_json::Value], location: &str) -> bool {
             && pane.get("is_floating").and_then(|value| value.as_bool()) == Some(false)
             && (url == location || url.contains(location))
     });
-    let terminal = panes.iter().any(|pane| {
+    plugin && first_tab_has_terminal(panes)
+}
+
+fn first_tab_has_terminal(panes: &[serde_json::Value]) -> bool {
+    panes.iter().any(|pane| {
         pane.get("is_plugin").and_then(|value| value.as_bool()) == Some(false)
             && pane.get("tab_position").and_then(|value| value.as_u64()) == Some(0)
             && pane.get("pane_rows").and_then(|value| value.as_u64()).unwrap_or(0) > 0
-    });
-    plugin && terminal
+    })
 }
 
 #[cfg(test)]
 mod readiness_tests {
     use super::{first_tab_plugin_ready, kdl_option};
     use serde_json::json;
+
+    #[cfg(unix)]
+    #[test]
+    fn creation_reports_early_client_exit_without_waiting_for_readiness() {
+        let mut client = crate::session::TemporaryClient::spawn("sh -c 'exit 7'").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while client.try_wait().unwrap().is_none() {
+            assert!(std::time::Instant::now() < deadline, "temporary client did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let error = super::wait_for_inner_layout("failed-creation", None, &mut client).unwrap_err();
+        assert!(error.to_string().contains("exited before its layout was ready"));
+    }
 
     #[test]
     fn requires_target_plugin_on_first_tab_and_terminal() {

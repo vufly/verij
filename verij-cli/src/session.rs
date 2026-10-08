@@ -4,8 +4,8 @@ use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::sync::{mpsc, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -168,6 +168,41 @@ pub fn rename_host(old: &str, new: &str) -> Result<()> {
 const QUERY_TIMEOUT: Duration = Duration::from_secs(3);
 const CLIENT_EXIT_TIMEOUT: Duration = Duration::from_secs(2);
 
+// Zellij 0.45.1 panics if a socket probe disconnects before FirstClientConnected.
+// Inventory queries probe every socket, including sessions still starting.
+static ZELLIJ_STARTUP: Mutex<()> = Mutex::new(());
+
+struct StartupGuard {
+    #[cfg(unix)]
+    _file: std::fs::File,
+    _local: std::sync::MutexGuard<'static, ()>,
+}
+
+fn startup_guard() -> Result<StartupGuard> {
+    let local = ZELLIJ_STARTUP.lock().unwrap_or_else(|error| error.into_inner());
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        // Other Verij host sidebars also poll the complete socket inventory.
+        let runtime = crate::config::runtime_dir();
+        std::fs::create_dir_all(&runtime)?;
+        let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false)
+            .open(runtime.join("zellij-startup.lock"))?;
+        loop {
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+                break;
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                return Err(error.into());
+            }
+        }
+        Ok(StartupGuard { _file: file, _local: local })
+    }
+    #[cfg(not(unix))]
+    Ok(StartupGuard { _local: local })
+}
+
 fn wait_until(child: &mut Child, deadline: Instant) -> std::io::Result<Option<ExitStatus>> {
     loop {
         if let Some(status) = child.try_wait()? {
@@ -182,7 +217,8 @@ fn wait_until(child: &mut Child, deadline: Instant) -> std::io::Result<Option<Ex
 
 /// Drain both pipes concurrently: large pane inventories can fill stdout before
 /// Zellij exits. The deadline covers process exit and inherited pipe handles.
-fn query_zellij(command: &mut Command) -> Result<Output> {
+pub(crate) fn query_zellij(command: &mut Command) -> Result<Output> {
+    let _startup = startup_guard()?;
     let description = format!("{command:?}");
     let deadline = Instant::now() + QUERY_TIMEOUT;
     let mut child = command
@@ -264,10 +300,62 @@ pub fn zellij_output(args: &[&str]) -> Result<Output> {
 /// Own the temporary PTY client even if readiness checks return an error.
 /// util-linux script forwards SIGTERM to its client and reaps it; use SIGKILL
 /// only as a final fallback when script itself fails to exit.
-struct ResurrectionClient(Child);
+pub(crate) struct TemporaryClient(Child);
 
-impl ResurrectionClient {
-    fn finish(&mut self) -> Result<()> {
+impl TemporaryClient {
+    /// Wait for freshly published session metadata before allowing CLI probes.
+    /// A socket existing or answering ConnStatus does not mean it is initialized.
+    pub(crate) fn start_zellij(session_name: &str, command: &str) -> Result<Self> {
+        let _startup = startup_guard()?;
+        let path = session_cache_dir(session_name)
+            .context("Cannot locate Zellij session metadata")?
+            .join("session-metadata.kdl");
+        let previous_modified = std::fs::metadata(&path).and_then(|metadata| metadata.modified()).ok();
+        let mut client = Self::spawn(command)?;
+        client.wait_for_publication(session_name, &path, previous_modified)?;
+        Ok(client)
+    }
+
+    fn wait_for_publication(&mut self, session_name: &str, path: &Path, previous_modified: Option<SystemTime>) -> Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if let Some(status) = self.try_wait()? {
+                bail!("Temporary client for '{session_name}' exited before its layout was ready: {status}");
+            }
+            if session_metadata_published(path, session_name, previous_modified) {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        bail!("Zellij session '{session_name}' did not publish initialized session metadata within 10s");
+    }
+
+    pub(crate) fn spawn(command: &str) -> Result<Self> {
+        // script's stdin is /dev/null, so it cannot inherit a viewport.
+        let (columns, rows) = crossterm::terminal::size().ok()
+            .filter(|(columns, rows)| *columns > 0 && *rows > 0)
+            .unwrap_or((120, 40));
+        let command = format!("stty rows {rows} cols {columns}; exec {command}");
+        let mut script = Command::new("script");
+        script
+            .args(["-q", "-e", "-c", &command, "/dev/null"])
+            .env_remove("ZELLIJ")
+            .env_remove("ZELLIJ_SESSION_NAME")
+            .env_remove("ZELLIJ_PANE_ID")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        // Cleanup must not signal the sidebar's own process group.
+        #[cfg(unix)]
+        script.process_group(0);
+        Ok(Self(script.spawn().context("Failed to start temporary PTY client")?))
+    }
+
+    pub(crate) fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        self.0.try_wait()
+    }
+
+    pub(crate) fn finish(&mut self) -> Result<()> {
         if wait_until(&mut self.0, Instant::now() + CLIENT_EXIT_TIMEOUT)?.is_some() {
             return Ok(());
         }
@@ -285,7 +373,7 @@ impl ResurrectionClient {
     }
 }
 
-impl Drop for ResurrectionClient {
+impl Drop for TemporaryClient {
     fn drop(&mut self) {
         let _ = self.finish();
     }
@@ -398,24 +486,8 @@ pub fn resurrect_session(session_name: &str) -> Result<()> {
         .and_then(|path| std::fs::read_to_string(path).ok())
         .is_some_and(|layout| layout.contains("zjstatus"));
 
-    // script's stdin is /dev/null, so it cannot inherit the caller's viewport.
-    // Supply a real size before Zellij restores split panes and status plugins.
-    let (columns, rows) = crossterm::terminal::size().ok()
-        .filter(|(columns, rows)| *columns > 0 && *rows > 0)
-        .unwrap_or((120, 40));
-    let command = format!("stty rows {rows} cols {columns}; exec {}", resurrection_command(session_name));
-    let mut fake_client = ResurrectionClient(
-        Command::new("script")
-            .args(["-q", "-e", "-c", &command, "/dev/null"])
-            .env_remove("ZELLIJ")
-            .env_remove("ZELLIJ_SESSION_NAME")
-            .env_remove("ZELLIJ_PANE_ID")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .with_context(|| format!("Failed to resurrect session '{session_name}'"))?,
-    );
+    let mut fake_client = TemporaryClient::start_zellij(session_name, &resurrection_command(session_name))
+        .with_context(|| format!("Failed to resurrect session '{session_name}'"))?;
 
     // The first status pane can appear before the remaining serialized tabs
     // restore. Detaching then leaves those tabs without their status plugin.
@@ -423,7 +495,7 @@ pub fn resurrect_session(session_name: &str) -> Result<()> {
     let mut stable_since = None;
     let mut layout_ready = false;
     while Instant::now() < deadline {
-        if let Some(status) = fake_client.0.try_wait()? {
+        if let Some(status) = fake_client.try_wait()? {
             bail!("Resurrection client for '{session_name}' exited before its layout was ready: {status}");
         }
         let ready = matches!(session_status(session_name)?, SessionStatus::Live)
@@ -515,14 +587,35 @@ pub fn prepare_host_workspace_layout(host_session: &str, target_session: Option<
     Ok(())
 }
 
-fn resurrection_layout_path(session_name: &str) -> Option<PathBuf> {
+fn session_cache_dir(session_name: &str) -> Option<PathBuf> {
     let cache_home = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?;
-    let path = cache_home
+    Some(cache_home
         .join("zellij/contract_version_1/session_info")
-        .join(session_name)
-        .join("session-layout.kdl");
+        .join(session_name))
+}
+
+fn session_metadata_published(path: &Path, session_name: &str, previous_modified: Option<SystemTime>) -> bool {
+    let Ok(modified) = std::fs::metadata(path).and_then(|metadata| metadata.modified()) else {
+        return false;
+    };
+    if Some(modified) == previous_modified {
+        return false;
+    }
+    let Ok(source) = std::fs::read_to_string(path) else { return false; };
+    let Ok(document) = source.parse::<kdl::KdlDocument>() else { return false; };
+    let name = document.get("name")
+        .and_then(|node| node.get(0))
+        .and_then(|entry| entry.value().as_string());
+    let has_tabs = document.get("tabs")
+        .and_then(|node| node.children())
+        .is_some_and(|tabs| tabs.nodes().iter().any(|node| node.name().value() == "tab"));
+    name == Some(session_name) && has_tabs
+}
+
+fn resurrection_layout_path(session_name: &str) -> Option<PathBuf> {
+    let path = session_cache_dir(session_name)?.join("session-layout.kdl");
     path.exists().then_some(path)
 }
 
@@ -630,6 +723,46 @@ mod tests {
     };
     use serde_json::json;
     use std::path::Path;
+
+    #[test]
+    fn startup_publication_requires_fresh_valid_metadata_for_target_with_tabs() {
+        let dir = std::env::temp_dir().join(format!("verij-startup-metadata-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("session-metadata.kdl");
+        for source in ["name \"inner\"\ntabs {", "name \"other\"\ntabs { tab; }", "name \"inner\"\ntabs {}"] {
+            std::fs::write(&path, source).unwrap();
+            assert!(!super::session_metadata_published(&path, "inner", None));
+        }
+        std::fs::write(&path, "name \"inner\"\ntabs { tab { position 0; }; }").unwrap();
+        assert!(super::session_metadata_published(&path, "inner", None));
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert!(!super::session_metadata_published(&path, "inner", Some(modified)));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn temporary_client_starts_with_sized_pty_and_without_host_identity() {
+        let mut client = super::TemporaryClient::spawn(
+            "sh -c 'test -z \"${ZELLIJ+x}${ZELLIJ_SESSION_NAME+x}${ZELLIJ_PANE_ID+x}\" || exit 1; set -- $(stty size); test \"$1\" -gt 0 && test \"$2\" -gt 0'",
+        ).unwrap();
+        let status = super::wait_until(&mut client.0, std::time::Instant::now() + std::time::Duration::from_secs(3))
+            .unwrap().expect("temporary PTY command hung");
+        assert!(status.success(), "temporary PTY had no viewport or inherited host identity: {status}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn temporary_client_cleanup_is_bounded_and_isolated_from_sidebar() {
+        let mut client = super::TemporaryClient::spawn("sleep 60").unwrap();
+        let pid = client.0.id() as libc::pid_t;
+        assert_ne!(unsafe { libc::getpgid(pid) }, unsafe { libc::getpgrp() });
+        let started = std::time::Instant::now();
+        client.finish().unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(4));
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "temporary script process leaked");
+        assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+    }
 
     #[cfg(unix)]
     #[test]

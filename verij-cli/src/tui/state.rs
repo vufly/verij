@@ -139,6 +139,9 @@ pub struct AppState {
     /// Action queued by input, dispatched after drawing its progress status.
     pub pending_action: Option<PendingAction>,
 
+    /// New-session name queued until creation progress has been drawn.
+    pub creation_pending: Option<String>,
+
     /// In-progress action message rendered inside the sidebar's status bar.
     pub progress: Option<String>,
 
