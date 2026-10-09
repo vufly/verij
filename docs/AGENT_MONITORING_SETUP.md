@@ -200,7 +200,7 @@ target/release/verij config path
 target/release/verij start --session-name monitoring-dev
 ```
 
-The normal host is separate from the synthetic test fixture. To enable H3 OpenCode monitoring, run `target/release/verij agent setup opencode`, quit/restart OpenCode, then inspect `target/release/verij agent doctor`. The installed reporter path must remain available. Agy/Magy adapters follow at H4.
+The normal host is separate from the synthetic test fixture. To enable H3 OpenCode monitoring, install the current WASM at the URL normal Zellij config loads (`make install-plugin` for the standard XDG share path), then run `target/release/verij agent setup opencode`, quit/restart OpenCode, and inspect `target/release/verij agent doctor --session INNER_SESSION`. Existing inner sessions need an exporter reload at the same configured URL after a WASM upgrade. [The adapter guide](../integrations/opencode/README.md#install-and-inspect) has the exact commands. The installed reporter path must remain available. Agy/Magy adapters follow at H4.
 
 These customization files can be copied if you want the same appearance:
 

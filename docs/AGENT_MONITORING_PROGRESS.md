@@ -23,11 +23,21 @@ Source of truth for product behavior: [approved design](AGENT_MONITORING.md). En
 | 2 | Reporter, store, reducer and acknowledgement | Approved: synthetic semantics, real ownership/visit proof | H1 approved 2026-10-05 |
 | 3 | Stock-capability pane navigation | Approved within documented stock limits | H1 approved 2026-10-05 |
 | 4 | Three-level TUI | Approved: native/WASM checks, 170 Rust tests, ten live checks | H2 approved 2026-10-05 |
-| 5 | OpenCode adapter | Review: production adapter, 197 Rust tests after master integration, seven Node tests, 25 live checks | H3 human review pending |
+| 5 | OpenCode adapter | Review: exporter deployment rework; 198 Rust tests, seven Node tests, 26 fixture checks and actual host child observed | H3 human re-verification pending |
 | 6–7 | Agy/Magy adapters; setup, doctor, documentation | Pending | H4 pending |
 | 8 | Automated and live acceptance | Pending | H5 pending |
 
 ## Gate evidence and blockers
+
+### H3 human missing-row feedback and exporter deployment repair — 2026-10-09
+
+The user reported **“I don't see agent children item under tab in the tui tree when I started opencode”**. This is H3 rework feedback, not approval. Investigation found the global TUI adapter correctly installed and OpenCode 1.18.34 supported, but all existing inner snapshots had the old sessions/tabs-only schema. Normal Zellij `load_plugins` pointed at `~/.local/share/verij/verij_plugin.wasm`, whose bytes matched the non-monitoring master artifact rather than this checkout's monitoring build. `agent verify` correctly refused registration with **“session has no verified pane inventory”**. The private acceptance harness always loaded the checkout's fresh WASM, so its earlier success did not verify installed-artifact deployment.
+
+Added `make install-plugin` to upgrade the conventional XDG share artifact, with `VERIJ_DATA_DIR` for another configured directory. Executed it and reloaded the **same existing plugin URL only in inner session `test`**. The existing OpenCode process registered automatically through its bridge's retry path, without an agent or session restart. Native inventory identified its verified server/pane process; `agent doctor --session test` reports one healthy Idle record and ready prerequisites. A read-only native dump of host `t`'s sidebar confirmed the actual rendered hierarchy **`test → Tab #1 → ○ opencode OpenCode`**. The installed plugin now matches the checkout artifact; already-running exporters in other sessions require their own reload to use the upgraded file.
+
+Doctor now distinguishes adapter installation from complete monitoring prerequisites, diagnoses `legacy_snapshot` and unverified/missing pane identities, reports active adapter/runtime path agreement and bundled/default-installed WASM paths/content agreement, and scopes inventory/records with `--session`. Setup/review documentation now includes the required exporter installation/reload step. A unit regression and an explicitly synthetic legacy snapshot fixture prevent an installed adapter from being mistaken for ready native ownership.
+
+**Rework verification:** `cargo check --workspace`, `cargo test --workspace` (**198 tests: 157 CLI unit, 15 CLI integration, four plugin, 22 shared-type**), native/WASM `make check`, release CLI build, `make install-plugin`, and seven Node tests pass. Expanded H3 fixture passes **26 checks** in cleaned **`vj-h3-rbq4_l6q`**; its evidence validator corroborates 27 production snapshots across four native instances. [The separate rework ledger](../prototypes/h3-opencode/exporter-rework-results.json) records fixture and actual host repair evidence without rewriting prior results. Human re-verification and approval remain pending.
 
 ### H3 commit and latest master integration — 2026-10-09
 

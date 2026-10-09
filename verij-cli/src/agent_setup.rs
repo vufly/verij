@@ -30,6 +30,9 @@ pub struct DoctorArgs {
     pub config_dir: Option<PathBuf>,
     #[arg(long, default_value = "opencode")]
     pub opencode_bin: PathBuf,
+    /// Diagnose the exporter prerequisite for one inner Zellij session.
+    #[arg(long)]
+    pub session: Option<String>,
 }
 
 fn directory(override_dir: Option<PathBuf>) -> Result<PathBuf> {
@@ -499,6 +502,29 @@ pub fn uninstall(args: SetupArgs) -> Result<()> {
     Ok(())
 }
 
+fn inventory_diagnostics(snapshots: &[verij_types::SessionSnapshot]) -> Vec<Value> {
+    snapshots.iter().map(|snapshot| {
+        let (status, detail, terminals) = match snapshot.inventory.as_ref() {
+            None => ("legacy_snapshot", "This session exports only sessions/tabs. Upgrade the Verij WASM plugin at its configured load_plugins path, then reload that same URL in this session.", 0),
+            Some(inventory) if inventory.schema_version != 1 => (
+                "unsupported_schema", "Exporter inventory schema is unsupported by this CLI.", 0,
+            ),
+            Some(inventory) if inventory.server_process.is_none() => (
+                "server_unverified", "Exporter server incarnation is unavailable; refresh the session's Verij exporter.", 0,
+            ),
+            Some(inventory) => {
+                let terminals = inventory.panes.iter().filter(|pane| !pane.exited && pane.pane_process.is_some()).count();
+                if terminals == 0 {
+                    ("pane_identity_unavailable", "Exporter is present but has no verified live terminal process identity.", 0)
+                } else {
+                    ("ready", "Verified native pane inventory is available. A foreground OpenCode TUI can register against it.", terminals)
+                }
+            }
+        };
+        serde_json::json!({"session":snapshot.name,"status":status,"detail":detail,"verified_terminal_panes":terminals})
+    }).collect()
+}
+
 pub fn doctor(args: DoctorArgs) -> Result<()> {
     let path = target(args.config_dir)?;
     let dir = path.parent().context("TUI config has no parent")?;
@@ -538,16 +564,96 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
     crate::agent_store::atomic_write_json(&check, &serde_json::json!({"self_check":true}))?;
     let runtime_writable = std::fs::read(&check).is_ok();
     std::fs::remove_file(&check)?;
-    let records = crate::agent_watcher::read_records(&runtime.join("agents/v1"));
+    let mut records = crate::agent_watcher::read_records(&runtime.join("agents/v1"));
+    let inventory_directory = crate::fs_watcher::resolve_states_dir();
+    let mut snapshots = crate::inventory::read_states(&inventory_directory);
+    if let Some(session) = args.session.as_deref() {
+        snapshots.retain(|snapshot| snapshot.name == session);
+        records.retain(|record| {
+            snapshots.iter().any(|snapshot| {
+                snapshot
+                    .inventory
+                    .as_ref()
+                    .and_then(|inventory| inventory.session_instance_id.as_ref())
+                    == Some(&record.identity.pane_key.session)
+            })
+        });
+    }
+    let inventory_sessions = inventory_diagnostics(&snapshots);
+    let inventory_ready = inventory_sessions.iter().any(|s| s["status"] == "ready");
+    let version_supported = version
+        .as_deref()
+        .is_some_and(|v| crate::opencode::SUPPORTED.contains(&v));
+    let adapter_runtime = std::env::var("VERIJ_AGENT_STATE_DIR")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| PathBuf::from(value.trim()))
+        .or_else(|| {
+            options
+                .and_then(|o| o.get("runtimeDir"))
+                .and_then(Value::as_str)
+                .map(PathBuf::from)
+        });
+    let adapter_inventory = std::env::var_os("VERIJ_STATES_DIR")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            options
+                .and_then(|o| o.get("statesDir"))
+                .and_then(Value::as_str)
+                .map(PathBuf::from)
+        });
+    let runtime_matches = adapter_runtime.as_deref() == Some(runtime.as_path());
+    let inventory_path_matches =
+        adapter_inventory.as_deref() == Some(inventory_directory.as_path());
+    let installation_ready =
+        version_supported && entry.is_some() && !disabled && exact_assets && reporter_available;
+    let mut blockers = Vec::new();
+    if !installation_ready {
+        blockers.push("OpenCode adapter installation/version needs attention.");
+    }
+    if !inventory_ready {
+        blockers.push("No verified pane inventory is available for the selected session scope. Check inventory_sessions; legacy snapshots require a Verij WASM exporter upgrade/reload, not another OpenCode restart.");
+    }
+    if !runtime_matches {
+        blockers.push("Current reporter runtime differs from installed adapter runtime; use the same VERIJ_AGENT_STATE_DIR in agent and sidebar.");
+    }
+    if !inventory_path_matches {
+        blockers.push("Current inventory directory differs from installed adapter path; use the same VERIJ_STATES_DIR in agent and sidebar.");
+    }
+    let bundled_plugin = crate::layout::resolve_plugin_path(None).ok();
+    let default_installed_plugin = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .map(|data| data.join("verij/verij_plugin.wasm"));
+    let installed_plugin_matches_bundle = bundled_plugin
+        .as_ref()
+        .zip(default_installed_plugin.as_ref())
+        .and_then(|(source, installed)| {
+            std::fs::read(source)
+                .ok()
+                .zip(std::fs::read(installed).ok())
+        })
+        .map(|(source, installed)| source == installed);
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
             "adapter":"opencode", "bridge_version":crate::opencode::BRIDGE_VERSION,
             "opencode_version":version, "supported_versions":crate::opencode::SUPPORTED,
-            "version_supported":version.as_deref().is_some_and(|v| crate::opencode::SUPPORTED.contains(&v)),
+            "version_supported":version_supported,
             "config":path, "configured":entry.is_some(), "disabled":disabled,
             "assets_match":exact_assets, "reporter":reporter, "reporter_available":reporter_available,"reporter_version":reporter_version,
             "runtime":runtime, "runtime_writable":runtime_writable, "installed_runtime":options.and_then(|o|o.get("runtimeDir")),
+            "effective_adapter_runtime":adapter_runtime,"runtime_matches_adapter":runtime_matches,
+            "inventory_directory":inventory_directory,"installed_inventory_directory":options.and_then(|o|o.get("statesDir")),
+            "effective_adapter_inventory_directory":adapter_inventory,"inventory_path_matches_adapter":inventory_path_matches,
+            "requested_session":args.session,"inventory_sessions":inventory_sessions,"inventory_ready":inventory_ready,
+            "bundled_plugin":bundled_plugin,"default_installed_plugin":default_installed_plugin,
+            "installed_plugin_matches_bundle":installed_plugin_matches_bundle,
+            "exporter_upgrade":"From the checkout: make install-plugin (or set VERIJ_DATA_DIR to the directory of your configured Verij WASM). Reload the same configured plugin URL in the affected existing session using zellij -s SESSION action start-or-reload-plugin URL. New sessions load the installed artifact normally.",
+            "installation_ready":installation_ready,
+            "monitoring_prerequisites_ready":installation_ready && inventory_ready && runtime_matches && inventory_path_matches,
+            "blockers":blockers,
             "live_records":records.iter().filter(|r| r.identity.kind == verij_types::agent::AgentKind::Opencode).count(),
             "records":records.iter().filter(|r| r.identity.kind == verij_types::agent::AgentKind::Opencode).map(|r| serde_json::json!({
                 "instance":r.identity.agent_instance_id,"pid":r.identity.process.pid,"pane":r.identity.pane_key,
@@ -555,7 +661,7 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
             })).collect::<Vec<_>>(),
             "binding_requires":"Linux foreground tty + current native Zellij inventory",
             "capabilities":["activity","permissions","questions","conversation_title","aggregate_completion","terminal_failure"],
-            "note":"Installation inspection and runtime write check; start a TUI to verify live reporting. Restart after setup/uninstall."
+            "note":"Installation, runtime and pane-inventory prerequisite checks. live_records confirms actual reporting; installation alone is insufficient. Restart OpenCode after adapter setup/uninstall; reload the Verij exporter after a WASM upgrade."
         }))?
     );
     Ok(())
@@ -564,6 +670,36 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn doctor_distinguishes_legacy_exporter_from_verified_pane_inventory() {
+        let mut snapshot: verij_types::SessionSnapshot =
+            serde_json::from_value(serde_json::json!({
+                "name":"legacy-inner","is_current":true,"tabs":[],"active_pane":null
+            }))
+            .unwrap();
+        let legacy = inventory_diagnostics(&[snapshot.clone()]);
+        assert_eq!(legacy[0]["status"], "legacy_snapshot");
+        assert!(legacy[0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("reload that same URL"));
+        let process = crate::process::identity(std::process::id()).unwrap();
+        snapshot.inventory = Some(serde_json::from_value(serde_json::json!({
+            "schema_version":1,"producer":{"server_pid":process.pid,"plugin_id":0,"client_id":1,"epoch":"test"},
+            "revision":1,"exported_at_ms":crate::agent_store::now_ms(),"tabs":[],"panes":[],"capabilities":[],
+            "server_process":process
+        })).unwrap());
+        assert_eq!(
+            inventory_diagnostics(&[snapshot.clone()])[0]["status"],
+            "pane_identity_unavailable"
+        );
+        snapshot.inventory.as_mut().unwrap().panes.push(serde_json::from_value(serde_json::json!({
+            "terminal_id":1,"tab_position":0,"title":"OpenCode","pane_pid":process.pid,"pane_process":process,
+            "is_floating":false,"is_suppressed":false,"is_fullscreen":false,"layer_focused":false,"exited":false
+        })).unwrap());
+        assert_eq!(inventory_diagnostics(&[snapshot])[0]["status"], "ready");
+    }
     #[test]
     fn jsonc_setup_is_idempotent_and_uninstall_preserves_other_settings() {
         let original = "{\n // user comment\n \"theme\":\"mine\",\n \"plugin\":[[\"other\",{\"x\":1}],],\n \"keybinds\":{\"leader\":\"ctrl+x\"},\n}";

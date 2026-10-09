@@ -1,8 +1,9 @@
-.PHONY: all build build-plugin build-plugin-dev build-cli build-cli-dev dev run check clean
+.PHONY: all build build-plugin build-plugin-dev build-cli build-cli-dev install-plugin dev run check clean
 
 TARGET_WASM = wasm32-wasip1
 DIST_DIR = dist
 PLUGIN_WASM = $(DIST_DIR)/verij_plugin.wasm
+VERIJ_DATA_DIR ?= $(if $(XDG_DATA_HOME),$(XDG_DATA_HOME),$(HOME)/.local/share)/verij
 
 all: dev
 build: dev
@@ -23,6 +24,13 @@ build-cli:
 
 build-cli-dev:
 	cargo build -p verij-cli
+
+# Upgrade the exporter path used by normal Zellij load_plugins configuration.
+# Existing sessions still need start-or-reload-plugin for this same URL.
+install-plugin: build-plugin
+	mkdir -p "$(VERIJ_DATA_DIR)"
+	install -m 644 "$(PLUGIN_WASM)" "$(VERIJ_DATA_DIR)/verij_plugin.wasm.tmp"
+	mv "$(VERIJ_DATA_DIR)/verij_plugin.wasm.tmp" "$(VERIJ_DATA_DIR)/verij_plugin.wasm"
 
 dev: build-plugin build-cli
 	@echo "Build complete. Artifacts ready:"

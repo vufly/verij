@@ -1,0 +1,41 @@
+{
+  "status": "PASS",
+  "date": "2026-10-09",
+  "human_h3_approved": false,
+  "feedback": "No agent child appeared after starting OpenCode",
+  "cause": "Normal Zellij loaded an older installed Verij WASM exporting sessions/tabs only, while the fixture loaded the current monitoring WASM",
+  "actual_host_repair": {
+    "host": "t",
+    "inner_session": "test",
+    "terminal_pane": 1,
+    "opencode_pid": 694060,
+    "agent_restart_required_for_this_repair": false,
+    "session_restart_required": false,
+    "before": "No verified pane inventory; zero registered records",
+    "operation": "make install-plugin; reload existing file:$HOME/.local/share/verij/verij_plugin.wasm URL in test",
+    "after": "One healthy Idle OpenCode record with verified foreground binding",
+    "observed_sidebar": "test -> Tab #1 -> idle opencode OpenCode",
+    "observation_method": "Native read-only dump-screen of host t terminal_0",
+    "installed_plugin_matches_bundle": true
+  },
+  "checks": {
+    "cargo_check_workspace": "PASS",
+    "cargo_test_workspace": "PASS: 198 tests",
+    "make_check": "PASS: native and wasm32-wasip1",
+    "release_cli_build": "PASS",
+    "install_plugin_target": "PASS",
+    "node_tests": "PASS: 7 tests"
+  },
+  "fixture": {
+    "status": "PASS",
+    "root": "/home/vudinhn/repos/workspaces/verij/agent-monitoring/artifacts/scratch/vj-h3-rbq4_l6q",
+    "checks": 26,
+    "evidence_validator": "PASS: 27 snapshots across 4 instances",
+    "legacy_snapshot_prerequisite_fixture_synthetic": true,
+    "production_semantic_records_synthetic": false,
+    "probe_processes_exited": true,
+    "server_and_host_exited": true,
+    "private_socket_removed": true
+  },
+  "review": "Human re-verification pending"
+}

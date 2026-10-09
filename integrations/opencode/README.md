@@ -4,9 +4,29 @@ This is a TUI plugin, configured in `tui.json` or `tui.jsonc`. It runs in the ac
 
 ## Install and inspect
 
+The sidebar binary and each inner session's **Verij WASM exporter** must both be from the monitoring build. A new CLI with an old exporter still renders sessions/tabs, but cannot establish agent ownership and therefore produces no agent children.
+
+If normal Zellij configuration loads `~/.local/share/verij/verij_plugin.wasm`, install the current build at that path before starting a new inner session:
+
+```sh
+make install-plugin
+```
+
+This honors `XDG_DATA_HOME`; set `VERIJ_DATA_DIR=/absolute/plugin/directory` when the configured Verij plugin is elsewhere. `make dev` builds checkout artifacts but does not upgrade another installed path automatically. The installation target preserves Zellij configuration and uses an atomic artifact replacement.
+
+For an already-running inner session, reload **the same URL configured in its `load_plugins`** after installing the new artifact. For the standard path:
+
+```sh
+zellij -s INNER_SESSION action start-or-reload-plugin \
+  "file:$HOME/.local/share/verij/verij_plugin.wasm"
+```
+
+Use your configured URL/XDG path if different. This reloads the exporter without restarting the inner session or agent. An already-loaded OpenCode bridge retries registration and can recover once verified inventory appears. A fresh exporter context may require re-registering host navigation before verified visits.
+
 ```sh
 target/release/verij agent setup opencode
 target/release/verij agent doctor
+target/release/verij agent doctor --session INNER_SESSION
 ```
 
 **Quit and restart OpenCode after setup or uninstall.** Running TUIs retain their loaded configuration. The setup output includes the selected config file, absolute reporter path, shared runtime directory and restart requirement.
@@ -38,7 +58,7 @@ Keep the reporter executable at its installed absolute path. Rerun setup after m
 
 Bounds: at most 64 family sessions, 100 pending requests and 1,024 remembered successful turns per agent process. Ledger exhaustion stops allocating further Done revisions for new turns, retaining observed activity and a diagnostic. Existing remembered outcomes remain idempotent. Only the currently selected root's latest turn is presented; this is a pane navigator, not a conversation archive.
 
-`agent doctor` inspects the selected configuration, versions, asset contents, reporter execution, runtime atomic-write availability and live source health. A matching file is installation evidence; actual TUI registration is the live reporting check. Merged project settings and OpenCode runtime KV can still disable a configured plugin.
+`agent doctor` inspects the selected configuration, versions, asset contents, reporter execution, runtime atomic-write availability, effective adapter/runtime paths, exporter inventory prerequisites and live source health. `--session` scopes inventory and records to one inner session. A legacy exporter is explicitly reported as `legacy_snapshot`; `monitoring_prerequisites_ready` remains false even when adapter installation is correct. Doctor also reports the bundled/default-installed WASM paths and whether their bytes match. `live_records` confirms actual registration, rather than inferring it from installed files. Merged project settings and OpenCode runtime KV can still disable a configured plugin.
 
 ## Verification and review
 

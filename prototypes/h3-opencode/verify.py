@@ -126,13 +126,25 @@ class Probe(runtime.Probe):
         assert json.loads(first)["plugin"][0] == driver
         doctor = self.cli("agent", "doctor", "--config-dir", str(tui.parent))
         assert doctor["assets_match"] and doctor["reporter_available"] and doctor["version_supported"]
+        # Explicitly synthetic legacy wire-format fixture, not a semantic
+        # agent record or native binding. Doctor must flag the missing exporter
+        # prerequisite instead of treating adapter installation as readiness.
+        legacy_file = root / "states/legacy-exporter-fixture.json"
+        legacy_file.write_text(json.dumps({"name":"legacy-exporter-fixture","is_current":True,"tabs":[],"active_pane":None}))
+        try:
+            legacy = self.cli("agent", "doctor", "--config-dir", str(tui.parent), "--session", "legacy-exporter-fixture")
+            assert legacy["installation_ready"] and not legacy["monitoring_prerequisites_ready"]
+            assert legacy["inventory_sessions"][0]["status"] == "legacy_snapshot"
+        finally:
+            legacy_file.unlink()
         url = "file:" + str(plugin)
         (root / "cache/zellij/permissions.kdl").write_text("\n".join(json.dumps(name) + " {\n ReadApplicationState\n ChangeApplicationState\n ReadCliPipes\n}\n"
                                                                           for name in (url, str(plugin))))
         self.zconfig.write_text(self.zconfig.read_text() + f'load_plugins {{\n {json.dumps(url)} {{\n state_dir "/host/states"\n control_dir "/host/control"\n }}\n}}\n')
         self.env["ZELLIJ_CONFIG_FILE"] = str(self.zconfig)
         self.report.update(verij=str(verij), zellij_version=subprocess.check_output([zellij, "--version"], text=True).strip(),
-                           checks=[{"setup_idempotence_and_diagnostics":True,"setup":setup,"doctor":doctor}])
+                           checks=[{"setup_idempotence_and_diagnostics":True,"setup":setup,"doctor":doctor},
+                                   {"legacy_exporter_prerequisite_diagnosed":True,"snapshot_fixture_synthetic":True,"doctor":legacy}])
 
     def cli(self, *args):
         result = subprocess.run([str(self.verij), *args], env=self.env, cwd=self.root, capture_output=True, text=True, timeout=10)
@@ -175,6 +187,7 @@ class Probe(runtime.Probe):
         apid, bpid = aa["pid"], bb["pid"]
         self.stage("idle production rows")
         self.wait(lambda: len(self.records()) == 2 and self.record(apid, "idle") and self.record(bpid, "idle"))
+        assert self.cli("agent", "doctor", "--session", self.name)["monitoring_prerequisites_ready"]
         assert all(not r["identity"]["is_synthetic"] and r["state"]["completion_revision"] == 0 for r in self.records())
         self.capture("two_live_idle_production_rows_before_prompt", apid, bpid)
 

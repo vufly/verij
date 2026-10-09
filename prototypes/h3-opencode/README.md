@@ -24,6 +24,8 @@ The compact [results ledger](results.json) identifies the final run. Its absolut
 
 After committing H3 as `445519f`, master `854ecb1` was integrated. The separate [merge ledger](merge-results.json) records passing 197 Rust tests, seven Node tests, all ten H2 checks and all 25 H3 checks against the merged release artifacts. Original checkpoint results remain unchanged.
 
+The [exporter deployment rework ledger](exporter-rework-results.json) records the subsequent human-reported missing-row issue and its live repair. The installed TUI adapter was correct, but normal Zellij still loaded an older Verij WASM without inventory. Installing/reloading the current exporter made the existing real OpenCode TUI register and rendered its child in the actual host sidebar. The expanded fixture passes 26 checks, adding an explicitly synthetic legacy wire-format prerequisite fixture for doctor; its semantic/binding/runtime checks remain real installed OpenCode. That fixture diagnoses the legacy format, rather than claiming to execute an archived exporter binary.
+
 ## Current checks
 
 The final 2026-10-09 run uses **OpenCode 1.18.34**, **stock Zellij 0.45.1**, and the release-built CLI/WASM. It passes 25 scoped checks, including inherited listener/private-storage and native-binding checks:
@@ -50,7 +52,7 @@ The final 2026-10-09 run uses **OpenCode 1.18.34**, **stock Zellij 0.45.1**, and
 
 H3 is **ready for review, not approved**. Use the [adapter installation guide](../../integrations/opencode/README.md) in a disposable inner session:
 
-1. Run `target/release/verij agent setup opencode`, then quit and restart OpenCode. Inspect `agent doctor` for the installed binary/config/runtime and live records.
+1. Install/reload the current Verij exporter at the URL used by your normal Zellij config, then run `target/release/verij agent setup opencode` and quit/restart OpenCode. Inspect `agent doctor --session INNER_SESSION`: `inventory_ready` and `monitoring_prerequisites_ready` should be true, then `live_records` should confirm the actual agent. `legacy_snapshot` requires an exporter upgrade/reload.
 2. Start two normal OpenCode TUIs in separate panes of the same cwd. Verify two agent children appear under their actual tab, including before the first prompt.
 3. Exercise a held/model/tool turn, explicit permission/question, successful completion and terminal error. Only the owning pane's status/title should update. Needs input remains until a real reply/rejection; Idle alone never creates Done.
 4. Exercise native child work and attach one TUI to a shared server. Child completion must not produce parent Done while the parent still works; foreign conversations must not affect the other pane.
