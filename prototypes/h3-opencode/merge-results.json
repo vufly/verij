@@ -1,0 +1,36 @@
+{
+  "status": "PASS",
+  "date": "2026-10-09",
+  "h3_commit": "445519f",
+  "master_commit": "854ecb1",
+  "human_h3_approved": false,
+  "repository_checks": {
+    "cargo_check_workspace": "PASS",
+    "cargo_test_workspace": "PASS: 197 tests (156 CLI unit, 15 CLI integration, 4 plugin, 22 shared types)",
+    "make_check": "PASS: native and wasm32-wasip1",
+    "make_dev": "PASS: release CLI and WASM",
+    "node_tests": "PASS: 7 tests"
+  },
+  "h2": {
+    "status": "PASS",
+    "checks": 10,
+    "root": "/home/vudinhn/repos/workspaces/verij/agent-monitoring/artifacts/scratch/vj-h2-viyp2xha",
+    "semantic_records_synthetic": true,
+    "evidence_validator": "PASS",
+    "private_socket_removed": true,
+    "known_processes_exited": true
+  },
+  "h3": {
+    "status": "PASS",
+    "checks": 25,
+    "root": "/home/vudinhn/repos/workspaces/verij/agent-monitoring/artifacts/scratch/vj-h3-y25xdy2m",
+    "opencode_version": "1.18.34",
+    "zellij_version": "0.45.1",
+    "model_output": "controlled loopback HTTP provider; synthetic model output, real installed runtime",
+    "production_semantic_records_synthetic": false,
+    "evidence_validator": "PASS: 27 snapshots, 4 instances",
+    "probe_processes_exited": true,
+    "server_and_host_exited": true,
+    "private_socket_removed": true
+  }
+}

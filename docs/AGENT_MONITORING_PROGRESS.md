@@ -10,7 +10,7 @@ Source of truth for product behavior: [approved design](AGENT_MONITORING.md). En
 - Monitoring feature code: **H1/H2 committed; H3 OpenCode adapter implemented and verified**. H3 adds pane-local presence, ordered reporting, family reconciliation, completion replay protection, leases and preliminary setup/doctor/uninstall. The H3 fixture passes 25 checks with corroborated evidence; the H2 regression passes ten checks. H4 Agy/Magy adapters remain pending. The patched bridge under [`prototypes/zellij-attach-bridge/`](../prototypes/zellij-attach-bridge/README.md) remains archived.
 - Latest H3 tested versions: stock Zellij **0.45.1**, OpenCode **1.18.34**, Rust **1.98.1**, Node **24.21.0**. Earlier OpenCode/Agy and patched-Zellij fixtures retain their historical provenance and dated versions. Version checks alone do not satisfy integration gates.
 - Current checkpoint: **H2 approved**. The user replied **“approve H2. commit and push”** on 2026-10-05. Stock Zellij, shared-stack behavior and Agy limits remain accepted. Approval covers the documented tree/local-completion scope; synthetic semantic fixtures do not claim live adapters.
-- Current implementation checkpoint: **H3 — OpenCode adapter, review pending**. H1 was committed as `bd2cc4f`; approved H2 is `0b71319`. The user authorized H3 with **“Implement H3”** on 2026-10-09. Stop for H3 feedback before H4.
+- Current implementation checkpoint: **H3 — OpenCode adapter, committed as `445519f`, review pending**. H1 was committed as `bd2cc4f`; approved H2 is `0b71319`. The user authorized H3 with **“Implement H3”** on 2026-10-09, then requested committing and pulling master. Latest master `854ecb1` is integrated with the verification recorded below. Stop for H3 feedback before H4.
 
 ## Phase and checkpoint ledger
 
@@ -23,11 +23,21 @@ Source of truth for product behavior: [approved design](AGENT_MONITORING.md). En
 | 2 | Reporter, store, reducer and acknowledgement | Approved: synthetic semantics, real ownership/visit proof | H1 approved 2026-10-05 |
 | 3 | Stock-capability pane navigation | Approved within documented stock limits | H1 approved 2026-10-05 |
 | 4 | Three-level TUI | Approved: native/WASM checks, 170 Rust tests, ten live checks | H2 approved 2026-10-05 |
-| 5 | OpenCode adapter | Review: production adapter, 176 Rust tests, seven Node tests, 25 live checks | H3 human review pending |
+| 5 | OpenCode adapter | Review: production adapter, 197 Rust tests after master integration, seven Node tests, 25 live checks | H3 human review pending |
 | 6–7 | Agy/Magy adapters; setup, doctor, documentation | Pending | H4 pending |
 | 8 | Automated and live acceptance | Pending | H5 pending |
 
 ## Gate evidence and blockers
+
+### H3 commit and latest master integration — 2026-10-09
+
+The user requested **“commit then pull master for latest fixes”**. H3 and the related portable setup/evidence improvements were committed as **`445519f`** (`Implemented H3 OpenCode monitoring and recorded verification`). Fetched and merged `origin/master` at **`854ecb1`**, including attachment/output capture fixes `711009f`, sidebar lifecycle shortcuts/fallback `0ad0611`, startup/creation race fixes `e2cc884` and upstream research documentation `854ecb1`.
+
+Resolved six overlapping files while retaining three-level agent trees, source/host-local completion behavior, exact ownership and asynchronous activation. Master lifecycle/progress UI now dispatches through the existing monitoring queue; lifecycle mutations invalidate pending navigation/visit work. Full-snapshot title recovery remains off-thread and ignores the configured empty-Workspace title. Captured, bounded Zellij commands preserve explicit Workspace targeting and first-attachment locking. Monitoring inventory/control commands participate in master's shared startup exclusion, with cancellable/deadline-bounded waits so watcher shutdown cannot stall behind initialization. Local attachment publication rechecks navigation supersession after native dispatch/rename.
+
+**Merged checks:** `cargo check --workspace`, `cargo test --workspace` (**197 tests: 156 CLI unit, 15 CLI integration, four plugin, 22 shared-type**), native/WASM `make check`, release `make dev` and all seven Node tests pass. Regression coverage includes waiting startup-query cancellation/deadline and lifecycle mutation superseding an in-flight activation. Master's isolated lifecycle fixture was adapted to `-s` routing and the owned Workspace wrapper; explicit mock executable/config selection prevents parallel tests from leaking a different Zellij locator into it.
+
+**Merged live checks:** H2 passes ten scoped checks in cleaned **`vj-h2-viyp2xha`**, with original native keyboard/control/UI/acknowledgement evidence independently validated. H3 passes 25 checks in cleaned **`vj-h3-y25xdy2m`**, with 27 original production snapshots across four instances independently corroborated. [The separate merge ledger](../prototypes/h3-opencode/merge-results.json) records these roots; the original H3 checkpoint results remain historical. H3 human review and H4 authorization remain pending.
 
 ### H3 production OpenCode integration — 2026-10-09
 

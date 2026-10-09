@@ -26,6 +26,10 @@ pub fn create_inner_session(
     plugin_path: Option<&Path>,
     workspace_pane_name: &str,
 ) -> Result<()> {
+    crate::registry::validate_name(new_session_name)?;
+    if !matches!(crate::session::session_status(new_session_name)?, crate::session::SessionStatus::Missing) {
+        anyhow::bail!("Zellij session '{new_session_name}' already exists");
+    }
     // 1. Create the session with a fake PTY via `script` so zellij has a valid viewport.
     //
     // Zellij 0.45.x regression (zellij-org/zellij#5594): tabs created against a session
@@ -55,45 +59,24 @@ pub fn create_inner_session(
         shell_quote(new_session_name)
     );
 
-    let mut fake_client = Command::new("script")
-        .args(["-q", "-c", &zellij_cmd, "/dev/null"])
-        .env_remove("ZELLIJ")
-        .env_remove("ZELLIJ_SESSION_NAME")
-        .env_remove("ZELLIJ_PANE_ID")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
+    let mut fake_client = crate::session::TemporaryClient::start_zellij(new_session_name, &zellij_cmd)
         .with_context(|| {
             format!("Failed to create session '{new_session_name}' via fake-PTY attach")
         })?;
 
     // Wait for the actual first-tab status plugin, not an unrelated visible plugin.
     let expected_plugin = default_layout.as_deref().and_then(default_tab_plugin);
-    let layout_ready = if let Some(ref plugin) = expected_plugin {
-        wait_for_layout_plugin(new_session_name, plugin)
-    } else {
-        std::thread::sleep(Duration::from_millis(400));
-        true
-    };
+    wait_for_inner_layout(new_session_name, expected_plugin.as_deref(), &mut fake_client)?;
 
     // Detach the fake client — the session stays alive, layout already applied.
-    let _ = Command::new("zellij")
-        .args(["-s", new_session_name, "action", "detach"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    crate::session::zellij_action(&["-s", new_session_name, "action", "detach"])
+        .with_context(|| format!("Failed to detach temporary client for '{new_session_name}'"))?;
 
     // Wait for `script` to exit after zellij detaches (prevents zombie processes).
-    let _ = fake_client.wait();
+    fake_client.finish()?;
 
-    if let Some(plugin) = expected_plugin {
-        if !layout_ready || !session_has_visible_plugin(new_session_name, &plugin) {
-            anyhow::bail!(
-                "Session '{new_session_name}' started without its first-tab plugin '{plugin}'. Check Zellij plugin loading before using it."
-            );
-        }
+    if !session_layout_ready(new_session_name, expected_plugin.as_deref())? {
+        anyhow::bail!("Session '{new_session_name}' lost its initial layout after detaching temporary client");
     }
 
     // 2. Check if agent state file appears (auto-loaded via Zellij load_plugins).
@@ -103,8 +86,7 @@ pub fn create_inner_session(
     if !state_file.exists() {
         if let Some(path) = plugin_path {
             let plugin_url = format!("file:{}", path.display());
-            let _ = Command::new("zellij")
-                .args([
+            let _ = crate::session::zellij_action(&[
                     "-s",
                     new_session_name,
                     "action",
@@ -112,8 +94,7 @@ pub fn create_inner_session(
                     "--floating",
                     "--no-focus",
                     &plugin_url,
-                ])
-                .status();
+                ]);
         }
     }
 
@@ -197,6 +178,9 @@ pub fn switch_session_if_current(
                 anyhow::bail!("navigation superseded locally before dispatch");
             }
             inception_switch(old, target_session)?;
+            if !is_current() {
+                anyhow::bail!("navigation superseded locally after dispatch");
+            }
             set_workspace_session(target_session)?;
 
             // If a specific tab is requested, navigate after brief delay
@@ -236,6 +220,9 @@ pub fn switch_session_if_current(
     // Rename the right-side Workspace pane, not the host session tab.
     if let Some(name) = workspace_pane_name {
         rename_workspace_pane(name)?;
+    }
+    if !is_current() {
+        anyhow::bail!("navigation superseded locally before attachment publication");
     }
     set_workspace_session(target_session)?;
 
@@ -369,8 +356,84 @@ pub fn rename_workspace_pane(name: &str) -> Result<()> {
         Duration::from_secs(1),
     )
     .context("Failed to rename workspace pane")?;
-
     Ok(())
+}
+
+/// Replace only this host's nested client with a fresh shell. In-place replacement
+/// preserves the host layout and leaves the inner session's server running.
+pub fn reset_workspace(name: &str) -> Result<()> {
+    let old_pane = workspace_pane()?.context("Failed to identify host Workspace pane")?;
+    let pane_id = format!("terminal_{}", old_pane.id);
+    crate::session::zellij_action(&[
+        "action", "new-pane", "--in-place", "--close-replaced-pane", "--pane-id", &pane_id,
+        "--no-focus", "--name", name, "--borderless", "true",
+    ])?;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if workspace_pane()?.is_some_and(|pane| pane.id != old_pane.id) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    anyhow::bail!("Workspace pane replacement did not complete")
+}
+
+pub fn focus_sidebar() -> Result<()> {
+    let id = std::env::var("ZELLIJ_PANE_ID").context("Sidebar pane ID is not available")?;
+    let id = id.strip_prefix("terminal_").unwrap_or(&id).parse::<u32>()
+        .context("Invalid sidebar pane ID")?;
+    let output = crate::session::zellij_output(&["action", "focus-pane-id", &format!("terminal_{id}")])?;
+    let diagnostic = format!("{} {}", String::from_utf8_lossy(&output.stderr).trim(),
+        String::from_utf8_lossy(&output.stdout).trim());
+    // Zellij returns a nonzero status for this successful no-op.
+    if output.status.success()
+        || diagnostic.contains(&format!("Pane Terminal({id}) is already focused")) {
+        return Ok(());
+    }
+    anyhow::bail!("Failed to focus sidebar: {}", diagnostic.trim())
+}
+
+pub fn forget_workspace_session() -> Result<()> {
+    clear_workspace_session()?;
+    if let Ok(host) = std::env::var("VERIJ_HOST_NAME").or_else(|_| std::env::var("ZELLIJ_SESSION_NAME")) {
+        crate::config::clear_last_host_session(&host)?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct TabInfo {
+    tab_id: u32,
+    position: usize,
+    name: String,
+}
+
+/// Resolve the selected snapshot to a stable tab ID; never change active tabs
+/// merely to close one, and reject a stale position/name instead of closing another.
+pub fn close_tab(session_name: &str, position: usize, name: &str) -> Result<bool> {
+    let output = crate::session::zellij_output(&["--session", session_name, "action", "list-tabs", "--json"])?;
+    if !output.status.success() {
+        anyhow::bail!("Failed to inspect tabs in '{session_name}'");
+    }
+    let tabs: Vec<TabInfo> = serde_json::from_slice(&output.stdout).context("Invalid Zellij tab inventory")?;
+    let tab = tabs.iter().find(|tab| tab.position == position && tab.name == name)
+        .context("Selected tab changed; wait for sidebar to refresh and retry")?;
+    crate::session::zellij_action(&[
+        "--session", session_name, "action", "close-tab-by-id", &tab.tab_id.to_string(),
+    ])?;
+    Ok(tabs.len() == 1)
+}
+
+pub fn kill_session(session_name: &str) -> Result<()> {
+    crate::session::zellij_action(&["kill-session", session_name])?;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if crate::session::session_status(session_name)? != crate::session::SessionStatus::Live {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    anyhow::bail!("Session '{session_name}' did not stop")
 }
 
 /// Executes "The Inception Switch":
@@ -378,8 +441,7 @@ pub fn rename_workspace_pane(name: &str) -> Result<()> {
 pub fn inception_switch(old_active_session: &str, new_selected_session: &str) -> Result<()> {
     let payload = format!("switch:{}", new_selected_session);
 
-    let status = Command::new("zellij")
-        .args([
+    crate::session::zellij_action(&[
             "-s",
             old_active_session,
             "pipe",
@@ -388,31 +450,19 @@ pub fn inception_switch(old_active_session: &str, new_selected_session: &str) ->
             "--",
             &payload,
         ])
-        .status()
         .with_context(|| {
             format!(
                 "Failed to dispatch Inception Switch pipe to session '{}'",
                 old_active_session
             )
-        })?;
-
-    if !status.success() {
-        eprintln!(
-            "[verij-cli] Warning: Inception Switch command exited with status: {}",
-            status
-        );
-    }
-
-    Ok(())
+        })
 }
 
 /// Re-focuses the right pane: `zellij action move-focus right`.
 pub fn re_focus_right_pane() -> Result<()> {
     if let Some(pane) = workspace_pane()? {
         let id = format!("terminal_{}", pane.id);
-        let output = Command::new("zellij")
-            .args(["action", "focus-pane-id", &id])
-            .output()?;
+        let output = crate::session::zellij_output(&["action", "focus-pane-id", &id])?;
         if !output.status.success()
             && !String::from_utf8_lossy(&output.stderr).contains("already focused")
         {
@@ -420,43 +470,21 @@ pub fn re_focus_right_pane() -> Result<()> {
         }
         return Ok(());
     }
-    let status = Command::new("zellij")
-        .args(["action", "move-focus", "right"])
-        .status()
-        .context("Failed to execute `zellij action move-focus right`")?;
-
-    if !status.success() {
-        eprintln!(
-            "[verij-cli] Warning: `zellij action move-focus right` exited with status: {}",
-            status
-        );
-    }
-
-    Ok(())
+    crate::session::zellij_action(&["action", "move-focus", "right"])
+        .context("Failed to execute `zellij action move-focus right`")
 }
 
 /// Switch to a specific tab within the named session:
 /// `zellij --session <target> action go-to-tab <position + 1>`.
 pub fn switch_tab(session_name: &str, tab_position: usize) -> Result<()> {
     let tab_arg = (tab_position + 1).to_string();
-    let status = Command::new("zellij")
-        .args(["--session", session_name, "action", "go-to-tab", &tab_arg])
-        .status()
+    crate::session::zellij_action(&["--session", session_name, "action", "go-to-tab", &tab_arg])
         .with_context(|| {
             format!(
                 "Failed to navigate to tab {} in session '{}'",
                 tab_position, session_name
             )
-        })?;
-
-    if !status.success() {
-        eprintln!(
-            "[verij-cli] Warning: `zellij action go-to-tab` exited with status: {}",
-            status
-        );
-    }
-
-    Ok(())
+        })
 }
 
 /// Initial attach fallback when no session was previously active in the right pane:
@@ -512,6 +540,7 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
             }
         }
     }
+    let pane_id = format!("terminal_{}", actual_pane.id);
     set_workspace_session(target_session)?;
     let marker_cleanup = workspace_marker_path()
         .map(|path| format!("; rm -f {}", shell_quote(&path.to_string_lossy())))
@@ -548,31 +577,18 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
         "export {WORKSPACE_SESSION_ENV}={}; stty sane; {attach_program}; unset {WORKSPACE_SESSION_ENV}{marker_cleanup}\n",
         shell_quote(target_session),
     );
-    let _ = Command::new("zellij")
-        .args(["action", "move-focus", "right"])
-        .stdin(std::process::Stdio::null())
-        .status();
-
-    let pane =
-        workspace_pane()?.context("cannot identify exact Workspace pane for first attach")?;
-    let pane_id = format!("terminal_{}", pane.id);
-    let status = Command::new("zellij")
-        .args(["action", "write-chars", "--pane-id", &pane_id, &attach_cmd])
-        .stdin(std::process::Stdio::null())
-        .status()
+    let result = crate::session::zellij_action(&["action", "write-chars", "--pane-id", &pane_id, &attach_cmd])
         .with_context(|| {
             format!(
                 "Failed to send initial attach command for session '{}'",
                 target_session
             )
-        })?;
+        });
 
-    if !status.success() {
+    if result.is_err() {
         let _ = clear_workspace_session();
-        anyhow::bail!("initial attach write-chars failed: {status}");
     }
-
-    Ok(())
+    result
 }
 
 fn shell_quote(value: &str) -> String {
@@ -627,47 +643,50 @@ fn kdl_option(config: &str, key: &str) -> Option<String> {
     })
 }
 
-fn wait_for_layout_plugin(session_name: &str, location: &str) -> bool {
+fn wait_for_inner_layout(
+    session_name: &str,
+    location: Option<&str>,
+    client: &mut crate::session::TemporaryClient,
+) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut stable_since = None;
     while Instant::now() < deadline {
-        if session_has_visible_plugin(session_name, location) {
+        if let Some(status) = client.try_wait()? {
+            anyhow::bail!("Creation client for '{session_name}' exited before its layout was ready: {status}");
+        }
+        if session_layout_ready(session_name, location)? {
             let since = stable_since.get_or_insert_with(Instant::now);
             if since.elapsed() >= Duration::from_millis(1200) {
-                return true;
+                return Ok(());
             }
         } else {
             stable_since = None;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    false
+    anyhow::bail!("Session '{session_name}' did not initialize its first-tab layout within 10s");
 }
 
-fn session_has_visible_plugin(session_name: &str, location: &str) -> bool {
-    let Ok(output) = Command::new("zellij")
-        .args([
-            "--session",
-            session_name,
-            "action",
-            "list-panes",
-            "--all",
-            "--json",
-        ])
-        .output()
-    else {
-        return false;
-    };
+fn session_layout_ready(session_name: &str, location: Option<&str>) -> Result<bool> {
+    if !matches!(crate::session::session_status(session_name)?, crate::session::SessionStatus::Live) {
+        return Ok(false);
+    }
+    let output = crate::session::query_zellij(Command::new("zellij")
+        .args(["--session", session_name, "action", "list-panes", "--all", "--json"])
+    )?;
 
     if !output.status.success() {
-        return false;
+        return Ok(false);
     }
 
     let Ok(panes) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout) else {
-        return false;
+        return Ok(false);
     };
 
-    first_tab_plugin_ready(&panes, location)
+    Ok(match location {
+        Some(location) => first_tab_plugin_ready(&panes, location),
+        None => first_tab_has_terminal(&panes),
+    })
 }
 
 fn first_tab_plugin_ready(panes: &[serde_json::Value], location: &str) -> bool {
@@ -682,22 +701,34 @@ fn first_tab_plugin_ready(panes: &[serde_json::Value], location: &str) -> bool {
             && pane.get("is_floating").and_then(|value| value.as_bool()) == Some(false)
             && (url == location || url.contains(location))
     });
-    let terminal = panes.iter().any(|pane| {
+    plugin && first_tab_has_terminal(panes)
+}
+
+fn first_tab_has_terminal(panes: &[serde_json::Value]) -> bool {
+    panes.iter().any(|pane| {
         pane.get("is_plugin").and_then(|value| value.as_bool()) == Some(false)
             && pane.get("tab_position").and_then(|value| value.as_u64()) == Some(0)
-            && pane
-                .get("pane_rows")
-                .and_then(|value| value.as_u64())
-                .unwrap_or(0)
-                > 0
-    });
-    plugin && terminal
+            && pane.get("pane_rows").and_then(|value| value.as_u64()).unwrap_or(0) > 0
+    })
 }
 
 #[cfg(test)]
 mod readiness_tests {
     use super::{first_tab_plugin_ready, kdl_option};
     use serde_json::json;
+
+    #[cfg(unix)]
+    #[test]
+    fn creation_reports_early_client_exit_without_waiting_for_readiness() {
+        let mut client = crate::session::TemporaryClient::spawn("sh -c 'exit 7'").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while client.try_wait().unwrap().is_none() {
+            assert!(std::time::Instant::now() < deadline, "temporary client did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let error = super::wait_for_inner_layout("failed-creation", None, &mut client).unwrap_err();
+        assert!(error.to_string().contains("exited before its layout was ready"));
+    }
 
     #[test]
     fn requires_target_plugin_on_first_tab_and_terminal() {

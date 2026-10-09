@@ -20,7 +20,7 @@ mod workspace;
 use anyhow::{Context, Result};
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode, KeyEvent,
+        self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode, KeyEvent, KeyEventKind,
         KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     },
     execute,
@@ -35,9 +35,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::actions;
-use crate::config::Config;
+use crate::config::{AfterSessionAction, Config};
 use crate::fs_watcher;
-use state::{AppState, InputMode};
+use state::{AppState, InputMode, PendingAction, TreeNode};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -181,6 +181,7 @@ async fn event_loop(
             }
         }
         for completion in finished {
+            state.progress = None;
             match completion.result {
                 Ok(crate::activation::Outcome::Legacy) => {
                     state.active_session = Some(completion.request.session);
@@ -234,6 +235,53 @@ async fn event_loop(
             }
         }
 
+        if let Some(name) = state.creation_pending.take() {
+            invalidate_navigation(&mut state, focus_monitor.as_mut());
+            state.progress = Some(format!("Creating session '{name}'…"));
+            state.error = None;
+            terminal.draw(|frame| render::render(frame, &mut state))?;
+            let old_active = state.active_session.clone();
+            let workspace_pane_name = state.format_workspace_pane_name(&name);
+            let result = actions::create_inner_session(
+                old_active.as_deref(),
+                &name,
+                state.plugin_path.as_deref(),
+                &workspace_pane_name,
+            );
+            state.progress = None;
+            match result {
+                Ok(()) => {
+                    state.active_session = Some(name);
+                    state.workspace_pane_name = Some(workspace_pane_name);
+                }
+                Err(error) => state.error = Some(format!("Create error: {error:#}")),
+            }
+            needs_render = true;
+        }
+
+        if let Some(action) = state.pending_action.take() {
+            if let Some(message) = action_progress(&state, action) {
+                state.progress = Some(message);
+                state.error = None;
+                // Actions synchronously wait for Zellij. Flush the message before
+                // dispatch so it stays visible throughout resurrection.
+                terminal.draw(|frame| render::render(frame, &mut state))?;
+                let result = dispatch_pending_action(&mut state, action, focus_monitor.as_mut());
+                if action != PendingAction::Activate
+                    || !state.activation.as_ref().is_some_and(|queue| queue.pending)
+                {
+                    state.progress = None;
+                }
+                if action != PendingAction::Activate {
+                    focus = None;
+                    state.apply_focus(None);
+                    model_changed = true;
+                }
+                result?;
+                needs_render = true;
+            }
+        }
+
         // Drain pending session updates from the filesystem watcher
         for _ in 0..16 {
             match rx.try_recv() {
@@ -247,6 +295,7 @@ async fn event_loop(
                     let recovered_title = if marked_session.is_none() {
                         workspace_presentation.request(None);
                         recovered_workspace_title.clone()
+                            .filter(|title| title != &state.config.workspace.pane_default)
                     } else {
                         None
                     };
@@ -473,8 +522,11 @@ fn title_matches_session(title: &str, session: &str) -> bool {
 fn handle_key(
     state: &mut AppState,
     key: KeyEvent,
-    monitor: Option<&mut visits::Monitor>,
+    _monitor: Option<&mut visits::Monitor>,
 ) -> Result<bool> {
+    if key.kind == KeyEventKind::Release {
+        return Ok(false);
+    }
     if state.input_mode != InputMode::Normal {
         match key.code {
             KeyCode::Esc => {
@@ -497,24 +549,7 @@ fn handle_key(
                         state.cancel_new_session_prompt();
                         return Ok(false);
                     }
-                    let old_active = state.active_session.clone();
-                    let workspace_pane_name = state.format_workspace_pane_name(&name);
-                    let res = actions::create_inner_session(
-                        old_active.as_deref(),
-                        &name,
-                        state.plugin_path.as_deref(),
-                        &workspace_pane_name,
-                    );
-                    match res {
-                        Ok(()) => {
-                            state.active_session = Some(name);
-                            state.workspace_pane_name = Some(workspace_pane_name);
-                            state.error = None;
-                        }
-                        Err(e) => {
-                            state.error = Some(format!("Create error: {e}"));
-                        }
-                    }
+                    state.creation_pending = Some(name);
                 }
                 state.cancel_new_session_prompt();
             }
@@ -544,6 +579,10 @@ fn handle_key(
         }
 
         // Navigation (Vim & Arrow keys)
+        KeyCode::Char('J') => state.next_session(),
+        KeyCode::Char('K') => state.previous_session(),
+        KeyCode::Char('j') if key.modifiers == KeyModifiers::SHIFT => state.next_session(),
+        KeyCode::Char('k') if key.modifiers == KeyModifiers::SHIFT => state.previous_session(),
         KeyCode::Char('j') | KeyCode::Down => state.cursor_down(),
         KeyCode::Char('k') | KeyCode::Up => state.cursor_up(),
 
@@ -564,7 +603,20 @@ fn handle_key(
 
         // Action: The Inception Switch
         KeyCode::Enter => {
-            dispatch_action(state, monitor)?;
+            state.pending_action = Some(PendingAction::Activate);
+        }
+
+        KeyCode::Char('d') if key.modifiers.is_empty() && key.kind == KeyEventKind::Press => {
+            if state.active_session.is_some() {
+                state.pending_action = Some(PendingAction::DetachSession);
+            }
+        }
+        KeyCode::Char('x') if key.modifiers.is_empty() && key.kind == KeyEventKind::Press => {
+            state.pending_action = match state.selected_node() {
+                Some(TreeNode::Session { needs_resurrection: false, .. }) => Some(PendingAction::KillSession),
+                Some(TreeNode::Tab { .. }) => Some(PendingAction::CloseTab),
+                _ => None,
+            };
         }
 
         _ => {}
@@ -578,7 +630,7 @@ fn handle_mouse(
     state: &mut AppState,
     mouse: MouseEvent,
     last_click: &mut Option<(Instant, usize)>,
-    monitor: Option<&mut visits::Monitor>,
+    _monitor: Option<&mut visits::Monitor>,
 ) -> Result<()> {
     match mouse.kind {
         MouseEventKind::ScrollDown => {
@@ -608,7 +660,7 @@ fn handle_mouse(
                 }
 
                 if state.config.tui.single_click_action {
-                    dispatch_action(state, monitor)?;
+                    state.pending_action = Some(PendingAction::Activate);
                     *last_click = None;
                     return Ok(());
                 }
@@ -619,7 +671,7 @@ fn handle_mouse(
                     if prev_idx == target_index
                         && now.duration_since(prev_time) < Duration::from_millis(400)
                     {
-                        dispatch_action(state, monitor)?;
+                        state.pending_action = Some(PendingAction::Activate);
                         *last_click = None;
                         return Ok(());
                     }
@@ -637,6 +689,118 @@ fn handle_mouse(
 // ---------------------------------------------------------------------------
 // Action dispatch: The Inception Switch
 // ---------------------------------------------------------------------------
+
+fn action_progress(state: &AppState, action: PendingAction) -> Option<String> {
+    if action == PendingAction::DetachSession {
+        return state.active_session.as_ref().map(|session| format!("Detaching session '{session}'…"));
+    }
+    let node = state.selected_node()?;
+    Some(match action {
+        PendingAction::Activate => format!("{} '{}'…",
+            if matches!(node, TreeNode::Session { needs_resurrection: true, .. }) { "Restoring session" } else { "Switching to" },
+            node.session_name()),
+        PendingAction::KillSession => format!("Killing session '{}'…", node.session_name()),
+        PendingAction::CloseTab => match node {
+            TreeNode::Tab { name, .. } => format!("Closing tab '{name}'…"),
+            _ => return None,
+        },
+        PendingAction::DetachSession => unreachable!(),
+    })
+}
+
+/// Empty the host attachment without leaving a stale command, title, runtime
+/// marker or durable last-session record that could reconnect it on restart.
+fn empty_workspace(state: &mut AppState) -> Result<()> {
+    let name = state.config.workspace.pane_default.clone();
+    actions::reset_workspace(&name)?;
+    state.active_session = None;
+    state.workspace_pane_name = Some(name);
+    // Invalidate remembered native focus until a fresh attachment is registered.
+    state.apply_focus(None);
+    actions::forget_workspace_session()?;
+    // Persist the replacement immediately so an old serialized nested attach
+    // cannot reconnect a deliberately emptied Workspace on host resurrection.
+    crate::session::zellij_action(&["action", "save-session"])?;
+    state.rebuild_nodes();
+    Ok(())
+}
+
+fn follow_session_action(state: &mut AppState, removed: &str, behavior: AfterSessionAction) -> Result<()> {
+    if behavior == AfterSessionAction::Empty {
+        return Ok(());
+    }
+    let statuses = crate::session::checked_session_statuses()?;
+    if let Some(target) = state.nearest_live_session(removed, &statuses) {
+        let name = state.format_workspace_pane_name(&target);
+        actions::switch_session(None, &target, None, Some(&name))?;
+        state.active_session = Some(target.clone());
+        state.workspace_pane_name = Some(name);
+        state.rebuild_nodes();
+        if let Some(index) = state.nodes.iter().position(|node| matches!(node, TreeNode::Session { name, .. } if name == &target)) {
+            state.select_index(index);
+        }
+    }
+    Ok(())
+}
+
+fn invalidate_navigation(state: &mut AppState, monitor: Option<&mut visits::Monitor>) {
+    if let Some(monitor) = monitor {
+        monitor.invalidate();
+    }
+    if let Some(queue) = state.activation.as_mut() {
+        queue.invalidate();
+    }
+}
+
+fn dispatch_pending_action(
+    state: &mut AppState,
+    action: PendingAction,
+    monitor: Option<&mut visits::Monitor>,
+) -> Result<()> {
+    if action == PendingAction::Activate {
+        return dispatch_action(state, monitor);
+    }
+    invalidate_navigation(state, monitor);
+    let result = (|| -> Result<()> {
+        if action == PendingAction::DetachSession {
+            let Some(target) = state.active_session.clone() else { return Ok(()); };
+            empty_workspace(state)?;
+            return follow_session_action(state, &target, state.config.tui.after_detach);
+        }
+        match state.selected_node().cloned() {
+            Some(TreeNode::Session { name, needs_resurrection: false, .. }) if action == PendingAction::KillSession => {
+                let attached = state.active_session.as_deref() == Some(&name);
+                actions::kill_session(&name)?;
+                if let Some(session) = state.sessions.iter_mut().find(|session| session.name == name) {
+                    session.needs_resurrection = true;
+                }
+                if attached {
+                    empty_workspace(state)?;
+                    follow_session_action(state, &name, state.config.tui.after_kill)?;
+                }
+            }
+            Some(TreeNode::Tab { session_name, name, position, .. }) if action == PendingAction::CloseTab => {
+                let last_tab = actions::close_tab(&session_name, position, &name)?;
+                if let Some(session) = state.sessions.iter_mut().find(|session| session.name == session_name) {
+                    session.tabs.retain(|tab| tab.position != position);
+                    session.needs_resurrection = last_tab;
+                }
+                if last_tab && state.active_session.as_deref() == Some(&session_name) {
+                    empty_workspace(state)?;
+                    follow_session_action(state, &session_name, state.config.tui.after_kill)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    })();
+    let focus_result = actions::focus_sidebar();
+    state.error = result.and(focus_result).err().map(|error| format!("{error:#}"));
+    state.rebuild_nodes();
+    state.cursor = state.cursor.min(state.nodes.len().saturating_sub(1));
+    state.sync_list_state();
+    Ok(())
+}
 
 /// Translate the currently selected `TreeNode` into session/tab switch action.
 fn dispatch_action(state: &mut AppState, monitor: Option<&mut visits::Monitor>) -> Result<()> {
@@ -712,7 +876,280 @@ fn dispatch_action(state: &mut AppState, monitor: Option<&mut visits::Monitor>) 
 mod tests {
     use super::*;
     use ratatui::widgets::ListState;
-    use verij_types::SessionSnapshot;
+    use verij_types::{SessionSnapshot, TabSnapshot};
+
+    fn action_state() -> AppState {
+        let mut state = AppState::default();
+        state.reconcile(["alpha", "beta", "gamma"].into_iter().map(|name| SessionSnapshot {
+            name: name.into(), is_current: false, tabs: vec![
+                TabSnapshot { name: "first".into(), position: 0, is_active: true },
+                TabSnapshot { name: "second".into(), position: 1, is_active: false },
+             ], active_pane: None, connected_clients: Some(1), needs_resurrection: false,
+             inventory: None,
+        }).collect());
+        state.active_session = Some("beta".into());
+        state.rebuild_nodes();
+        state
+    }
+
+    #[test]
+    fn shortcuts_keep_vim_navigation_and_scope_lifecycle_actions() {
+        let mut state = action_state();
+        let key = |code| KeyEvent::new(KeyCode::Char(code), KeyModifiers::empty());
+        handle_key(&mut state, key('J'), None).unwrap();
+        assert_eq!(state.cursor, 3);
+        handle_key(&mut state, key('K'), None).unwrap();
+        assert_eq!(state.cursor, 0);
+        handle_key(&mut state, key('j'), None).unwrap();
+        assert_eq!(state.cursor, 1);
+        handle_key(&mut state, key('k'), None).unwrap();
+        assert_eq!(state.cursor, 0);
+        handle_key(&mut state, key('x'), None).unwrap();
+        assert_eq!(state.pending_action.take(), Some(PendingAction::KillSession));
+        handle_key(&mut state, key('j'), None).unwrap();
+        handle_key(&mut state, key('x'), None).unwrap();
+        assert_eq!(state.pending_action.take(), Some(PendingAction::CloseTab));
+        handle_key(&mut state, key('d'), None).unwrap();
+        assert_eq!(state.pending_action.take(), Some(PendingAction::DetachSession));
+        assert_eq!(action_progress(&state, PendingAction::DetachSession).unwrap(), "Detaching session 'beta'…");
+        assert_eq!(state.selected_node().unwrap().session_name(), "alpha");
+
+        handle_key(&mut state, KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL), None).unwrap();
+        assert!(state.pending_action.is_none());
+        let mut repeated = key('x');
+        repeated.kind = KeyEventKind::Repeat;
+        handle_key(&mut state, repeated, None).unwrap();
+        assert!(state.pending_action.is_none());
+
+        state.active_session = None;
+        handle_key(&mut state, key('d'), None).unwrap();
+        assert!(state.pending_action.is_none());
+        state.sessions[0].needs_resurrection = true;
+        state.rebuild_nodes();
+        state.select_index(0);
+        handle_key(&mut state, key('x'), None).unwrap();
+        assert!(state.pending_action.is_none());
+        assert!(handle_key(&mut state, key('q'), None).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lifecycle_actions_target_selected_objects_and_preserve_host_state_on_failure() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+        use std::path::PathBuf;
+        use std::process::Command;
+
+        let Some(root) = std::env::var_os("VERIJ_LIFECYCLE_FIXTURE").map(PathBuf::from) else {
+            // Run mocked process/state tests in a separate test process. Other
+            // parallel tests must never inherit its PATH or host environment.
+            let root = std::env::temp_dir().join(format!("verij-lifecycle-{}-{}", std::process::id(),
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+            fs::create_dir_all(root.join("bin")).unwrap();
+            fs::create_dir_all(root.join("state/verij")).unwrap();
+            fs::create_dir_all(root.join("runtime/verij")).unwrap();
+            let script = root.join("bin/zellij");
+            fs::write(&script, r#"#!/bin/sh
+printf '%s\n' "$*" >> "$VERIJ_LIFECYCLE_FIXTURE/commands"
+case "$1" in
+  list-sessions) cat "$VERIJ_LIFECYCLE_FIXTURE/sessions"; exit 0 ;;
+  kill-session)
+    if [ "${VERIJ_MUTATION_FAIL:-}" = "1" ]; then echo 'kill failed diagnostic' >&2; exit 1; fi
+    if [ "$2" = "alpha" ]; then
+      printf '%s\n' 'alpha [Created 1m ago] (EXITED)' 'beta [Created 1m ago]' 'gamma [Created 1m ago]' > "$VERIJ_LIFECYCLE_FIXTURE/sessions"
+    else
+      printf '%s\n' 'alpha [Created 1m ago]' 'beta [Created 1m ago] (EXITED)' 'gamma [Created 1m ago]' > "$VERIJ_LIFECYCLE_FIXTURE/sessions"
+    fi
+    exit 0 ;;
+  --session|-s) shift 2 ;;
+esac
+case "$2" in
+  list-panes)
+    id=$(cat "$VERIJ_LIFECYCLE_FIXTURE/pane-id")
+    printf '[{"id":0,"is_plugin":false,"pane_x":0,"tab_id":0,"title":"Verij"},{"id":%s,"is_plugin":false,"pane_x":30,"tab_id":0,"title":"Workspace"}]\n' "$id" ;;
+  new-pane)
+    id=$(cat "$VERIJ_LIFECYCLE_FIXTURE/pane-id")
+    id=$((id+1))
+    printf '%s\n' "$id" > "$VERIJ_LIFECYCLE_FIXTURE/pane-id"
+    printf 'terminal_%s\n' "$id" ;;
+  list-tabs) cat "$VERIJ_LIFECYCLE_FIXTURE/tabs" ;;
+  focus-pane-id) echo 'Pane Terminal(0) is already focused' >&2; exit 2 ;;
+  *) echo 'captured action diagnostic'; echo 'captured error diagnostic' >&2 ;;
+esac
+"#).unwrap();
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "tui::tests::lifecycle_actions_target_selected_objects_and_preserve_host_state_on_failure", "--nocapture"])
+                .env("VERIJ_LIFECYCLE_FIXTURE", &root)
+                .env("XDG_STATE_HOME", root.join("state"))
+                .env("XDG_RUNTIME_DIR", root.join("runtime"))
+                .env("VERIJ_CONTROL_DIR", root.join("control"))
+                .env("ZELLIJ_BIN", &script)
+                .env_remove("ZELLIJ_CONFIG_FILE")
+                .env("ZELLIJ_SESSION_NAME", "host")
+                .env("VERIJ_HOST_NAME", "host")
+                .env("VERIJ_HOST_MARKER_KEY", "stable")
+                .env("ZELLIJ_PANE_ID", "0")
+                .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap()))
+                .output().unwrap();
+            fs::remove_dir_all(root).unwrap();
+            assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+            assert!(!String::from_utf8_lossy(&output.stdout).contains("captured action diagnostic"));
+            assert!(!String::from_utf8_lossy(&output.stderr).contains("captured error diagnostic"));
+            return;
+        };
+
+        let reset = || {
+            fs::write(root.join("commands"), "").unwrap();
+            fs::write(root.join("pane-id"), "1").unwrap();
+            fs::write(root.join("sessions"), "alpha [Created 1m ago]\nbeta [Created 1m ago]\ngamma [Created 1m ago]\n").unwrap();
+            fs::write(root.join("tabs"), r#"[{"tab_id":90,"position":0,"name":"first"},{"tab_id":91,"position":1,"name":"second"}]"#).unwrap();
+            fs::write(root.join("state/verij/hosts.toml"), "[hosts.host]\nlast_session = 'beta'\n[hosts.other]\nlast_session = 'alpha'\n").unwrap();
+            fs::write(root.join("runtime/verij/workspace-stable.session"), "beta").unwrap();
+            action_state()
+        };
+        let commands = || fs::read_to_string(root.join("commands")).unwrap();
+
+        // Global d ignores selected alpha tab; empty policy forgets beta durably.
+        let mut state = reset();
+        state.select_index(2);
+        state.config.tui.after_detach = AfterSessionAction::Empty;
+        dispatch_pending_action(&mut state, PendingAction::DetachSession, None).unwrap();
+        assert!(state.error.is_none(), "{:?}", state.error);
+        assert!(state.active_session.is_none());
+        assert!(actions::workspace_session().is_none());
+        assert!(crate::config::last_host_session("host").is_none());
+        assert_eq!(crate::config::last_host_session("other").as_deref(), Some("alpha"));
+        assert!(commands().contains("--pane-id terminal_1 --no-focus"));
+        assert!(commands().contains("action save-session"));
+        assert!(!commands().contains("action detach"), "must not detach other clients");
+        assert!(commands().ends_with("action focus-pane-id terminal_0\n"));
+
+        // Default policy opens nearest live gamma through the replacement pane.
+        let mut state = reset();
+        dispatch_pending_action(&mut state, PendingAction::DetachSession, None).unwrap();
+        assert!(state.error.is_none(), "{:?}", state.error);
+        assert_eq!(state.active_session.as_deref(), Some("gamma"));
+        assert_eq!(crate::config::last_host_session("host").as_deref(), Some("gamma"));
+        assert!(commands().contains("action write-chars --pane-id terminal_2"));
+        assert!(commands().contains(" workspace 'gamma' --host 'stable'"));
+
+        // Killing unattached alpha leaves current beta Workspace intact.
+        let mut state = reset();
+        dispatch_pending_action(&mut state, PendingAction::KillSession, None).unwrap();
+        assert!(state.error.is_none(), "{:?}", state.error);
+        assert_eq!(state.active_session.as_deref(), Some("beta"));
+        assert!(commands().contains("kill-session alpha\n"));
+        assert!(!commands().contains("new-pane"));
+
+        // Killing attached beta triggers configured nearest replacement.
+        let mut state = reset();
+        state.select_index(3);
+        dispatch_pending_action(&mut state, PendingAction::KillSession, None).unwrap();
+        assert!(state.error.is_none(), "{:?}", state.error);
+        assert_eq!(state.active_session.as_deref(), Some("gamma"));
+        assert!(commands().contains("kill-session beta\n"));
+
+        // Failed kill must not erase attachment or replace any host pane.
+        let mut state = reset();
+        state.select_index(3);
+        std::env::set_var("VERIJ_MUTATION_FAIL", "1");
+        dispatch_pending_action(&mut state, PendingAction::KillSession, None).unwrap();
+        std::env::remove_var("VERIJ_MUTATION_FAIL");
+        assert!(state.error.as_deref().unwrap().contains("kill failed diagnostic"));
+        assert_eq!(state.active_session.as_deref(), Some("beta"));
+        assert_eq!(actions::workspace_session().as_deref(), Some("beta"));
+        assert_eq!(crate::config::last_host_session("host").as_deref(), Some("beta"));
+        assert!(!commands().contains("new-pane"));
+
+        // Closing alpha's inactive second tab resolves its stable ID, not beta's active tab.
+        let mut state = reset();
+        state.select_index(2);
+        dispatch_pending_action(&mut state, PendingAction::CloseTab, None).unwrap();
+        assert!(state.error.is_none(), "{:?}", state.error);
+        assert_eq!(state.active_session.as_deref(), Some("beta"));
+        assert!(commands().contains("--session alpha action close-tab-by-id 91\n"));
+        assert!(!commands().contains("go-to-tab"));
+        assert!(!commands().contains("new-pane"));
+
+        // Stale tab position/name must not close a different tab.
+        let mut state = reset();
+        state.select_index(1);
+        fs::write(root.join("tabs"), r#"[{"tab_id":91,"position":0,"name":"second"}]"#).unwrap();
+        dispatch_pending_action(&mut state, PendingAction::CloseTab, None).unwrap();
+        assert!(state.error.as_deref().unwrap().contains("Selected tab changed"));
+        assert!(!commands().contains("close-tab-by-id"));
+
+        // Closing attached session's last tab follows after_kill=empty.
+        let mut state = reset();
+        state.config.tui.after_kill = AfterSessionAction::Empty;
+        state.select_index(4);
+        fs::write(root.join("tabs"), r#"[{"tab_id":7,"position":0,"name":"first"}]"#).unwrap();
+        dispatch_pending_action(&mut state, PendingAction::CloseTab, None).unwrap();
+        assert!(state.error.is_none(), "{:?}", state.error);
+        assert!(state.active_session.is_none());
+        assert!(crate::config::last_host_session("host").is_none());
+        assert!(commands().contains("--session beta action close-tab-by-id 7\n"));
+
+        // Lifecycle mutation supersedes an already-running activation before
+        // that worker can publish focus, acknowledgement or an old result.
+        let mut state = reset();
+        let entered = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let release = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let stale_followup = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_entered = entered.clone();
+        let worker_release = release.clone();
+        let worker_marked = stale_followup.clone();
+        let mut queue = crate::activation::Queue::start_with_executor(move |_, current| {
+            worker_entered.wait();
+            worker_release.wait();
+            if current() { worker_marked.store(true, std::sync::atomic::Ordering::Release); }
+            Ok(crate::activation::Outcome::Legacy)
+        });
+        queue.enqueue(Some("beta".into()), "alpha".into(), None, None).unwrap();
+        entered.wait();
+        state.activation = Some(queue);
+        dispatch_pending_action(&mut state, PendingAction::KillSession, None).unwrap();
+        release.wait();
+        let queue = state.activation.as_ref().unwrap();
+        assert!(!queue.pending);
+        assert!(queue.receiver.recv_timeout(Duration::from_millis(100)).is_err());
+        assert!(!stale_followup.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(state.active_session.as_deref(), Some("beta"));
+    }
+
+    #[test]
+    fn confirming_new_session_queues_creation_before_progress_draw() {
+        let mut state = AppState::default();
+        state.start_new_session_prompt();
+        state.input_buffer = "o24".into();
+        handle_key(&mut state, KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()), None).unwrap();
+        assert_eq!(state.creation_pending.as_deref(), Some("o24"));
+        assert_eq!(state.input_mode, InputMode::Normal);
+        assert!(state.active_session.is_none());
+    }
+
+    #[test]
+    fn exited_session_click_queues_action_so_progress_can_render_first() {
+        let mut state = AppState::default();
+        state.reconcile(vec![SessionSnapshot {
+            name: "exited".into(), is_current: false, tabs: vec![],
+            active_pane: None, connected_clients: None, needs_resurrection: true,
+            inventory: None,
+        }]);
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 5, row: 0, modifiers: KeyModifiers::empty(),
+        };
+        handle_mouse(&mut state, click, &mut None, None).unwrap();
+        assert_eq!(state.pending_action, Some(PendingAction::Activate));
+        assert_eq!(state.selected_node().unwrap().session_name(), "exited");
+        assert!(state.active_session.is_none(), "switch must wait until after progress draw");
+
+        state.pending_action = None;
+        handle_key(&mut state, KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()), None).unwrap();
+        assert_eq!(state.pending_action, Some(PendingAction::Activate));
+    }
 
     #[test]
     fn delayed_monitor_snapshot_cannot_regress_activation_acknowledgement() {

@@ -22,6 +22,8 @@ The scratch parent must already exist. The harness creates private HOME/XDG/conf
 
 The compact [results ledger](results.json) identifies the final run. Its absolute artifact paths identify original evidence on this computer, rather than reusable runtime bindings on another machine. Rerun the fixture to obtain locally valid evidence. Automated success does not confer human H3 approval.
 
+After committing H3 as `445519f`, master `854ecb1` was integrated. The separate [merge ledger](merge-results.json) records passing 197 Rust tests, seven Node tests, all ten H2 checks and all 25 H3 checks against the merged release artifacts. Original checkpoint results remain unchanged.
+
 ## Current checks
 
 The final 2026-10-09 run uses **OpenCode 1.18.34**, **stock Zellij 0.45.1**, and the release-built CLI/WASM. It passes 25 scoped checks, including inherited listener/private-storage and native-binding checks:

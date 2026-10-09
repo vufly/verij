@@ -71,6 +71,17 @@ impl std::fmt::Display for ZellijOption {
     }
 }
 
+/// Workspace follow-up after removing its current attachment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AfterSessionAction {
+    /// Attach the nearest live session in sidebar order (next wins ties).
+    #[default]
+    Nearest,
+    /// Leave an empty Workspace with no remembered inner session.
+    Empty,
+}
+
 /// Verij TUI behavior options.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -78,6 +89,8 @@ pub struct TuiConfig {
     /// Attach or enter selected tree item from a single mouse click (default: true).
     #[serde(default = "default_true")]
     pub single_click_action: bool,
+    pub after_detach: AfterSessionAction,
+    pub after_kill: AfterSessionAction,
     /// Session/tab row templates, glyphs and state styles.
     pub tree: TreeConfig,
 }
@@ -86,6 +99,8 @@ impl Default for TuiConfig {
     fn default() -> Self {
         Self {
             single_click_action: true,
+            after_detach: AfterSessionAction::default(),
+            after_kill: AfterSessionAction::default(),
             tree: TreeConfig::default(),
         }
     }
@@ -674,6 +689,16 @@ pub fn set_last_host_session(host: &str, session: &str) -> anyhow::Result<()> {
     write_hosts(&path, &hosts)
 }
 
+/// An explicitly emptied Workspace must remain empty across sidebar/host restart.
+pub fn clear_last_host_session(host: &str) -> anyhow::Result<()> {
+    let path = hosts_path().ok_or_else(|| anyhow::anyhow!("Cannot determine host state path"))?;
+    let mut hosts = load_hosts_checked()?;
+    if hosts.hosts.remove(host).is_some() {
+        write_hosts(&path, &hosts)?;
+    }
+    Ok(())
+}
+
 pub fn rename_host_attachment(old: &str, new: &str) -> anyhow::Result<()> {
     let Some(path) = hosts_path() else {
         anyhow::bail!("Cannot determine host state path");
@@ -752,6 +777,10 @@ pane_default = "Workspace"
 [tui]
 # Attach or enter a tree item with one click instead of a double-click.
 single_click_action = true
+
+# After detaching/killing the attached session: "nearest" live session or "empty" Workspace.
+after_detach = "nearest"
+after_kill = "nearest"
 
 # Tree formats use #{variable}, #{?flag,then,else}, and #[fg=color,bg=color,bold].
 # Colors can reference keys in [colors]. See README for available variables.
@@ -972,6 +1001,17 @@ sidebar_width = "30%"
 
         let cfg: Config = toml::from_str("[tui]\n").unwrap();
         assert!(cfg.tui.single_click_action);
+    }
+
+    #[test]
+    fn lifecycle_follow_up_defaults_and_independent_overrides() {
+        let defaults = Config::default();
+        assert_eq!(defaults.tui.after_detach, AfterSessionAction::Nearest);
+        assert_eq!(defaults.tui.after_kill, AfterSessionAction::Nearest);
+        let config: Config = toml::from_str("[tui]\nafter_detach = 'empty'\nafter_kill = 'nearest'\n").unwrap();
+        assert_eq!(config.tui.after_detach, AfterSessionAction::Empty);
+        assert_eq!(config.tui.after_kill, AfterSessionAction::Nearest);
+        assert!(toml::from_str::<Config>("[tui]\nafter_kill = 'invalid'\n").is_err());
     }
 
     #[test]

@@ -303,6 +303,8 @@ pub fn run_zellij_action(session: &str, action_args: &[&str], timeout: Duration)
     if session.is_empty() || session.len() > 256 || session.chars().any(char::is_control) {
         bail!("invalid session name: {:?}", session);
     }
+    let start = Instant::now();
+    let _startup = crate::session::startup_guard_until(start + timeout, None)?;
 
     let zellij_bin = std::env::var("ZELLIJ_BIN").unwrap_or_else(|_| "zellij".to_string());
     let mut cmd = Command::new(&zellij_bin);
@@ -355,7 +357,6 @@ pub fn run_zellij_action(session: &str, action_args: &[&str], timeout: Duration)
         Ok(buf)
     });
 
-    let start = Instant::now();
     loop {
         match child.try_wait()? {
             Some(status) => {

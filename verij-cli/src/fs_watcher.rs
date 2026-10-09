@@ -131,6 +131,8 @@ pub fn query_session_statuses_bounded_cancelable(
     timeout: Duration,
     stop: Option<&AtomicBool>,
 ) -> Option<BTreeMap<String, SessionStatus>> {
+    let deadline = Instant::now() + timeout;
+    let _startup = crate::session::startup_guard_until(deadline, stop).ok()?;
     let zellij_bin = std::env::var("ZELLIJ_BIN").unwrap_or_else(|_| "zellij".to_string());
     let mut cmd = std::process::Command::new(zellij_bin);
     if let Some(config) = std::env::var_os("ZELLIJ_CONFIG_FILE") {
@@ -139,7 +141,9 @@ pub fn query_session_statuses_bounded_cancelable(
     cmd.args(["list-sessions", "-n"]);
 
     const MAX_STATUS_BYTES: u64 = 1024 * 1024; // 1MB bounded output buffer
-    let (stdout_bytes, stderr_bytes) = run_command_bounded(cmd, timeout, MAX_STATUS_BYTES, stop)?;
+    let (stdout_bytes, stderr_bytes) = run_command_bounded(
+        cmd, deadline.saturating_duration_since(Instant::now()), MAX_STATUS_BYTES, stop,
+    )?;
 
     let stdout_str = String::from_utf8_lossy(&stdout_bytes);
     let stderr_str = String::from_utf8_lossy(&stderr_bytes);

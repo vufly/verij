@@ -11,7 +11,7 @@ Repository: `https://github.com/vufly/verij`, branch **`agent-monitoring`**.
 | H0: stock navigation contract | `e66293f` | Approved and pushed |
 | H1: topology, normalized store and navigation | `bd2cc4f` | Approved and pushed |
 | H2: agent tree and host-local completion UI | `0b713191047b8d30ddb42edaa5e94b64b58b2b1c` | Approved and pushed |
-| H3: OpenCode production adapter | Current worktree; see progress log | Implemented and verified; human review pending |
+| H3: OpenCode production adapter | `445519f` | Committed and verified; human review pending |
 
 H2 includes Session → Tab → Agent rows, nested folds, configurable titles/styles, status summaries, persistent tree state, asynchronous activation and host-local acknowledgement after confirmed visits. **H3 OpenCode is implemented and ready for review; H4 Agy/Magy remains pending.** After [adapter setup](../integrations/opencode/README.md) and an OpenCode restart, normal interactive OpenCode/attach processes register automatically against verified native inventory. H2's harness continues to use real receiver processes with explicitly synthetic semantic reports.
 
@@ -259,6 +259,7 @@ The published result/approval summaries preserve these names. Archived original 
 ```text
 Continue Verij agent monitoring on branch agent-monitoring.
 H0 e66293f, H1 bd2cc4f and H2 0b71319 are approved and pushed.
+H3 is committed as 445519f; master 854ecb1 is integrated. See progress log for merged verification and H3 review status.
 Read docs/AGENT_MONITORING_SETUP.md and the current progress/design/implementation docs.
 H2 has the three-level tree and host-local completion UI; H3 OpenCode is implemented and ready for its own human review. H4 Agy/Magy remains pending.
 Use stock Zellij 0.45.1 and the published SDK. Never patch/build/install the historical Zellij fork.
