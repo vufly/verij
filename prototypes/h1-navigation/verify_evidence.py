@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Validate original production H1 receiver, identity, acknowledgement and cleanup evidence."""
+import argparse
 import json
 from pathlib import Path
 
 
 def main():
-    result = json.loads(Path(__file__).with_name("results.json").read_text())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("report", type=Path, nargs="?", default=Path(__file__).with_name("results.json"))
+    result = json.loads(parser.parse_args().report.read_text())
     assert result["status"] == "PASS" and not result["human_gate_approved"]
     root = Path(result["root"])
     initial = json.loads((root / "inventory-initial.json").read_text())

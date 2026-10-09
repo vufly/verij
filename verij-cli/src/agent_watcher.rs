@@ -41,7 +41,7 @@ pub fn read_records(root: &Path) -> Vec<AgentRecord> {
         let Ok(identity) = serde_json::from_slice::<AgentIdentity>(&identity) else {
             continue;
         };
-        let Ok(state) = serde_json::from_slice::<AgentState>(&state) else {
+        let Ok(mut state) = serde_json::from_slice::<AgentState>(&state) else {
             continue;
         };
         if identity.schema_version != AGENT_SCHEMA_VERSION
@@ -53,6 +53,13 @@ pub fn read_records(root: &Path) -> Vec<AgentRecord> {
         }
         if !identity.is_synthetic && !crate::process::is_alive(&identity.process) {
             continue;
+        }
+        if crate::opencode::lease_expired(&state, crate::agent_store::now_ms()) {
+            state.reduced.status = verij_types::agent::AgentStatus::Unknown;
+            state.reduced.pending_requests.clear();
+            state.reduced.latest_completion = None;
+            state.reduced.latest_error = None;
+            state.reduced.detail = Some("OpenCode reporter unavailable".into());
         }
         records.push(AgentRecord { identity, state });
     }

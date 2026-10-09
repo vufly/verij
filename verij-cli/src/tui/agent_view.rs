@@ -168,7 +168,7 @@ pub fn build_views(
                 },
                 is_floating: pane.is_floating,
                 stacked: pane.stack_id.as_ref().map(|_| true),
-                completion_revision: owner.state.completion_revision,
+                completion_revision: owner.state.reduced.completion_revision,
                 is_active: navigable && focus == Some(&key),
                 is_synthetic: owner.identity.is_synthetic,
                 navigable,
@@ -476,6 +476,7 @@ mod tests {
                 completed_turn: None,
                 completed_turn_epoch: 1,
                 completed_turn_revision: 1,
+                opencode_completions: BTreeMap::new(),
             },
         }
     }

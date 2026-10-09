@@ -347,6 +347,7 @@ pub fn register(
         completed_turn: None,
         completed_turn_epoch: 0,
         completed_turn_revision: 0,
+        opencode_completions: BTreeMap::new(),
     };
     atomic_write_json(&instance_dir.join("state.json"), &initial_state)?;
 
@@ -355,6 +356,15 @@ pub fn register(
 
 /// Report source observation, atomically updating `state.json`.
 pub fn report(instance_id: &AgentInstanceId, partial: PartialSourceRecord) -> Result<AgentState> {
+    update(instance_id, |_| Ok(partial), |_| Ok(()))
+}
+
+/// Adapter projection and completion bookkeeping share the record transaction.
+pub fn update(
+    instance_id: &AgentInstanceId,
+    project: impl FnOnce(&mut AgentState) -> Result<PartialSourceRecord>,
+    finish: impl FnOnce(&mut AgentState) -> Result<()>,
+) -> Result<AgentState> {
     if !valid_record_key(&instance_id.0) {
         bail!("invalid agent instance id {:?}", instance_id.0);
     }
@@ -433,6 +443,8 @@ pub fn report(instance_id: &AgentInstanceId, partial: PartialSourceRecord) -> Re
         );
     }
 
+    let partial = project(&mut state)?;
+
     // Enforce bounds on source count and payload fields
     if state.sources.len() >= 64 && !state.sources.contains_key(&partial.source_id) {
         bail!(
@@ -492,6 +504,8 @@ pub fn report(instance_id: &AgentInstanceId, partial: PartialSourceRecord) -> Re
     state.completed_turn_revision = comp_rev_num;
     state.record_revision += 1;
     state.updated_at_ms = now_ms();
+
+    finish(&mut state)?;
 
     atomic_write_json(&state_file, &state)?;
 
@@ -653,6 +667,9 @@ pub fn acknowledge_if_current(
     let state: AgentState = serde_json::from_str(&state_content)
         .with_context(|| format!("failed to parse {:?}", state_file))?;
 
+    if crate::opencode::lease_expired(&state, now_ms()) {
+        bail!("OpenCode reporter lease expired");
+    }
     if state.completion_revision == 0 {
         bail!("refusing acknowledgement: agent has no completed turns (completion_revision is 0)");
     }

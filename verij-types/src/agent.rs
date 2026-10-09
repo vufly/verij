@@ -457,6 +457,10 @@ pub struct AgentState {
     pub completed_turn: Option<TurnId>,
     pub completed_turn_epoch: u64,
     pub completed_turn_revision: u64,
+    /// Adapter-owned upstream turn -> original completion revision. Survives
+    /// TUI plugin reload and conversation reselection without replaying Done.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub opencode_completions: BTreeMap<String, u64>,
 }
 
 /// Fresh proof of whole-host and inner focus required for completion acknowledgement.

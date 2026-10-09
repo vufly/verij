@@ -14,6 +14,8 @@ use std::path::PathBuf;
 mod actions;
 mod activation;
 mod agent_cli;
+mod agent_setup;
+mod opencode;
 mod agent_store;
 mod agent_watcher;
 mod inventory;

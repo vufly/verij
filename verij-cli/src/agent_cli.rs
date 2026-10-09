@@ -14,6 +14,19 @@ use verij_types::identity::{HostKey, PaneKey, SessionInstanceId, TerminalPaneId}
 
 #[derive(Debug, Subcommand)]
 pub enum AgentCommand {
+    /// Install the pane-local OpenCode adapter (restart OpenCode afterward).
+    Setup(crate::agent_setup::SetupArgs),
+    /// Remove only Verij's OpenCode plugin entry and assets.
+    Uninstall(crate::agent_setup::SetupArgs),
+    /// Inspect adapter installation, supported versions and runtime health.
+    Doctor(crate::agent_setup::DoctorArgs),
+    /// Internal bounded, ordered OpenCode TUI reporter stream.
+    #[command(hide = true)]
+    Opencode {
+        #[arg(long)] session: String,
+        #[arg(long)] pane: u32,
+        #[arg(long)] pid: u32,
+    },
     /// Validate actual foreground pane/process ownership without registration.
     Verify {
         #[arg(long)]
@@ -123,6 +136,10 @@ pub struct FixtureArgs {
 /// Execute agent CLI subcommands.
 pub fn execute(command: AgentCommand) -> Result<()> {
     match command {
+        AgentCommand::Setup(args) => crate::agent_setup::setup(args),
+        AgentCommand::Uninstall(args) => crate::agent_setup::uninstall(args),
+        AgentCommand::Doctor(args) => crate::agent_setup::doctor(args),
+        AgentCommand::Opencode { session, pane, pid } => crate::opencode::run(session, pane, pid),
         AgentCommand::Verify { session, pane, pid } => {
             let snapshots = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir());
             let inventory = snapshots
@@ -158,6 +175,15 @@ pub fn execute(command: AgentCommand) -> Result<()> {
 }
 
 fn execute_register(args: RegisterArgs) -> Result<()> {
+    let synthetic = args.synthetic;
+    let instance_id = register(args)?;
+    println!("{}", serde_json::json!({
+        "status": "registered", "agent_instance_id": instance_id.0, "is_synthetic": synthetic
+    }));
+    Ok(())
+}
+
+pub fn register(args: RegisterArgs) -> Result<AgentInstanceId> {
     if args.runner_id.is_some() && !args.synthetic {
         bail!("verified runner registration requires the H4 Magy adapter");
     }
@@ -246,19 +272,7 @@ fn execute_register(args: RegisterArgs) -> Result<()> {
         (pane_key, agent_process)
     };
 
-    let instance_id =
-        agent_store::register(pane_key, kind, process, args.synthetic, args.runner_id)?;
-
-    println!(
-        "{}",
-        serde_json::json!({
-            "status": "registered",
-            "agent_instance_id": instance_id.0,
-            "is_synthetic": args.synthetic
-        })
-    );
-
-    Ok(())
+    agent_store::register(pane_key, kind, process, args.synthetic, args.runner_id)
 }
 
 fn execute_report(args: ReportArgs) -> Result<()> {

@@ -1,16 +1,16 @@
 # Agent Monitoring Progress
 
-Status: **H0–H2 approved; H2 commit and push requested**. Last updated: **2026-10-05**.
+Status: **H0–H2 approved and committed; H3 implemented, ready for human review**. Last updated: **2026-10-09**.
 
 Source of truth for product behavior: [approved design](AGENT_MONITORING.md). Engineering sequence, gate deliverables, checkpoint guidelines and acceptance matrix: [implementation guide](AGENT_MONITORING_IMPLEMENTATION.md). This file records *actual* progress, not proposed behavior.
 
 ## Current position
 
-- Active durable workspace: `~/repos/workspaces/verij-agent-monitoring` (workflow `personal/verij/verij-agent-monitoring`). Work in `verij/` on branch `agent-monitoring`; sibling `zellij/` is now retained historical evidence only, and pinned OpenCode source is sibling `opencode-reference/`. Production targets installed stock Zellij. Exited-session fix `1f94cf2` was the migration baseline; master has progressed independently since then.
-- Monitoring feature code: **H1 foundation committed; H2 tree implemented and verified**. H2 adds stable Session → Tab → Agent rows, nested folds, host-local statuses/summaries, title policy, rendering and asynchronous activation/visits. The extended live fixture passes ten checks with corroborated evidence. H3/H4 live adapters remain pending. The patched bridge under [`prototypes/zellij-attach-bridge/`](../prototypes/zellij-attach-bridge/README.md) remains archived.
-- Latest tested versions: stock Zellij **0.45.1**, OpenCode **1.18.33**, Agy **1.2.14**. Earlier patched-Zellij fixtures retain their historical provenance. The read-only OpenCode reference remains pinned to **1.18.32**; earlier fixtures retain their dated versions. Version checks alone do not satisfy G1–G4.
+- Active durable workspace: `~/repos/workspaces/verij/agent-monitoring` (workflow `personal/verij/agent-monitoring`). Work in `agent-monitoring/` on branch `agent-monitoring`. The earlier workspace, dependency reference and evidence paths below are historical. Production targets installed stock Zellij.
+- Monitoring feature code: **H1/H2 committed; H3 OpenCode adapter implemented and verified**. H3 adds pane-local presence, ordered reporting, family reconciliation, completion replay protection, leases and preliminary setup/doctor/uninstall. The H3 fixture passes 25 checks with corroborated evidence; the H2 regression passes ten checks. H4 Agy/Magy adapters remain pending. The patched bridge under [`prototypes/zellij-attach-bridge/`](../prototypes/zellij-attach-bridge/README.md) remains archived.
+- Latest H3 tested versions: stock Zellij **0.45.1**, OpenCode **1.18.34**, Rust **1.98.1**, Node **24.21.0**. Earlier OpenCode/Agy and patched-Zellij fixtures retain their historical provenance and dated versions. Version checks alone do not satisfy integration gates.
 - Current checkpoint: **H2 approved**. The user replied **“approve H2. commit and push”** on 2026-10-05. Stock Zellij, shared-stack behavior and Agy limits remain accepted. Approval covers the documented tree/local-completion scope; synthetic semantic fixtures do not claim live adapters.
-- Next checkpoint: **H3 — OpenCode adapter**. H1 was committed as `bd2cc4f`; H2 commit and push are requested. H3–H5 remain pending. Magy workers had disjoint file ownership; their baseline commit is not a hash of concurrently changing source.
+- Current implementation checkpoint: **H3 — OpenCode adapter, review pending**. H1 was committed as `bd2cc4f`; approved H2 is `0b71319`. The user authorized H3 with **“Implement H3”** on 2026-10-09. Stop for H3 feedback before H4.
 
 ## Phase and checkpoint ledger
 
@@ -23,11 +23,29 @@ Source of truth for product behavior: [approved design](AGENT_MONITORING.md). En
 | 2 | Reporter, store, reducer and acknowledgement | Approved: synthetic semantics, real ownership/visit proof | H1 approved 2026-10-05 |
 | 3 | Stock-capability pane navigation | Approved within documented stock limits | H1 approved 2026-10-05 |
 | 4 | Three-level TUI | Approved: native/WASM checks, 170 Rust tests, ten live checks | H2 approved 2026-10-05 |
-| 5 | OpenCode adapter | Pending | H3 pending |
+| 5 | OpenCode adapter | Review: production adapter, 176 Rust tests, seven Node tests, 25 live checks | H3 human review pending |
 | 6–7 | Agy/Magy adapters; setup, doctor, documentation | Pending | H4 pending |
 | 8 | Automated and live acceptance | Pending | H5 pending |
 
 ## Gate evidence and blockers
+
+### H3 production OpenCode integration — 2026-10-09
+
+The user requested **“Implement H3”**. Added the versioned TUI-local [OpenCode adapter](../integrations/opencode/README.md), embedded assets and preliminary `agent setup opencode`, `agent uninstall opencode`, `agent doctor` commands. Setup preserves unrelated JSON/JSONC plugin options/comments and formatting, stores absolute reporter/runtime paths, detects modified assets and requires restart. It installs into the TUI config, not the shared server plugin surface. Versions 1.18.32–1.18.34 select the inspected API; the production live run below specifically verifies 1.18.34. Unsupported versions fail closed.
+
+Native registration uses current inventory and actual foreground tty/process birth; rename/rebind does not rely on stale session environment. A bounded persistent producer serializes full metadata snapshots, with atomic source/reducer/completion-ledger transactions. Read-only SDK reconciliation repairs startup hydration and missed events, follows root/child ancestry, filters shared-server broadcasts, brackets activity/family membership and discards locally superseded samples. Explicit pending requests, retry/child work, terminal assistant finish/error and family quiescence determine state. Home and unowned routes clear conversation authority. Heartbeats have a 15-second lease; expiry projects Unknown and refuses stale acknowledgement while keeping process liveness separate.
+
+Successful upstream root/user turns retain their original completion revision across polling, reload and reselection. Agent views now capture the currently displayed revision rather than the process's highest-ever completion revision, preventing a visit to an old conversation from consuming a newer outcome. The bounded 1,024-turn ledger degrades new completions conservatively on exhaustion. Persisted records exclude prompts, message/tool text, command arguments/output, provider error bodies and credentials.
+
+**Final checks:** `cargo check --workspace`, `cargo test --workspace` (**176 tests: 142 CLI unit, eight CLI integration, four plugin, 22 shared-type**), `make check` (native/WASM), `make dev` (release), and `node --test integrations/opencode/core.test.mjs` (**seven tests**) pass. The selected shell initially lacked native OpenSSL/pkg-config discovery; sourcing the existing workspace `artifacts/setup-env.sh` supplied private build dependencies and Rust 1.98.1.
+
+**Live evidence:** [H3 results ledger](../prototypes/h3-opencode/results.json), final cleaned root **`vj-h3-j89i30yj`**, passes **25 checks** on OpenCode 1.18.34 and stock Zellij 0.45.1. `verify_evidence.py` corroborates **27 production snapshots across four native process instances** against original callback/request metadata, terminal assistant outcomes, native pane IDs and foreground births. The local provider output is explicitly synthetic; actual installed TUI events, permissions/questions, native task execution, bindings and production records are real. Normal standalone Home presence, two same-cwd/shared-server TUIs, success/error, permission/reply, question/reply/rejection, retry, cancellation, child/parent aggregation, plugin reload, source lease/recovery, conversation reselection, rename/rebind, mid-turn process replacement, exit to surviving shell and uninstall preservation pass. All fixture TUIs, server and Zellij client/server exited; private socket context was removed.
+
+**H2 regression:** ten production UI/navigation checks pass in cleaned **`vj-h2-aijqzj6b`**, independently validated. Its semantic records remain explicitly synthetic; native receipts, keyboard tokens and host-local acknowledgements retain their own evidence scope.
+
+**Retained attempts:** `h3-attempt-1.json` / `vj-h3-9w90p69v` failed after treating question rejection as expected terminal success. Actual runtime stopped at `tool-calls`/Idle, so the fixture now asserts no Done and separately tests a genuine question reply. `h3-attempt-2.json` / `vj-h3-n_abxmq8` passed 18 checks before assuming in-place `new-pane` always prints an ID; the corrected fixture observes the replacement's actual init/pane identity. `h3-attempt-3.json` / `vj-h3-hel_31__` passed 22 checks before the final source-health/standalone-presence/evidence expansion. Earlier JSONC insertion and changed mock-status failures were corrected before final checks. Failed roots/reports retain their original evidence and cleanup results.
+
+**H3 stop:** ready for human review using the [review checklist](../prototypes/h3-opencode/README.md#human-h3-verification). Actual whole-host observation with live OpenCode rows and an authenticated remote-provider workflow have not been run by this fixture. The final fixture is cleaned; no retained review attachment is advertised. Record explicit **approve H3** or **rework H3** with observed pane/scenario feedback before proceeding to H4. H3 approval and H4 authorization remain pending.
 
 ### H2 approval and review cleanup — 2026-10-05
 

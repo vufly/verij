@@ -80,7 +80,7 @@ make dev
 
 ## Roadmap
 
-- Implement the approved [agent monitoring design](docs/AGENT_MONITORING.md) for OpenCode, Agy, and Magy Zellij-backed watched runs. The [implementation guide](docs/AGENT_MONITORING_IMPLEMENTATION.md) defines adapter contracts, three-level tree behavior, pane navigation, and acceptance checks.
+- Agent monitoring H0–H2 is approved. H3 [OpenCode monitoring](integrations/opencode/README.md) is implemented and verified, ready for human review; Agy/Magy follows at H4. The [feature progress log](docs/AGENT_MONITORING_PROGRESS.md) records evidence and checkpoint status; the [implementation guide](docs/AGENT_MONITORING_IMPLEMENTATION.md) defines remaining adapter contracts and acceptance checks.
 - Validate live host rename after restarting existing sidebar with new binary; local `🔷v` → `v` migration was done once outside the product.
 - Add end-to-end coverage for host resurrection and inner-session resurrection.
 - Add coverage for manual Workspace detach, multiple inner clients, multiple hosts, and custom layouts.

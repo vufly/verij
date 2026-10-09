@@ -1,6 +1,6 @@
 # Continue agent monitoring on another computer
 
-This guide reconstructs the development environment for the approved H2 checkpoint. It also records the handoff context that otherwise lives in conversations and machine-local workspace files.
+This guide reconstructs the development environment for the approved H2 baseline and H3 OpenCode review checkpoint. It also records the handoff context that otherwise lives in conversations and machine-local workspace files.
 
 ## 1. Checkpoint and source of truth
 
@@ -11,8 +11,9 @@ Repository: `https://github.com/vufly/verij`, branch **`agent-monitoring`**.
 | H0: stock navigation contract | `e66293f` | Approved and pushed |
 | H1: topology, normalized store and navigation | `bd2cc4f` | Approved and pushed |
 | H2: agent tree and host-local completion UI | `0b713191047b8d30ddb42edaa5e94b64b58b2b1c` | Approved and pushed |
+| H3: OpenCode production adapter | Current worktree; see progress log | Implemented and verified; human review pending |
 
-H2 includes Session → Tab → Agent rows, nested folds, configurable titles/styles, status summaries, persistent tree state, asynchronous activation and host-local acknowledgement after confirmed visits. **H3 OpenCode and H4 Agy/Magy production adapters remain pending.** Starting an agent executable alone does not yet create an automatically monitored row; H2's harness registers real receiver processes and supplies explicitly synthetic semantic reports.
+H2 includes Session → Tab → Agent rows, nested folds, configurable titles/styles, status summaries, persistent tree state, asynchronous activation and host-local acknowledgement after confirmed visits. **H3 OpenCode is implemented and ready for review; H4 Agy/Magy remains pending.** After [adapter setup](../integrations/opencode/README.md) and an OpenCode restart, normal interactive OpenCode/attach processes register automatically against verified native inventory. H2's harness continues to use real receiver processes with explicitly synthetic semantic reports.
 
 Read these files when resuming:
 
@@ -21,6 +22,7 @@ Read these files when resuming:
 3. [Implementation guide](AGENT_MONITORING_IMPLEMENTATION.md): contracts and the H3 onward sequence. Its early proposed module layout is not the actual implementation inventory.
 4. [Gate readiness](AGENT_MONITORING_GATE_READINESS.md): resolved decisions and remaining checkpoint ownership.
 5. [H2 fixture guide](../prototypes/h2-tree/README.md): reproduction and review helper.
+6. [H3 fixture guide](../prototypes/h3-opencode/README.md): production OpenCode reproduction and human-review checklist.
 
 Older dated paragraphs describe historical states. The latest checkpoint ledger and separate approval records take precedence over earlier “pending” or “unapproved” text. The old machine's workspace `context/brief.md` is an obsolete H0 startup brief, not the current task.
 
@@ -59,7 +61,7 @@ Use **Linux or Linux inside WSL2** for the verified monitoring path. Ownership c
 Install:
 
 - Git and access to the repository.
-- A C linker/build tools, `make`, Python **3.9 or newer**, `tmux`, and util-linux `script`.
+- A C linker/build tools, `make`, `pkg-config`, OpenSSL development headers/libraries, Python **3.9 or newer**, `tmux`, and util-linux `script`. The native workspace checks/tests compile the published Zellij SDK's HTTP dependencies, which need OpenSSL discovery through `pkg-config`.
 - Rust through `rustup`; the final H2 build was tested with **Rust 1.98.1** and **`wasm32-wasip1`**.
 - Stock **Zellij 0.45.1** on `PATH`. `Cargo.lock` resolves the published `zellij-tile` SDK to 0.45.1.
 
@@ -67,7 +69,7 @@ For Debian/Ubuntu/WSL Ubuntu, the native tools can be installed with:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential make git python3 tmux util-linux
+sudo apt-get install -y build-essential make git python3 tmux util-linux pkg-config libssl-dev
 ```
 
 Install rustup using its official installation instructions if it is absent, then install the tested toolchain without changing your global default:
@@ -198,7 +200,7 @@ target/release/verij config path
 target/release/verij start --session-name monitoring-dev
 ```
 
-The normal host is separate from the synthetic test fixture. Existing agent terminals do not yet have automatic H3/H4 adapters.
+The normal host is separate from the synthetic test fixture. To enable H3 OpenCode monitoring, run `target/release/verij agent setup opencode`, quit/restart OpenCode, then inspect `target/release/verij agent doctor`. The installed reporter path must remain available. Agy/Magy adapters follow at H4.
 
 These customization files can be copied if you want the same appearance:
 
@@ -258,7 +260,7 @@ The published result/approval summaries preserve these names. Archived original 
 Continue Verij agent monitoring on branch agent-monitoring.
 H0 e66293f, H1 bd2cc4f and H2 0b71319 are approved and pushed.
 Read docs/AGENT_MONITORING_SETUP.md and the current progress/design/implementation docs.
-H2 has the three-level tree and host-local completion UI; H3 OpenCode and H4 Agy/Magy adapters are pending.
+H2 has the three-level tree and host-local completion UI; H3 OpenCode is implemented and ready for its own human review. H4 Agy/Magy remains pending.
 Use stock Zellij 0.45.1 and the published SDK. Never patch/build/install the historical Zellij fork.
 Native shared-stack behavior and documented Agy limitations are accepted.
 Do not infer ownership or Done from terminal text, inherited environment, idle, or wrapper SUCCESS.
@@ -266,7 +268,7 @@ Keep completion acknowledgement host-local and require a fresh confirmed visit o
 Old runtime bindings/sockets and absolute scratch paths are not valid on this machine.
 Build and regenerate H2/H1 evidence locally before relying on this environment.
 Use Sonnet planning where available and Magy's default model for explicitly requested scoped workers.
-The next implementation checkpoint is H3; stop for its own human verification when authorized work is ready.
+Read integrations/opencode/README.md and prototypes/h3-opencode/README.md; regenerate local production evidence and stop for H3 feedback before H4.
 ```
 
 This supplies the essential project context without needing the previous agent conversation or workspace orchestration installation.
