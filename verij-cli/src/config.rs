@@ -139,7 +139,7 @@ pub struct TreeRowStyles {
 // These formats, rather than rendering branches, define the default appearance.
 pub const DEFAULT_SESSION_FORMAT: &str = "#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}#{?has_agents,#{?agent_summary, #{agent_summary},},}";
 pub const DEFAULT_TAB_FORMAT: &str = "#{branch} #{?has_agents,#{fold_marker} ,}#{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}#{?has_agents,#{?agent_summary, #{agent_summary},},}";
-pub const DEFAULT_AGENT_FORMAT: &str = "#{tree_prefix}#{branch} #{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #{agent_name} #{agent_title}";
+pub const DEFAULT_AGENT_FORMAT: &str = "#{tree_prefix}#{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #{agent_name} #{agent_title}";
 
 impl Default for TreeConfig {
     fn default() -> Self {
@@ -797,7 +797,7 @@ title_sources = ["pane", "conversation", "agent"]
 [tui.tree]
 session_format = '#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}#{?has_agents,#{?agent_summary, #{agent_summary},},}'
 tab_format = '#{branch} #{?has_agents,#{fold_marker} ,}#{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}#{?has_agents,#{?agent_summary, #{agent_summary},},}'
-agent_format = '#{tree_prefix}#{branch} #{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #{agent_name} #{agent_title}'
+agent_format = '#{tree_prefix}#{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #{agent_name} #{agent_title}'
 fold_collapsed = "▷"
 fold_expanded = "▽"
 branch_first = "├" # first of multiple tabs; a single tab uses branch_last

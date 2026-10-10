@@ -267,14 +267,14 @@ impl RowContext<'_> {
             };
             for &cont in continuations {
                 if cont {
-                    prefix.push_str("│  ");
+                    prefix.push_str("│ ");
                 } else {
-                    prefix.push_str("   ");
+                    prefix.push_str("  ");
                 }
             }
             let needed = (meta.depth - 1).saturating_sub(continuations.len());
             for _ in 0..needed {
-                prefix.push_str("   ");
+                prefix.push_str("  ");
             }
         }
         prefix
@@ -1318,7 +1318,7 @@ mod tests {
     }
 
     #[test]
-    fn formatting_nested_branches_with_agent_children() {
+    fn formatting_nested_agent_rows_without_branches() {
         let formatter = TreeFormatter::default();
         let snap = snapshot();
 
@@ -1352,7 +1352,7 @@ mod tests {
             meta: agent1_meta,
         };
         let row1 = output(&formatter, &agent1, &snap, false, false, true, false);
-        assert_eq!(content(&row1), "│  ├ ⠋ opencode opencode-task");
+        assert_eq!(content(&row1), "│ ⠋ opencode opencode-task");
 
         // Agent 2 (last agent under non-last tab)
         let agent2_meta = RowMeta {
@@ -1384,7 +1384,7 @@ mod tests {
             meta: agent2_meta,
         };
         let row2 = output(&formatter, &agent2, &snap, false, false, false, true);
-        assert_eq!(content(&row2), "│  └ ! agy agy-task");
+        assert_eq!(content(&row2), "│ ! agy agy-task");
 
         // Agent 3 under last tab (tab has NO more siblings -> tab_has_more = false)
         let agent3_meta = RowMeta {
@@ -1410,7 +1410,7 @@ mod tests {
             meta: agent3_meta,
         };
         let row3 = output(&formatter, &agent3, &snap, false, false, true, true);
-        assert_eq!(content(&row3), "   └ ✓ opencode opencode-task");
+        assert_eq!(content(&row3), "  ✓ opencode opencode-task");
     }
 
     #[test]

@@ -244,7 +244,7 @@ Extend `[tui.tree]` rather than introducing a second formatting language:
 ```toml
 [tui.tree]
 # Illustrative unstyled template. Defaults can include status-specific styles.
-agent_format = '#{tree_prefix}#{branch} #{status_icon} #{agent_name} #{agent_title}'
+agent_format = '#{tree_prefix}#{status_icon} #{agent_name} #{agent_title}'
 
 [tui.tree.agent_styles]
 normal = ""
@@ -253,7 +253,7 @@ active = "fg=active_fg,bg=active_bg"
 both = "fg=selected_fg,bg=selected_bg"
 ```
 
-The renderer supplies ancestor indentation through `tree_prefix`; `branch` remains the first/middle/last glyph among the row's siblings. The implementation must specify sibling metadata explicitly rather than infer it from adjacent flattened rows.
+The renderer supplies ancestor indentation through `tree_prefix`; `branch` remains available for custom formats as the first/middle/last glyph among the row's siblings. Default agent rows omit `branch` to save a column. The implementation must specify sibling metadata explicitly rather than infer it from adjacent flattened rows.
 
 Add these variables:
 
