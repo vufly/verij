@@ -11,6 +11,7 @@ Source of truth for product behavior: [approved design](AGENT_MONITORING.md). En
 - Latest H3 tested versions: stock Zellij **0.45.1**, OpenCode **1.18.34**, Rust **1.98.1**, Node **24.21.0**. Earlier OpenCode/Agy and patched-Zellij fixtures retain their historical provenance and dated versions. Version checks alone do not satisfy integration gates.
 - Current checkpoint: **H4 accepted for integration**. Following the sidebar ownership-error repair, the user replied **“Quite good now. Commit and push. Merge everything to master. Make global build”** on 2026-10-11. This accepts the current integrated H3/H4 work within its documented limits and authorizes publication/global installation; no extra per-scenario human observations or H5 release acceptance are inferred.
 - Current implementation checkpoint: **H4 — Agy/Magy adapters, accepted**. Approval is recorded separately in [approval.json](../prototypes/h4-agy/approval.json), preserving the automated evidence's original unapproved-at-run-time status. H3 was committed as `445519f`; H1 is `bd2cc4f`, approved H2 is `0b71319`, and prior master `854ecb1` is integrated. Master integration and global build are authorized; H5 remains separate work.
+- Publication/deployment: H4 commit **`9254976`** was pushed on `agent-monitoring`; `master` fast-forwarded from `854ecb1` through all monitoring-branch commits and was pushed. Global CLI and conventional WASM were built from `/home/vudinhn/repos/verij` and installed, with the verification recorded below.
 
 ## Phase and checkpoint ledger
 
@@ -28,6 +29,16 @@ Source of truth for product behavior: [approved design](AGENT_MONITORING.md). En
 | 8 | Automated and live acceptance | Pending | H5 pending |
 
 ## Gate evidence and blockers
+
+### Master integration and global installation — 2026-10-11
+
+Committed H4 and its separate acceptance record as **`9254976`** (`Implemented H4 Agy and Magy monitoring and recorded acceptance`) and pushed `agent-monitoring`. The clean master checkout at `/home/vudinhn/repos/verij` fast-forwarded from `854ecb1` to that commit, bringing in the entire monitoring branch, and was pushed to `origin/master`. Both remote heads were confirmed at `9254976799c63a33865bea393133515d3eb29ef1` before this documentation follow-up.
+
+Built and installed from master with `make install-plugin build-cli` and `cargo install --path verij-cli --locked --force --root /home/vudinhn/.cargo`, using the existing private build-dependency environment and Rust 1.98.1. The global command resolves to **`/home/vudinhn/.cargo/bin/verij`**; the existing `/home/vudinhn/.local/bin/verij` symlink also resolves to the updated master release build. Native CLI hash is **`3040241d8db1ab57b456d4414ff4cce2f1904d6faa95e8058434c4f4e377a089`**; installed exporter **`/home/vudinhn/.local/share/verij/verij_plugin.wasm`** matches master `dist/` at **`3fd6ee5dff34c1ef7ca85388992dd32eadc03c2d215e9574345c47b5ac1d0f54`**. Both match the final H4-tested artifacts.
+
+Refreshed the existing Verij-owned OpenCode/Agy integration setups through the global CLI, preserving their runtime/inventory paths and unrelated configuration while changing reporter references to `/home/vudinhn/.cargo/bin/verij`. Both global `agent doctor` variants report installation and monitoring prerequisites ready; OpenCode reports matching bundled/installed exporter content. Existing agent processes retain their current integrations until their normal restart/reload where applicable; no new agent turn was started for diagnostics.
+
+**Master verification:** `cargo check --workspace`, **216 Rust tests**, native/WASM `make check`, three Python callback tests and seven OpenCode Node tests pass. The first combined verification command reached its external deadline during a fresh WASM dependency compile after native checks/tests had passed; the remaining WASM check and adapter tests were resumed and passed. No additional live acceptance scenario or H5 completion is inferred from this installation.
 
 ### H4 acceptance and master/global-build authorization — 2026-10-11
 
