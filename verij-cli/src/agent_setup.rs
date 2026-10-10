@@ -11,25 +11,34 @@ const ID: &str = "verij.monitoring.v1";
 #[derive(Debug, Clone, ValueEnum)]
 pub enum Adapter {
     Opencode,
+    Agy,
 }
 
 #[derive(Debug, Args)]
 pub struct SetupArgs {
     pub adapter: Adapter,
-    /// OpenCode configuration directory (default: OPENCODE_CONFIG_DIR / XDG).
+    /// Adapter configuration directory (OpenCode TUI config or Agy .gemini).
     #[arg(long)]
     pub config_dir: Option<PathBuf>,
     /// OpenCode binary used for version detection.
     #[arg(long, default_value = "opencode")]
     pub opencode_bin: PathBuf,
+    #[arg(long, default_value = "agy")]
+    pub agy_bin: PathBuf,
+    #[arg(long, default_value = "python3")]
+    pub python_bin: PathBuf,
 }
 
 #[derive(Debug, Args)]
 pub struct DoctorArgs {
+    #[arg(value_enum, default_value = "opencode")]
+    pub adapter: Adapter,
     #[arg(long)]
     pub config_dir: Option<PathBuf>,
     #[arg(long, default_value = "opencode")]
     pub opencode_bin: PathBuf,
+    #[arg(long, default_value = "agy")]
+    pub agy_bin: PathBuf,
     /// Diagnose the exporter prerequisite for one inner Zellij session.
     #[arg(long)]
     pub session: Option<String>,
@@ -73,7 +82,7 @@ fn target(override_dir: Option<PathBuf>) -> Result<PathBuf> {
 
 // Stable content fingerprint for accidental asset-edit detection (not an
 // authentication mechanism). Manifest allows future embedded bridge upgrades.
-fn fingerprint(text: &str) -> String {
+pub(crate) fn fingerprint(text: &str) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for byte in text.bytes() {
         hash ^= u64::from(byte);
@@ -109,7 +118,7 @@ fn validate_assets(assets: &Path, manifest: &Value) -> Result<()> {
     Ok(())
 }
 
-fn version(binary: &Path) -> Result<String> {
+pub(crate) fn version(binary: &Path) -> Result<String> {
     use std::process::{Command, Stdio};
     let mut child = Command::new(binary)
         .arg("--version")
@@ -413,6 +422,7 @@ fn atomic_text(path: &Path, text: &str) -> Result<()> {
 }
 
 pub fn setup(args: SetupArgs) -> Result<()> {
+    if matches!(args.adapter, Adapter::Agy) { return crate::agy_setup::setup(args); }
     let version = version(&args.opencode_bin)?;
     if !crate::opencode::SUPPORTED.contains(&version.as_str()) {
         bail!(
@@ -464,6 +474,7 @@ pub fn setup(args: SetupArgs) -> Result<()> {
 }
 
 pub fn uninstall(args: SetupArgs) -> Result<()> {
+    if matches!(args.adapter, Adapter::Agy) { return crate::agy_setup::uninstall(args); }
     let path = target(args.config_dir)?;
     let dir = path.parent().context("TUI config has no parent")?;
     if !dir.exists() {
@@ -502,7 +513,7 @@ pub fn uninstall(args: SetupArgs) -> Result<()> {
     Ok(())
 }
 
-fn inventory_diagnostics(snapshots: &[verij_types::SessionSnapshot]) -> Vec<Value> {
+pub(crate) fn inventory_diagnostics(snapshots: &[verij_types::SessionSnapshot]) -> Vec<Value> {
     snapshots.iter().map(|snapshot| {
         let (status, detail, terminals) = match snapshot.inventory.as_ref() {
             None => ("legacy_snapshot", "This session exports only sessions/tabs. Upgrade the Verij WASM plugin at its configured load_plugins path, then reload that same URL in this session.", 0),
@@ -526,6 +537,7 @@ fn inventory_diagnostics(snapshots: &[verij_types::SessionSnapshot]) -> Vec<Valu
 }
 
 pub fn doctor(args: DoctorArgs) -> Result<()> {
+    if matches!(args.adapter, Adapter::Agy) { return crate::agy_setup::doctor(args); }
     let path = target(args.config_dir)?;
     let dir = path.parent().context("TUI config has no parent")?;
     let assets = dir.join("verij-monitoring");

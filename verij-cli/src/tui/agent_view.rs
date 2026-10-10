@@ -112,10 +112,10 @@ pub fn build_views(
                         inventory.server_process.as_ref(),
                         pane.pane_process.as_ref(),
                     ) {
-                        (Some(server), Some(leader)) => crate::process::verify_foreground(
+                        (Some(server), Some(leader)) => crate::magy::verify_owner(
+                            &record.identity,
                             server,
                             leader,
-                            &record.identity.process,
                         )
                         .is_ok(),
                         _ => false,
@@ -477,6 +477,7 @@ mod tests {
                 completed_turn_epoch: 1,
                 completed_turn_revision: 1,
                 opencode_completions: BTreeMap::new(),
+                adapter_state: BTreeMap::new(),
             },
         }
     }

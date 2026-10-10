@@ -348,6 +348,7 @@ pub fn register(
         completed_turn_epoch: 0,
         completed_turn_revision: 0,
         opencode_completions: BTreeMap::new(),
+        adapter_state: BTreeMap::new(),
     };
     atomic_write_json(&instance_dir.join("state.json"), &initial_state)?;
 

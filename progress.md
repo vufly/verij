@@ -80,7 +80,7 @@ make dev
 
 ## Roadmap
 
-- Agent monitoring H0–H2 is approved. H3 [OpenCode monitoring](integrations/opencode/README.md) is implemented and verified, ready for human review; Agy/Magy follows at H4. The [feature progress log](docs/AGENT_MONITORING_PROGRESS.md) records evidence and checkpoint status; the [implementation guide](docs/AGENT_MONITORING_IMPLEMENTATION.md) defines remaining adapter contracts and acceptance checks.
+- Agent monitoring H0–H2 is approved. Current H3 [OpenCode monitoring](integrations/opencode/README.md) and H4 [Agy/Magy monitoring](integrations/agy/README.md) are accepted for master integration and global installation. H4 passes 19 live checks and the ten-check H2 regression; 216 Rust tests and native/WASM checks pass. The [feature progress log](docs/AGENT_MONITORING_PROGRESS.md) records evidence and acceptance; the full H5 release matrix remains separate work.
 - Validate live host rename after restarting existing sidebar with new binary; local `🔷v` → `v` migration was done once outside the product.
 - Add end-to-end coverage for host resurrection and inner-session resurrection.
 - Add coverage for manual Workspace detach, multiple inner clients, multiple hosts, and custom layouts.

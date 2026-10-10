@@ -2126,7 +2126,8 @@ pub(crate) fn activate_instance(
         .iter()
         .find(|pane| pane.terminal_id == expected_pane.terminal && !pane.exited)
         .context("agent terminal no longer exists")?;
-    crate::process::verify_foreground(
+    crate::magy::verify_owner(
+        &identity,
         inventory
             .server_process
             .as_ref()
@@ -2134,7 +2135,6 @@ pub(crate) fn activate_instance(
         pane.pane_process
             .as_ref()
             .context("pane birth unavailable")?,
-        &identity.process,
     )?;
     if !is_current() {
         bail!("agent navigation superseded before dispatch");
@@ -2256,7 +2256,8 @@ pub async fn execute(command: NavigationCommand) -> Result<()> {
                     .find(|pane| pane.terminal_id == identity.pane_key.terminal && !pane.exited)
                     .context("agent terminal no longer exists")?;
                 if !identity.is_synthetic {
-                    crate::process::verify_foreground(
+                    crate::magy::verify_owner(
+                        &identity,
                         inventory
                             .server_process
                             .as_ref()
@@ -2264,7 +2265,6 @@ pub async fn execute(command: NavigationCommand) -> Result<()> {
                         pane.pane_process
                             .as_ref()
                             .context("pane birth unavailable")?,
-                        &identity.process,
                     )?;
                 }
                 let binding = ensure_owned_binding(&control_dir, &host, &|| true)?;

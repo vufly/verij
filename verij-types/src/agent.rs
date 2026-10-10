@@ -461,6 +461,9 @@ pub struct AgentState {
     /// TUI plugin reload and conversation reselection without replaying Done.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub opencode_completions: BTreeMap<String, u64>,
+    /// Bounded adapter correlation/cursors, committed with source snapshots.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub adapter_state: BTreeMap<String, serde_json::Value>,
 }
 
 /// Fresh proof of whole-host and inner focus required for completion acknowledgement.

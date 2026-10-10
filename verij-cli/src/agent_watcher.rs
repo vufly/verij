@@ -139,8 +139,10 @@ pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
             let mut previous: Option<Vec<AgentRecord>> = None;
             let mut pending_send: Option<Vec<AgentRecord>> = None;
             let mut next_poll = Instant::now() + FALLBACK_INTERVAL;
+            let mut next_magy = Instant::now() + FALLBACK_INTERVAL;
 
             // Initial read
+            let _ = crate::magy::reconcile();
             let records = read_records(&root);
             match tx.try_send(records.clone()) {
                 Ok(()) => {
@@ -204,6 +206,10 @@ pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
                 }
 
                 if should_read {
+                    if Instant::now() >= next_magy {
+                        let _ = crate::magy::reconcile();
+                        next_magy = Instant::now() + FALLBACK_INTERVAL;
+                    }
                     next_poll = Instant::now() + FALLBACK_INTERVAL;
                     let records = read_records(&root);
                     if previous.as_ref() != Some(&records) || pending_send.is_some() {

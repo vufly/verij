@@ -1,0 +1,69 @@
+{
+  "checkpoint": "H4",
+  "status": "PASS",
+  "human_approved": false,
+  "date": "2026-10-10",
+  "versions": {
+    "agy": "1.3.3",
+    "zellij": "0.45.1 stock",
+    "magy": "0.1.0",
+    "magy_source_revision": "63b24073e709b7ba9e1f0f878340d898aa36b526",
+    "rust": "1.98.1"
+  },
+  "artifacts": {
+    "root": "../artifacts/scratch/vj-h4-cit7o3ja",
+    "original_report": "../artifacts/h4-navigation-final.json",
+    "cli_sha256": "3040241d8db1ab57b456d4414ff4cce2f1904d6faa95e8058434c4f4e377a089",
+    "plugin_sha256": "3fd6ee5dff34c1ef7ca85388992dd32eadc03c2d215e9574345c47b5ac1d0f54"
+  },
+  "live_checks": 19,
+  "corroborated_production_snapshots": 11,
+  "semantic_records_synthetic": false,
+  "model": "gemini-3.8-flash-low (authenticated provider)",
+  "checks": [
+    "idempotent_setup_and_previous_status_composition",
+    "interactive_presence_actual_pane_and_process_birth",
+    "real_agy_navigation_owner_gate_reaches_missing_host_without_dispatch",
+    "interactive_working",
+    "qualified_stop_success",
+    "neutral_lifecycle_and_visible_prior_stdout",
+    "native_permission_no_pretool_gate",
+    "permission_reply_and_next_completion",
+    "background_tasks_delay_done",
+    "aggregate_background_stop_completes_once",
+    "agent_exit_removes_live_row",
+    "magy_pane_start_profile_home_shared_reporter",
+    "watch_bound_native_renderer_stream_working",
+    "watch_final_state_and_auto_close_remove_row",
+    "cancel-watch_bound_native_renderer_stream_working",
+    "cancel-watch_final_state_and_auto_close_remove_row",
+    "pane_less_detached_run_never_registers_launcher",
+    "renamed_session_same_process_instance",
+    "uninstall_restores_previous_status_and_preserves_unrelated_entries"
+  ],
+  "automated": {
+    "cargo_check_workspace": "PASS",
+    "cargo_test_workspace": "PASS: 216 tests (172 CLI unit, 17 CLI integration, 5 plugin, 22 shared types)",
+    "make_check": "PASS: native and wasm32-wasip1",
+    "make_dev": "PASS",
+    "python_callback_tests": "PASS: 3 tests",
+    "node_opencode_tests": "PASS: 7 tests",
+    "h4_evidence_validator": "PASS: 19 checks, 11 original production snapshots",
+    "h2_regression": "PASS: 10 checks in vj-h2-oktkw_57, independently validated; semantic records explicitly synthetic"
+  },
+  "cleanup": {
+    "private_auth_and_profile_homes_removed": true,
+    "private_magy_prompt_and_log_storage_removed": true,
+    "private_socket_and_terminal_contexts_removed": true,
+    "recorded_native_lifetimes_exited": true
+  },
+  "accepted_limits": [
+    "No verified structured question-pending source; no terminal-text workaround.",
+    "Idle/cancellation without correlated Stop cannot establish success.",
+    "Unsupported/uncorrelated terminal reasons stay conservative; arbitrary concurrent upstream executions are unsupported.",
+    "Watch outcome requires bound stream plus final watch state; row disappears when renderer/pane exits.",
+    "Magy native session-name hints can become stale after rename. Live watch auto-close was tested before the final interactive-only rename.",
+    "Two-host live adapter navigation/acknowledgement and full release matrix remain H5 work."
+  ],
+  "retained_attempts": "h4-attempt-1.json through h4-attempt-25.json remain local original evidence. Attempt 26 and h4-final.json passed before the navigation ownership-gateway follow-up. No final pass is attributed to an earlier failure."
+}

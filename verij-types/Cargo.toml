@@ -8,6 +8,4 @@ description = "Shared wire and snapshot types for Verij CLI and Plugin"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-
-[dev-dependencies]
 serde_json = "1"

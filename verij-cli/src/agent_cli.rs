@@ -14,9 +14,9 @@ use verij_types::identity::{HostKey, PaneKey, SessionInstanceId, TerminalPaneId}
 
 #[derive(Debug, Subcommand)]
 pub enum AgentCommand {
-    /// Install the pane-local OpenCode adapter (restart OpenCode afterward).
+    /// Install a pane-local adapter (restart the agent afterward).
     Setup(crate::agent_setup::SetupArgs),
-    /// Remove only Verij's OpenCode plugin entry and assets.
+    /// Remove only Verij-owned integration entries and assets.
     Uninstall(crate::agent_setup::SetupArgs),
     /// Inspect adapter installation, supported versions and runtime health.
     Doctor(crate::agent_setup::DoctorArgs),
@@ -26,6 +26,18 @@ pub enum AgentCommand {
         #[arg(long)] session: String,
         #[arg(long)] pane: u32,
         #[arg(long)] pid: u32,
+    },
+    /// Internal metadata-only Agy callback reporter.
+    #[command(hide = true)]
+    Agy {
+        #[arg(long)] pane: u32,
+        #[arg(long)] pid: u32,
+        #[arg(long)] birth: u64,
+    },
+    /// Observe pane-backed Magy watches (also runs with each sidebar).
+    Magy {
+        /// Reconcile once, rather than observing until interrupted.
+        #[arg(long)] once: bool,
     },
     /// Validate actual foreground pane/process ownership without registration.
     Verify {
@@ -140,6 +152,8 @@ pub fn execute(command: AgentCommand) -> Result<()> {
         AgentCommand::Uninstall(args) => crate::agent_setup::uninstall(args),
         AgentCommand::Doctor(args) => crate::agent_setup::doctor(args),
         AgentCommand::Opencode { session, pane, pid } => crate::opencode::run(session, pane, pid),
+        AgentCommand::Agy { pane, pid, birth } => crate::agy::run(pane, pid, birth),
+        AgentCommand::Magy { once } => crate::magy::run(once),
         AgentCommand::Verify { session, pane, pid } => {
             let snapshots = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir());
             let inventory = snapshots
@@ -185,7 +199,7 @@ fn execute_register(args: RegisterArgs) -> Result<()> {
 
 pub fn register(args: RegisterArgs) -> Result<AgentInstanceId> {
     if args.runner_id.is_some() && !args.synthetic {
-        bail!("verified runner registration requires the H4 Magy adapter");
+        bail!("runner binding is owned by agent magy; generic registration cannot supply it");
     }
     let kind = match args.kind.to_lowercase().as_str() {
         "opencode" => AgentKind::Opencode,
@@ -257,7 +271,11 @@ pub fn register(args: RegisterArgs) -> Result<AgentInstanceId> {
         let agent_process = crate::process::identity(args.pid)
             .with_context(|| format!("failed to read identity for pid {}", args.pid))?;
 
-        crate::process::verify_foreground(server_process, pane_process, &agent_process)
+        (if kind == AgentKind::Agy {
+            crate::process::verify_agy_foreground(server_process, pane_process, &agent_process)
+        } else {
+            crate::process::verify_foreground(server_process, pane_process, &agent_process)
+        })
             .with_context(|| {
                 format!(
                     "foreground verification failed for pid {} in pane {}",
@@ -380,7 +398,7 @@ pub fn acknowledge_visit_if_current(
         .and_then(|pane| pane.pane_process.as_ref())
         .context("visited terminal process unavailable")?;
     if !identity.is_synthetic {
-        crate::process::verify_foreground(server, pane, &identity.process)?;
+        crate::magy::verify_owner(&identity, server, pane)?;
     }
     let proof = verij_types::agent::VisitProof {
         host_key: HostKey(args.host),

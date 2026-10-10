@@ -98,7 +98,7 @@ pub fn started_at_ms(expected: &ProcessIdentity) -> Result<u64> {
 }
 
 #[cfg(target_os = "linux")]
-fn tty_descriptor(pid: u32, descriptor: u8) -> Result<u64> {
+fn tty_descriptor(pid: u32, descriptor: u32) -> Result<u64> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
     let info = std::fs::metadata(format!("/proc/{pid}/fd/{descriptor}"))?;
     if !info.file_type().is_char_device() {
@@ -134,6 +134,32 @@ pub fn verify_foreground(
     pane: &ProcessIdentity,
     agent: &ProcessIdentity,
 ) -> Result<()> {
+    verify_terminal_job(server, pane, agent, false)
+}
+
+/// Agy redirects stdio to logs after retaining writable renderer descriptors.
+/// This exception is restricted to its actual executable and interactive mode.
+#[cfg(target_os = "linux")]
+pub fn verify_agy_foreground(server: &ProcessIdentity, pane: &ProcessIdentity, agent: &ProcessIdentity) -> Result<()> {
+    let executable = std::fs::read_link(format!("/proc/{}/exe", agent.pid))?;
+    if !executable.file_name().and_then(|s| s.to_str()).is_some_and(|s| s == "agy" || s.starts_with("agy.")) {
+        bail!("process is not Agy");
+    }
+    let command = std::fs::read(format!("/proc/{}/cmdline", agent.pid))?;
+    if command.len() > 65536 || command.split(|b| *b == 0).any(|arg| {
+        [b"--print".as_slice(), b"-p", b"--prompt", b"--output-format", b"--input-format"].iter()
+            .any(|flag| arg == *flag || (arg.starts_with(flag) && arg.get(flag.len()) == Some(&b'=')))
+    }) { bail!("headless Agy is not a pane-local interactive renderer"); }
+    verify_terminal_job(server, pane, agent, true)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn verify_agy_foreground(_: &ProcessIdentity, _: &ProcessIdentity, _: &ProcessIdentity) -> Result<()> {
+    bail!("Agy terminal ownership unavailable on this platform")
+}
+
+#[cfg(target_os = "linux")]
+fn verify_terminal_job(server: &ProcessIdentity, pane: &ProcessIdentity, agent: &ProcessIdentity, agy_renderer: bool) -> Result<()> {
     let uid = std::fs::metadata("/proc/self")?;
     use std::os::unix::fs::MetadataExt;
     if [server, pane, agent]
@@ -156,9 +182,20 @@ pub fn verify_foreground(
         bail!("agent does not own this pane's foreground terminal job");
     }
     let pane_tty = tty_descriptor(pane.pid, 0)?;
-    if tty_descriptor(agent.pid, 0)? != pane_tty || tty_descriptor(agent.pid, 1)? != pane_tty {
+    if tty_descriptor(agent.pid, 0)? != pane_tty {
         bail!("agent input/output is redirected away from this pane");
     }
+    let output = tty_descriptor(agent.pid, 1).is_ok_and(|device| device == pane_tty);
+    let renderer = agy_renderer && std::fs::read_dir(format!("/proc/{}/fd", agent.pid))?
+        .flatten().take(1024).any(|entry| {
+            let Some(fd) = entry.file_name().to_str().and_then(|s| s.parse::<u32>().ok()).filter(|fd| *fd > 2) else { return false; };
+            let writable = std::fs::read_to_string(format!("/proc/{}/fdinfo/{fd}", agent.pid)).ok()
+                .and_then(|text| text.lines().find_map(|line| line.strip_prefix("flags:").map(str::trim)).map(str::to_string))
+                .and_then(|flags| u32::from_str_radix(&flags, 8).ok())
+                .is_some_and(|flags| flags & libc::O_ACCMODE as u32 != libc::O_RDONLY as u32);
+            writable && tty_descriptor(agent.pid, fd).is_ok_and(|device| device == pane_tty)
+        });
+    if !output && !renderer { bail!("agent has no writable renderer on this pane's terminal"); }
     if [server, pane, agent]
         .iter()
         .any(|process| !is_alive(process))

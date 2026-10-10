@@ -261,8 +261,9 @@ New inner sessions receive a fake-PTY attach while their initial layout is creat
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
-- [Agent monitoring design](docs/AGENT_MONITORING.md) — approved behavior; H0–H2 approved, H3 OpenCode ready for review
+- [Agent monitoring design](docs/AGENT_MONITORING.md) — approved behavior; current H3/H4 integrations accepted for master/global installation
 - [OpenCode monitoring setup](integrations/opencode/README.md) — pane-local adapter installation, diagnostics and supported behavior
+- [Agy/Magy monitoring setup](integrations/agy/README.md) — callback composition, neutral hooks, pane-backed watches and capability limits
 - [Agent monitoring implementation guide](docs/AGENT_MONITORING_IMPLEMENTATION.md) — contracts, implementation sequence, and acceptance checks
 - [Continue agent monitoring on another computer](docs/AGENT_MONITORING_SETUP.md) — portable setup, local-only artifacts, verification and handoff
 - [Progress and roadmap](progress.md)
