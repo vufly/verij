@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-09",
+  "status": "PASS: automated verification; live human re-verification pending",
+  "human_h3_approved": false,
+  "feedback": "Agent activation reported missing verified host binding",
+  "accepted_behavior": "User selected Shared dialog (Recommended): automatic native registration may briefly show a shared dialog to peer clients",
+  "implementation": "Automatic owned-Workspace binding recovery, native keyboard receipt, OS socket-peer/server qualification, cancellation/serialization and failed-surface cleanup; owned wrapper restored on host resurrection",
+  "discarded_experiments": "ModeUpdate/reconfiguration bootstrap and reused-headless-exporter registration; no new permission or permanent keymap installed",
+  "live_host": {
+    "name": "t",
+    "repair_verified": false,
+    "observation": "After user reattachment, old attachment metadata no longer matched a live owned wrapper; host ceased being active before refresh. No inner OpenCode restart."
+  },
+  "preliminary_bootstrap_fixture": {
+    "status": "PASS",
+    "root": "/home/vudinhn/repos/workspaces/verij/agent-monitoring/artifacts/scratch/vj-h2-kljjs_fk",
+    "profile": "debug CLI, release WASM",
+    "checks": 10,
+    "initial_host_bindings_absent": true,
+    "clients_start_locked_without_registration_keybind": true,
+    "evidence_validator": "PASS",
+    "semantic_records_synthetic": true,
+    "private_socket_removed": true,
+    "known_processes_exited": true
+  },
+  "repository_checks": {
+    "cargo_check_workspace": "PASS",
+    "cargo_test_workspace": "PASS: 200 tests (159 CLI unit, 15 CLI integration, 4 plugin, 22 shared types)",
+    "make_check": "PASS: native and wasm32-wasip1",
+    "make_dev": "PASS: release CLI and WASM",
+    "make_install_plugin": "PASS",
+    "node_tests": "PASS: 7 tests"
+  },
+  "release_bootstrap_fixture": {
+    "status": "PASS",
+    "root": "/home/vudinhn/repos/workspaces/verij/agent-monitoring/artifacts/scratch/vj-h2-y0xe_3h0",
+    "checks": 10,
+    "initial_host_bindings_absent": true,
+    "clients_start_locked_without_registration_keybind": true,
+    "evidence_validator": "PASS",
+    "socket_peer_server_qualification": "executed by production registration",
+    "semantic_records_synthetic": true,
+    "private_socket_removed": true,
+    "known_processes_exited": true
+  },
+  "h3_regression": {
+    "status": "PASS",
+    "root": "/home/vudinhn/repos/workspaces/verij/agent-monitoring/artifacts/scratch/vj-h3-nkcy7s5u",
+    "checks": 26,
+    "evidence_validator": "PASS: 27 production snapshots across 4 instances",
+    "production_semantic_records_synthetic": false,
+    "known_processes_exited": true
+  }
+}

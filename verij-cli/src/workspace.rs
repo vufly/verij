@@ -52,6 +52,9 @@ pub fn attach(
         workspace_pane: TerminalPaneId(pane),
         attachment_process: crate::process::identity(std::process::id())?,
     };
+    // Direct layout launches also need a session hint for initial native
+    // registration. The hint never substitutes for the keyboard receipt.
+    crate::actions::set_workspace_session(session)?;
     write_private(
         &root.join(format!("attachment-{host}.json")),
         &serde_json::to_vec(&attachment)?,
@@ -179,4 +182,5 @@ mod tests {
         assert!(config.contains("LaunchOrFocusPlugin"));
         assert!(config.contains("file:/tmp/verij plugin.wasm"));
     }
+
 }

@@ -2,6 +2,7 @@
 """Corroborate H2 UI/status claims against retained private fixture projections."""
 import argparse
 import json
+import statistics
 from pathlib import Path
 
 
@@ -24,7 +25,14 @@ def verify(report_path):
     assert report["status"]=="PASS"
     assert report["semantic_records_synthetic"] is True
     assert report["human_h2_approved"] is False
-    assert len(report["checks"])==len(CHECKS) and set(report["checks"])==CHECKS
+    expected_checks = CHECKS | ({"workspace_title_startup_contention_retries_without_persistent_error"}
+                               if report.get("startup_contention") else set())
+    if report.get("legacy_source_inventory_absent"):
+        expected_checks.add("missing_source_exporter_bootstraps_verified_inventory_before_agent_switch")
+        expected_checks.add("repeated_same_session_agent_activation_transfers_keyboard_without_session_switch")
+    if report.get("latency"):
+        expected_checks.add("cross_session_focus_latency_and_host_local_active_tab_rendering")
+    assert len(report["checks"])==len(expected_checks) and set(report["checks"])==expected_checks
     root=Path(report["root"])
     assert root.name.startswith("vj-h2-")
     load=lambda name:json.loads((root / name).read_text())
@@ -55,7 +63,29 @@ def verify(report_path):
     assert states["3"]["reduced"]["status"]=="error"
     assert states["4"]["reduced"]["status"]=="unknown"
     ordered_receipts=[json.loads(line) for line in (root / "control/control-results.ndjson").read_text().splitlines()]
+    if report.get("initial_host_bindings_absent"):
+        surfaces = [r for r in ordered_receipts if r["request"]["operation"]["type"] == "registration_surface"]
+        assert surfaces and all(r["request"]["sequence"] == 0 and not r["whole_host_verified"]
+            and not r["acknowledge_done"] for r in surfaces)
+        bindings = [load(f"registration-{host}.json") for host in ("a", "b")]
+        assert bindings[0]["context"]["client_id"] != bindings[1]["context"]["client_id"]
     receipts={receipt["request"]["request_id"]:receipt for receipt in ordered_receipts}
+    if report.get("legacy_source_inventory_absent"):
+        recovered = load("legacy-source-recovered.json")
+        assert recovered["server_process"] and recovered["session_instance_id"]
+        switches = [receipt for receipt in ordered_receipts if receipt["request"]["operation"]["type"] == "switch"
+                    and receipt["observation"]["session_name"] == "h2-legacy"]
+        assert len(switches) >= 2
+        assert all(receipt["status"] == "switch_dispatched_unverified" and
+                   receipt["request"]["operation"]["session_name"] == "h2-shared" for receipt in switches)
+        focus = load("same-session-focus.json")
+        assert len(focus["tokens"]) == 6
+        assert not any(receipt["request"]["operation"]["type"] == "switch" for receipt in focus["receipts"])
+        for item in focus["tokens"]:
+            assert item["token"] in (root / f"input-h2-shared-{item['pane']}").read_text()
+            assert any(receipt["status"] == "inner_focus_observed"
+                       and receipt["request"]["operation"] == {"type": "focus", "terminal": item["pane"]}
+                       and receipt["observation"]["session_name"] == "h2-shared" for receipt in focus["receipts"])
     for stage,expected in (
         ("before-visits",{"a":{},"b":{}}),
         ("after-enter-a",{"a":{"0":1},"b":{}}),
@@ -106,14 +136,52 @@ def verify(report_path):
     assert "✓" in (root / "done-before-visit-host-a.txt").read_text()
     final=(root / "final-tree-host-a.txt").read_text()
     assert "Fixture-4" not in final and "Fixture-3" in final and "stack" in final
+    if report.get("startup_contention"):
+        contention = load("startup-contention.json")
+        assert contention["held_seconds"] >= 2.5
+        assert contention["target_title"] in contention["recovered_workspace_title"]
+        frames = load("startup-contention-frames.json")
+        assert len(frames) == contention["frame_count"] and len(frames) >= 10
+        frames.append((root / "startup-contention-after.txt").read_text())
+        assert all("Workspace title:" not in frame and "lock deadline" not in frame for frame in frames)
+    latency_summary = None
+    if report.get("latency"):
+        samples = load("cross-session-latency.json")
+        assert len(samples) == report["latency"]["hops"] == 8
+        assert {sample["session"] for sample in samples} == {"h2-legacy", "h2-shared"}
+        for index, sample in enumerate(samples):
+            assert 0 < sample["focus_ms"] <= sample["highlight_ms"]
+            receipt = sample["outer_receipt"]
+            assert receipt["status"] == "inner_focus_observed"
+            assert receipt["observation"]["session_name"] == "h2-host-a"
+            assert receipt["observation"]["observed_at_ms"] >= sample["started_at_ms"]
+            assert receipt in ordered_receipts
+            assert any(value["status"] == "inner_focus_observed"
+                       and value["observation"]["session_name"] == sample["session"]
+                       and value["observation"]["terminal"] == sample["pane"]
+                       and value["observation"]["observed_at_ms"] >= sample["started_at_ms"] for value in ordered_receipts)
+            assert sample["token"] in (root / f"input-{sample['session']}-{sample['pane']}").read_text()
+            assert sample["marker"] in (root / f"cross-hop-{index}.txt").read_text()
+            if "verij_plugin_panes" in sample:
+                assert set(sample["verij_plugin_panes"]) == {"h2-legacy", "h2-shared"}
+                assert all(len(ids) <= 3 for ids in sample["verij_plugin_panes"].values())
+        latency_summary = {
+            "hops": len(samples),
+            "min_focus_ms": min(sample["focus_ms"] for sample in samples),
+            "median_focus_ms": statistics.median(sample["focus_ms"] for sample in samples),
+            "max_focus_ms": max(sample["focus_ms"] for sample in samples),
+            "median_highlight_followup_ms": statistics.median(sample["highlight_ms"] - sample["focus_ms"] for sample in samples),
+            "max_highlight_followup_ms": max(sample["highlight_ms"] - sample["focus_ms"] for sample in samples),
+        }
     if report.get("review_live"):
         assert Path(manifest["tmux_socket"]).exists()
     else:
         assert report["cleanup"]=={"private_socket_removed":True,"known_processes_exited":True}
         assert not Path(manifest["socket_dir"]).exists()
-    print(json.dumps({"status":"PASS","root":str(root),"checks":len(CHECKS),
+    print(json.dumps({"status":"PASS","root":str(root),"checks":len(expected_checks),
                       "evidence":"native identity/control receipts, receiver token, staged host acknowledgements, restart and UI frames",
-                      "semantic_records_synthetic":True,"human_h2_approved":False},indent=2))
+                      "semantic_records_synthetic":True,"human_h2_approved":False,
+                      **({"latency": latency_summary} if latency_summary else {})},indent=2))
 
 
 if __name__=="__main__":

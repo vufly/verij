@@ -1,7 +1,7 @@
 //! Focused-keyboard registration and exact-recipient public stock control.
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use verij_types::control::*;
 use verij_types::identity::{valid_record_key, PluginContext, TerminalPaneId};
 use verij_types::VERIJ_CONTROL_PIPE;
@@ -17,6 +17,23 @@ pub struct Control {
     pending: Option<(ControlRequest, u8)>,
     observer: bool,
     trace: bool,
+    registration_surface: bool,
+    registration_request_id: Option<String>,
+    wakeup: WakeupSchedule,
+}
+
+struct WakeupSchedule { next: Instant }
+
+impl WakeupSchedule {
+    fn new(now: Instant) -> Self { Self { next: now + Duration::from_secs(1) } }
+    fn due(&self, now: Instant) -> bool {
+        now >= self.next
+    }
+    fn schedule(&mut self, now: Instant, delay: Duration) { self.next = now + delay; }
+    fn expedite(&mut self, now: Instant) -> bool {
+        let next = now + Duration::from_millis(20);
+        if next < self.next { self.next = next; true } else { false }
+    }
 }
 
 fn millis() -> u64 {
@@ -38,6 +55,7 @@ impl Control {
             .as_nanos()
             .to_string();
         subscribe(&[EventType::Timer, EventType::Key]);
+        let wakeup = WakeupSchedule::new(Instant::now());
         set_timeout(1.0);
         Self {
             context: PluginContext {
@@ -61,6 +79,9 @@ impl Control {
             trace: configuration
                 .get("trace_control")
                 .is_some_and(|value| value == "true"),
+            registration_surface: configuration.get("registration_surface").is_some_and(|value| value == "true"),
+            registration_request_id: configuration.get("registration_request_id").filter(|value| valid_record_key(value)).cloned(),
+            wakeup,
         }
     }
 
@@ -117,6 +138,8 @@ impl Control {
             pane_pid: None,
             observed_at_ms: millis(),
             application_sequence: self.sequence,
+            registration_surface: self.registration_surface,
+            registration_request_id: self.registration_request_id.clone(),
         }
     }
 
@@ -130,6 +153,7 @@ impl Control {
         status: ControlStatus,
         mut observation: FocusObservation,
     ) {
+        self.publish_focus(&observation);
         let name = format!("result-{}", request.request_id);
         if let ControlOperation::Locate { terminal } = &request.operation {
             observation.queried_terminal = Some(*terminal);
@@ -154,6 +178,29 @@ impl Control {
         );
     }
 
+    fn publish_focus(&self, observation: &FocusObservation) {
+        if self.ready {
+            self.write(&format!("focus-{}-{}-{}-{}", self.context.server_pid,
+                self.context.plugin_id, self.context.client_id, self.context.epoch), observation);
+        }
+    }
+
+    fn finish_registration(&mut self) {
+        let observation = self.observation();
+        if observation.focused_plugin != Some(self.context.plugin_id) {
+            self.input.clear();
+            return;
+        }
+        let nonce = std::mem::take(&mut self.input);
+        self.write(&format!("binding-{nonce}"), &Registration {
+            nonce,
+            context: self.context.clone(),
+            observation,
+            source: "focused_plugin_keyboard".into(),
+        });
+        hide_self();
+    }
+
     pub fn update(&mut self, event: &Event) {
         match event {
             Event::PermissionRequestResult(PermissionStatus::Granted) => {
@@ -161,19 +208,19 @@ impl Control {
                 if self.observer {
                     hide_self();
                 }
+                self.publish_focus(&self.observation());
             }
             Event::SessionUpdate(sessions, _) => {
                 if let Some(current) = sessions.iter().find(|session| session.is_current_session) {
+                    let changed = self.session.as_deref() != Some(current.name.as_str());
                     self.session = Some(current.name.clone());
+                    if changed { self.publish_focus(&self.observation()); }
                 }
             }
-            Event::Key(key) if self.ready => {
-                let focused = get_focused_pane_info()
-                    .ok()
+            Event::Key(key) if self.ready && key.key_modifiers.is_empty() => {
+                let focused = get_focused_pane_info().ok()
                     .is_some_and(|(_, pane)| pane == PaneId::Plugin(self.context.plugin_id));
-                if !focused {
-                    return;
-                }
+                if !focused { return; }
                 match key.bare_key {
                     BareKey::Char(character)
                         if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') =>
@@ -183,36 +230,19 @@ impl Control {
                         }
                     }
                     BareKey::Enter if valid_record_key(&self.input) => {
-                        let nonce = std::mem::take(&mut self.input);
-                        self.write(
-                            &format!("binding-{nonce}"),
-                            &Registration {
-                                nonce,
-                                context: self.context.clone(),
-                                observation: self.observation(),
-                                source: "focused_plugin_keyboard".into(),
-                            },
-                        );
-                        hide_self();
+                        self.finish_registration();
                     }
                     BareKey::Esc => self.input.clear(),
                     _ => {}
                 }
             }
             Event::Timer(_) => {
+                // A focus intent can advance the scheduled wakeup. The original
+                // idle timer is then obsolete; do not let it start another
+                // recurring timer chain or trigger pane-update query feedback.
+                if !self.wakeup.due(Instant::now()) { return; }
                 let observation = self.observation();
-                if self.ready {
-                    self.write(
-                        &format!(
-                            "focus-{}-{}-{}-{}",
-                            self.context.server_pid,
-                            self.context.plugin_id,
-                            self.context.client_id,
-                            self.context.epoch
-                        ),
-                        &observation,
-                    );
-                }
+                self.publish_focus(&observation);
                 if let Some((request, polls)) = self.pending.take() {
                     let target = match request.operation {
                         ControlOperation::Focus { terminal } => Some(terminal),
@@ -237,7 +267,9 @@ impl Control {
                 // Passive heartbeats do not need a 5Hz SDK query stream from
                 // every plugin/client instance. Pending focus still polls at
                 // 200ms, with one native focus observation reused for its reply.
-                set_timeout(if self.pending.is_some() { 0.2 } else { 1.0 });
+                let delay = if self.pending.is_some() { 0.2 } else { 1.0 };
+                self.wakeup.schedule(Instant::now(), Duration::from_secs_f64(delay));
+                set_timeout(delay);
             }
             _ => {}
         }
@@ -285,10 +317,34 @@ impl Control {
         }
         if matches!(
             request.operation,
-            ControlOperation::Query | ControlOperation::Locate { .. }
+            ControlOperation::Query | ControlOperation::Locate { .. } | ControlOperation::RegistrationSurface | ControlOperation::RegistrationSurfaceFor { .. } | ControlOperation::RetireRegistrationSurface
         ) {
             if request.sequence != 0 {
                 self.result(request, ControlStatus::Unavailable);
+                return;
+            }
+            if matches!(request.operation, ControlOperation::RegistrationSurface) {
+                if !self.registration_surface {
+                    self.result(request, ControlStatus::Unavailable);
+                    return;
+                }
+                self.input.clear();
+                show_self(true);
+            }
+            if let ControlOperation::RegistrationSurfaceFor { plugin_id } = &request.operation {
+                if !get_pane_info(PaneId::Plugin(*plugin_id)).is_some_and(|pane| pane.is_plugin && !pane.exited) {
+                    self.result(request, ControlStatus::Unavailable);
+                    return;
+                }
+                focus_plugin_pane(*plugin_id, true, false);
+            }
+            if matches!(request.operation, ControlOperation::RetireRegistrationSurface) {
+                if !self.registration_surface || self.registration_request_id.is_none() {
+                    self.result(request, ControlStatus::Unavailable);
+                    return;
+                }
+                self.result(request, ControlStatus::Observed);
+                close_self();
                 return;
             }
             self.result(request, ControlStatus::Observed);
@@ -313,6 +369,9 @@ impl Control {
                 }
                 focus_terminal_pane(terminal.0, false, false);
                 self.pending = Some((request, 0));
+                if self.wakeup.expedite(Instant::now()) {
+                    set_timeout(0.02);
+                }
             }
             ControlOperation::Switch {
                 session_name,
@@ -330,7 +389,7 @@ impl Control {
                 self.result(request, ControlStatus::SwitchDispatchedUnverified);
                 switch_session_with_focus(&session, None, Some((id, false)));
             }
-            ControlOperation::Query | ControlOperation::Locate { .. } => {}
+            ControlOperation::Query | ControlOperation::Locate { .. } | ControlOperation::RegistrationSurface | ControlOperation::RegistrationSurfaceFor { .. } | ControlOperation::RetireRegistrationSurface => {}
         }
     }
 
@@ -341,5 +400,28 @@ impl Control {
         );
         println!("Verij host controller enters its binding nonce here.");
         println!("Registration is not a Done acknowledgement.");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fast_focus_and_obsolete_idle_timers_do_not_start_duplicate_chains() {
+        let now = Instant::now();
+        let mut schedule = WakeupSchedule::new(now);
+        assert!(schedule.expedite(now));
+        assert!(!schedule.expedite(now + Duration::from_millis(1)));
+        assert!(!schedule.due(now + Duration::from_millis(19)));
+        let fast = now + Duration::from_millis(20);
+        assert!(schedule.due(fast));
+        schedule.schedule(fast, Duration::from_secs(1));
+        // The original one-second callback is still queued in stock Zellij.
+        // It must not query focus or schedule another one-second heartbeat.
+        assert!(!schedule.due(now + Duration::from_secs(1)));
+        assert!(schedule.due(now + Duration::from_millis(1020)));
+        schedule.schedule(now + Duration::from_millis(1020), Duration::from_secs(1));
+        assert!(!schedule.due(now + Duration::from_millis(1020)));
     }
 }

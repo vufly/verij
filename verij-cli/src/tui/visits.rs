@@ -59,6 +59,18 @@ impl Monitor {
             let likely_workspace = crate::navigation::load_binding(&root, host)
                 .ok()
                 .is_some_and(|binding| {
+                    let inner_path = root.join(format!("focus-{}-{}-{}-{}.json", binding.context.server_pid,
+                        binding.context.plugin_id, binding.context.client_id, binding.context.epoch));
+                    let registration_or_no_terminal = std::fs::read(inner_path).ok()
+                        .and_then(|bytes| serde_json::from_slice::<verij_types::control::FocusObservation>(&bytes).ok())
+                        .is_some_and(|observation| observation.context == binding.context
+                            && observation.terminal.is_none()
+                            && crate::agent_store::now_ms().saturating_sub(observation.observed_at_ms) < 1500
+                            && observation.observed_at_ms <= crate::agent_store::now_ms() + 1000);
+                    // A shared registration dialog cannot be an agent visit.
+                    // Avoid competing native RPCs from peer hosts while their
+                    // owned inner clients are observed on that plugin surface.
+                    if registration_or_no_terminal { return false; }
                     std::fs::read_dir(&root).ok().is_some_and(|entries| {
                         entries.flatten().any(|entry| {
                             entry.file_name().to_string_lossy().starts_with("focus-")

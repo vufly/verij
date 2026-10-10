@@ -132,7 +132,7 @@ pub fn query_session_statuses_bounded_cancelable(
     stop: Option<&AtomicBool>,
 ) -> Option<BTreeMap<String, SessionStatus>> {
     let deadline = Instant::now() + timeout;
-    let _startup = crate::session::startup_guard_until(deadline, stop).ok()?;
+    let _startup = crate::session::query_guard_until(deadline, stop).ok()?;
     let zellij_bin = std::env::var("ZELLIJ_BIN").unwrap_or_else(|_| "zellij".to_string());
     let mut cmd = std::process::Command::new(zellij_bin);
     if let Some(config) = std::env::var_os("ZELLIJ_CONFIG_FILE") {

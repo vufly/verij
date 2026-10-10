@@ -107,6 +107,7 @@ async fn event_loop(
     let mut last_focus_poll = Instant::now() - Duration::from_secs(2);
     let mut workspace_presentation = workspace::Presentation::start();
     let mut recovered_workspace_title = None;
+    let mut workspace_title_error = None;
     let (tx, mut rx) = mpsc::channel(16);
     let (agent_tx, mut agent_rx) = mpsc::channel(16);
     let agent_watcher = match crate::agent_watcher::spawn(agent_tx) {
@@ -139,7 +140,12 @@ async fn event_loop(
         let mut needs_render = false;
         let mut model_changed = false;
         if let Some(update) = workspace_presentation.take_update() {
+            if !update.retry && state.error == workspace_title_error {
+                state.error = None;
+                workspace_title_error = None;
+            }
             if let Some(error) = update.error {
+                workspace_title_error = Some(error.clone());
                 state.error = Some(error);
             }
             if let Some(title) = update.title {
@@ -148,6 +154,7 @@ async fn event_loop(
             }
             needs_render = true;
         }
+        workspace_presentation.retry();
         for _ in 0..16 {
             let Ok(records) = agent_rx.try_recv() else {
                 break;
@@ -171,8 +178,12 @@ async fn event_loop(
                 needs_render = true;
             }
         }
+        let mut focused = Vec::new();
         let mut finished = Vec::new();
         if let Some(queue) = state.activation.as_mut() {
+            while let Some(update) = queue.take_focus() {
+                focused.push(update);
+            }
             while let Ok(result) = queue.receiver.try_recv() {
                 if queue.is_current(result.request.ticket) {
                     queue.pending = false;
@@ -180,10 +191,19 @@ async fn event_loop(
                 }
             }
         }
+        for update in focused {
+            state.active_session = Some(update.session.clone());
+            focus = Some(update.pane);
+            state.apply_focus(focus.clone());
+            let _ = actions::set_workspace_session(&update.session);
+            model_changed = true;
+            needs_render = true;
+        }
         for completion in finished {
             state.progress = None;
             match completion.result {
                 Ok(crate::activation::Outcome::Legacy) => {
+                    state.workspace_focus = None;
                     state.active_session = Some(completion.request.session);
                     if completion.request.title.is_some() {
                         state.workspace_pane_name = completion.request.title;
@@ -201,6 +221,7 @@ async fn event_loop(
                         merge_acknowledgements(&mut acknowledgements, [(instance.0, ack)]);
                     }
                     state.active_session = Some(session.clone());
+                    state.apply_focus(focus.clone());
                     let _ = actions::set_workspace_session(&session);
                     model_changed = true;
                     state.error = None;
@@ -696,9 +717,16 @@ fn action_progress(state: &AppState, action: PendingAction) -> Option<String> {
     }
     let node = state.selected_node()?;
     Some(match action {
-        PendingAction::Activate => format!("{} '{}'…",
-            if matches!(node, TreeNode::Session { needs_resurrection: true, .. }) { "Restoring session" } else { "Switching to" },
-            node.session_name()),
+        PendingAction::Activate => match node {
+            TreeNode::Session { needs_resurrection: true, name, .. } => format!("Restoring session '{name}'…"),
+            TreeNode::Tab { session_name, name, .. }
+                if state.active_session.as_deref() == Some(session_name) => format!("Switching tab '{name}'…"),
+            TreeNode::AgentPane { session_name, view, .. }
+                if state.active_session.as_deref() == Some(session_name) => format!("Focusing agent '{}'…", view.title),
+            TreeNode::Session { name, .. }
+                if state.active_session.as_deref() == Some(name) => format!("Focusing session '{name}'…"),
+            _ => format!("Switching to session '{}'…", node.session_name()),
+        },
         PendingAction::KillSession => format!("Killing session '{}'…", node.session_name()),
         PendingAction::CloseTab => match node {
             TreeNode::Tab { name, .. } => format!("Closing tab '{name}'…"),
@@ -714,6 +742,7 @@ fn empty_workspace(state: &mut AppState) -> Result<()> {
     let name = state.config.workspace.pane_default.clone();
     actions::reset_workspace(&name)?;
     state.active_session = None;
+    state.workspace_focus = None;
     state.workspace_pane_name = Some(name);
     // Invalidate remembered native focus until a fresh attachment is registered.
     state.apply_focus(None);

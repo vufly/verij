@@ -492,6 +492,8 @@ Run navigation outside the blocking input/render path. Feed its completion back 
 
 ### 8.1 Same inner session
 
+**Accepted H3 recovery addition — 2026-10-09:** when a requested agent activation has a live owned Workspace attachment but no current binding, production bootstraps it with a temporary shared registration surface. The user accepted that transient peer-visible dialog. Native outer ownership, Linux socket-peer/server qualification, fresh current-client surface focus and the actual keyboard nonce receipt precede binding publication. This does not use global client counts or surface visibility alone as ownership proof, change keymaps, or consume completion. First attach from an empty Workspace still uses the normal session/tab flow; raw legacy restored clients need the current owned wrapper.
+
 Resolve the latest pane inventory and use an exact terminal-pane native focus operation routed to the intended inner client. Let Zellij select the target's current tab. Reveal the correct layer/stack member without blind toggles.
 
 ### 8.2 Different inner session

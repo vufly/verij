@@ -34,6 +34,10 @@ The user rejected a patched-Zellij production dependency and explicitly accepted
 
 Acceptance of dependency flaws does not authorize fabricated process ownership, Needs input or Done, permission overrides, or replacing a user's callback. Later human verification judges the stock-only Verij behavior against these accepted constraints.
 
+### 1.2 Automatic binding recovery — 2026-10-09
+
+During H3 verification, the user selected **“Shared dialog (Recommended)”** over manual registration. An agent activation may briefly open a shared native Verij registration dialog to attached inner clients when its host binding needs recovery. The actual Workspace keyboard receipt still establishes only the requesting host's client association. Registration itself never acknowledges Done; final effective focus and host-local completion rules remain unchanged. Global user keymaps and agent permissions are preserved.
+
 ## 2. Scope
 
 The MVP monitors live, local, pane-backed agents across Verij's inner Zellij sessions. It supports ordinary tiled panes, floating panes, stacked panes, background tabs, and sessions not currently attached to a particular host.

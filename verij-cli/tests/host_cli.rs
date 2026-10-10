@@ -325,7 +325,24 @@ fn lingering_inner_client_is_reaped_before_attaching_host() {
     assert!(attached.stdout.is_empty(), "resurrection must not write into the sidebar terminal");
     assert!(attached.stderr.is_empty(), "resurrection must not write into the sidebar terminal");
     let layout = fs::read_to_string(f.root.join("cache/zellij/contract_version_1/session_info/work/session-layout.kdl")).unwrap();
-    assert!(layout.contains("args \"attach\" \"--force-run-commands\" \"inner\""));
+    let document: kdl::KdlDocument = layout.parse().unwrap();
+    let mut owned = false;
+    fn inspect(document: &kdl::KdlDocument, owned: &mut bool) {
+        for node in document.nodes() {
+            if let Some(args) = node.children().and_then(|children| children.get("args")) {
+                let args = args.entries().iter().filter_map(|entry| entry.value().as_string()).collect::<Vec<_>>();
+                if args.first() == Some(&"workspace") {
+                    assert_eq!(args.get(1), Some(&"inner"));
+                    assert!(args.contains(&"--host"));
+                    assert!(args.contains(&"--force-run-commands"));
+                    *owned = true;
+                }
+            }
+            if let Some(children) = node.children() { inspect(children, owned); }
+        }
+    }
+    inspect(&document, &mut owned);
+    assert!(owned, "resurrected Workspace must publish its current owned attachment");
 }
 
 #[test]

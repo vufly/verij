@@ -4,7 +4,7 @@ use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
-use std::sync::{mpsc, Mutex};
+use std::sync::{mpsc, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 #[cfg(unix)]
@@ -177,12 +177,28 @@ const CLIENT_EXIT_TIMEOUT: Duration = Duration::from_secs(2);
 
 // Zellij 0.45.1 panics if a socket probe disconnects before FirstClientConnected.
 // Inventory queries probe every socket, including sessions still starting.
-static ZELLIJ_STARTUP: Mutex<()> = Mutex::new(());
+static ZELLIJ_STARTUP: RwLock<()> = RwLock::new(());
+
+#[derive(Debug)]
+pub(crate) struct StartupBusy;
+
+impl std::fmt::Display for StartupBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Zellij startup lock deadline expired")
+    }
+}
+
+impl std::error::Error for StartupBusy {}
+
+enum LocalStartupGuard {
+    Shared { _guard: std::sync::RwLockReadGuard<'static, ()> },
+    Exclusive { _guard: std::sync::RwLockWriteGuard<'static, ()> },
+}
 
 pub(crate) struct StartupGuard {
     #[cfg(unix)]
     _file: std::fs::File,
-    _local: std::sync::MutexGuard<'static, ()>,
+    _local: LocalStartupGuard,
 }
 
 fn startup_guard() -> Result<StartupGuard> {
@@ -195,24 +211,55 @@ pub(crate) fn startup_guard_until(
     deadline: Instant,
     stop: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<StartupGuard> {
+    lock_startup_until(deadline, stop, true)
+}
+
+/// Existing-session queries/control may run together. Only temporary session
+/// initialization excludes them, including queries from other Verij processes.
+pub(crate) fn query_guard_until(
+    deadline: Instant,
+    stop: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<StartupGuard> {
+    lock_startup_until(deadline, stop, false)
+}
+
+fn lock_startup_until(
+    deadline: Instant,
+    stop: Option<&std::sync::atomic::AtomicBool>,
+    exclusive: bool,
+) -> Result<StartupGuard> {
     let check = || -> Result<()> {
         if stop.is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Relaxed)) {
             bail!("Zellij query cancelled while waiting for startup");
         }
         if Instant::now() >= deadline {
-            bail!("Zellij startup lock deadline expired");
+            return Err(StartupBusy.into());
         }
         Ok(())
     };
     let local = loop {
         check()?;
-        match ZELLIJ_STARTUP.try_lock() {
-            Ok(guard) => break guard,
-            Err(std::sync::TryLockError::Poisoned(error)) => break error.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => {
-                std::thread::sleep(Duration::from_millis(5));
+        let acquired = if exclusive {
+            match ZELLIJ_STARTUP.try_write() {
+                Ok(guard) => Some(LocalStartupGuard::Exclusive { _guard: guard }),
+                Err(std::sync::TryLockError::Poisoned(error)) => {
+                    Some(LocalStartupGuard::Exclusive { _guard: error.into_inner() })
+                }
+                Err(std::sync::TryLockError::WouldBlock) => None,
             }
+        } else {
+            match ZELLIJ_STARTUP.try_read() {
+                Ok(guard) => Some(LocalStartupGuard::Shared { _guard: guard }),
+                Err(std::sync::TryLockError::Poisoned(error)) => {
+                    Some(LocalStartupGuard::Shared { _guard: error.into_inner() })
+                }
+                Err(std::sync::TryLockError::WouldBlock) => None,
+            }
+        };
+        if let Some(guard) = acquired {
+            break guard;
         }
+        std::thread::sleep(Duration::from_millis(5));
     };
     #[cfg(unix)]
     {
@@ -224,7 +271,8 @@ pub(crate) fn startup_guard_until(
             .open(runtime.join("zellij-startup.lock"))?;
         loop {
             check()?;
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            let mode = if exclusive { libc::LOCK_EX } else { libc::LOCK_SH };
+            if unsafe { libc::flock(file.as_raw_fd(), mode | libc::LOCK_NB) } == 0 {
                 break;
             }
             let error = std::io::Error::last_os_error();
@@ -254,7 +302,7 @@ fn wait_until(child: &mut Child, deadline: Instant) -> std::io::Result<Option<Ex
 /// Drain both pipes concurrently: large pane inventories can fill stdout before
 /// Zellij exits. The deadline covers process exit and inherited pipe handles.
 pub(crate) fn query_zellij(command: &mut Command) -> Result<Output> {
-    let _startup = startup_guard()?;
+    let _startup = query_guard_until(Instant::now() + Duration::from_secs(15), None)?;
     let description = format!("{command:?}");
     let deadline = Instant::now() + QUERY_TIMEOUT;
     let mut child = command
@@ -614,7 +662,11 @@ pub fn prepare_host_workspace_layout(
         return Ok(());
     };
     let content = std::fs::read_to_string(&path)?;
-    let updated = rewrite_host_workspace_attach(&content, target_session);
+    let updated = if let Some(host) = crate::registry::marker_key(host_session)? {
+        rewrite_owned_host_workspace_attach(&content, target_session, &host, &crate::layout::resolve_verij_bin())?
+    } else {
+        rewrite_host_workspace_attach(&content, target_session)
+    };
     if updated == content {
         return Ok(());
     }
@@ -730,6 +782,37 @@ fn rewrite_host_workspace_attach(layout: &str, target_session: &str) -> String {
     result
 }
 
+/// Zellij serializes the post-exec nested client command, which otherwise
+/// resurrects as raw `zellij attach` and loses the owned binding publisher.
+fn rewrite_owned_host_workspace_attach(layout: &str, target: &str, host: &str, binary: &str) -> Result<String> {
+    let mut document: kdl::KdlDocument = layout.parse()?;
+    fn visit(document: &mut kdl::KdlDocument, target: &str, host: &str, binary: &str) {
+        for node in document.nodes_mut() {
+            let command = node.get("command").and_then(|entry| entry.value().as_string())
+                .and_then(|value| std::path::Path::new(value).file_name()).and_then(|value| value.to_str());
+            let args = node.children().and_then(|children| children.get("args"));
+            let workspace = node.name().value() == "pane" && command == Some("zellij")
+                && args.is_some_and(|args| args.entries().iter().any(|e| e.value().as_string() == Some("attach")));
+            let sidebar = node.name().value() == "pane" && command == Some("verij")
+                && args.and_then(|args| args.get(0)).and_then(|e| e.value().as_string()) == Some("ui");
+            if workspace || sidebar {
+                if let Some(command) = node.get_mut("command") { *command = kdl::KdlEntry::new_prop("command", binary); }
+            }
+            if workspace {
+                if let Some(args) = node.children_mut().as_mut().and_then(|children| children.get_mut("args")) {
+                    args.entries_mut().clear();
+                    for arg in ["workspace", target, "--host", host, "--force-run-commands"] {
+                        args.entries_mut().push(kdl::KdlEntry::new(arg));
+                    }
+                }
+            }
+            if let Some(children) = node.children_mut() { visit(children, target, host, binary); }
+        }
+    }
+    visit(&mut document, target, host, binary);
+    Ok(document.to_string())
+}
+
 fn kdl_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
@@ -760,6 +843,21 @@ mod tests {
     use std::path::Path;
 
     #[test]
+    fn host_resurrection_restores_owned_wrapper_and_current_sidebar_binary() {
+        let source = "layout {\n tab {\n pane command=\"/old/verij\" { args \"ui\"; }\n pane command=\"/usr/bin/zellij\" { args \"--config\" \"old.kdl\" \"attach\" \"old-inner\"; }\n pane command=\"/bin/sh\" { args \"-c\" \"unchanged\"; }\n }\n}";
+        let output = super::rewrite_owned_host_workspace_attach(source, "new-inner", "stable-host", "/new/verij").unwrap();
+        let document: kdl::KdlDocument = output.parse().unwrap();
+        let panes = document.get("layout").unwrap().children().unwrap().get("tab").unwrap().children().unwrap().nodes();
+        assert_eq!(panes[0].get("command").unwrap().value().as_string(), Some("/new/verij"));
+        assert_eq!(panes[1].get("command").unwrap().value().as_string(), Some("/new/verij"));
+        let args = panes[1].children().unwrap().get("args").unwrap().entries().iter()
+            .map(|entry| entry.value().as_string().unwrap()).collect::<Vec<_>>();
+        assert_eq!(args, ["workspace", "new-inner", "--host", "stable-host", "--force-run-commands"]);
+        assert_eq!(panes[2].get("command").unwrap().value().as_string(), Some("/bin/sh"));
+        assert!(output.contains("unchanged"));
+    }
+
+    #[test]
     fn monitoring_startup_lock_waits_respect_cancellation_and_deadline() {
         use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
         let guard = super::startup_guard().unwrap();
@@ -777,12 +875,26 @@ mod tests {
         assert!(elapsed < std::time::Duration::from_millis(250), "watcher cancellation blocked on startup");
         assert!(error.contains("cancelled"));
         let waiting = std::thread::spawn(|| {
-            super::startup_guard_until(std::time::Instant::now() + std::time::Duration::from_millis(30), None)
+            super::query_guard_until(std::time::Instant::now() + std::time::Duration::from_millis(30), None)
                 .err().expect("startup wait must respect its query deadline").to_string()
         });
         assert!(waiting.join().unwrap().contains("deadline"));
         drop(guard);
         assert!(super::startup_guard().is_ok());
+    }
+
+    #[test]
+    fn monitoring_queries_share_lock_but_exclude_session_initialization() {
+        use std::time::{Duration, Instant};
+        let first = super::query_guard_until(Instant::now() + Duration::from_secs(2), None).unwrap();
+        let second = std::thread::spawn(|| {
+            super::query_guard_until(Instant::now() + Duration::from_millis(100), None).is_ok()
+        });
+        assert!(second.join().unwrap(), "monitoring queries must not serialize each other");
+        let error = super::startup_guard_until(Instant::now() + Duration::from_millis(30), None)
+            .err().expect("startup must wait for active queries");
+        assert!(error.is::<super::StartupBusy>());
+        drop(first);
     }
 
     #[test]

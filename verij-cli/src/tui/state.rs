@@ -73,6 +73,10 @@ pub struct AppState {
     /// Name of the session currently focused / attached in the right pane.
     pub active_session: Option<String>,
 
+    /// Last host-confirmed inner pane. Retain tab highlight while keyboard focus
+    /// is on the sidebar; shared exporter active-tab flags are client-relative.
+    pub workspace_focus: Option<PaneKey>,
+
     /// Last name applied to the host Workspace pane.
     pub workspace_pane_name: Option<String>,
 
@@ -184,6 +188,9 @@ impl AppState {
     /// Update active status across agent views and rebuild without resetting selection.
     pub fn apply_focus(&mut self, focused_pane: Option<PaneKey>) {
         let prev = self.capture_selection();
+        if let Some(pane) = focused_pane.as_ref() {
+            self.workspace_focus = Some(pane.clone());
+        }
         for view in &mut self.agent_views {
             view.is_active = focused_pane.as_ref().map_or(false, |p| p == &view.pane);
         }
@@ -725,7 +732,25 @@ impl AppState {
 
             let tab_count = session.tabs.len();
             let is_attached = self.active_session.as_deref() == Some(&session.name);
-            let active_tab = session.active_tab().map(|t| t.name.clone());
+            let confirmed_tab = self.workspace_focus.as_ref().and_then(|focus| {
+                let inventory = session.inventory.as_ref()?;
+                if inventory.session_instance_id.as_ref() != Some(&focus.session) { return None; }
+                let pane = inventory.panes.iter().find(|pane| pane.terminal_id == focus.terminal && !pane.exited)?;
+                session.tabs.iter().find(|tab| {
+                    if let Some(id) = pane.tab_id {
+                        inventory.tabs.iter().any(|meta| meta.tab_id == id && meta.position == tab.position)
+                    } else {
+                        pane.tab_position == tab.position
+                    }
+                }).map(|tab| tab.position)
+            });
+            let active_tab = session.tabs.iter().find(|tab| {
+                if is_attached {
+                    confirmed_tab.map_or(tab.is_active, |position| tab.position == position)
+                } else {
+                    tab.is_active
+                }
+            }).map(|tab| tab.name.clone());
 
             struct TabData {
                 tab_node_key: NodeKey,
@@ -800,7 +825,8 @@ impl AppState {
                 }
                 session_summary.merge(&tab_summary);
 
-                let is_workspace_active = is_attached && tab.is_active;
+                let is_workspace_active = is_attached
+                    && confirmed_tab.map_or(tab.is_active, |position| tab.position == position);
 
                 tabs_data.push(TabData {
                     tab_node_key,
@@ -1082,6 +1108,32 @@ mod tests {
             .filter(|n| n.is_workspace_active_tab())
             .count();
         assert_eq!(active_count, 1);
+    }
+
+    #[test]
+    fn confirmed_host_focus_updates_tab_without_waiting_for_shared_snapshot() {
+        let session = make_inventory_session("inner", "server-1",
+            vec![("first", 0, 10), ("second", 1, 20)], vec![(0, 0, 10), (1, 1, 20)]);
+        let target = PaneKey { session: SessionInstanceId("server-1".into()), terminal: TerminalPaneId(1) };
+        let mut state = AppState::default();
+        state.active_session = Some("inner".into());
+        state.reconcile(vec![session.clone()]);
+        state.apply_focus(Some(target));
+        assert!(state.nodes.iter().any(|node| matches!(node, TreeNode::Tab {
+            position: 1, is_workspace_active: true, ..
+        })));
+        // A peer exporter still reports the first tab. That projection must not
+        // replace this host's exact native focus, even with sidebar focus.
+        state.reconcile(vec![session]);
+        state.apply_focus(None);
+        let active: Vec<_> = state.nodes.iter().filter_map(|node| match node {
+            TreeNode::Tab { position, is_workspace_active: true, .. } => Some(*position),
+            _ => None,
+        }).collect();
+        assert_eq!(active, vec![1]);
+        state.active_session = Some("other".into());
+        state.rebuild_nodes();
+        assert!(!state.nodes.iter().any(TreeNode::is_workspace_active_tab));
     }
 
     #[test]

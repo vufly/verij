@@ -38,16 +38,24 @@ pub struct Finished {
     pub result: Result<Outcome, String>,
 }
 
+pub struct Focused {
+    pub ticket: u64,
+    pub session: String,
+    pub pane: PaneKey,
+}
+
 pub struct Queue {
     sender: mpsc::Sender<Activation>,
     latest: Arc<AtomicU64>,
     pub receiver: mpsc::Receiver<Finished>,
+    pub focus_receiver: Option<mpsc::Receiver<Focused>>,
     pub pending: bool,
 }
 
 impl Queue {
     pub fn start() -> Self {
-        Self::start_with_executor(|request, active| {
+        let (focus_sender, focus_receiver) = mpsc::channel();
+        let mut queue = Self::start_with_executor(move |request, active| {
             if let Some(target) = request.agent.as_ref() {
                 crate::navigation::activate_instance(
                     &crate::navigation::resolve_control_dir(),
@@ -56,6 +64,15 @@ impl Queue {
                     &target.pane,
                     target.revision,
                     active,
+                    |session, pane| {
+                        if active() {
+                            let _ = focus_sender.send(Focused {
+                                ticket: request.ticket,
+                                session: session.to_string(),
+                                pane: pane.clone(),
+                            });
+                        }
+                    },
                 )
                 .and_then(|(result, ack)| {
                     let session = result
@@ -83,7 +100,9 @@ impl Queue {
                 .map(|()| Outcome::Legacy)
                 .map_err(|error| format!("{error:#}"))
             }
-        })
+        });
+        queue.focus_receiver = Some(focus_receiver);
+        queue
     }
 
     pub(crate) fn start_with_executor<F>(executor: F) -> Self
@@ -116,6 +135,7 @@ impl Queue {
             sender,
             latest,
             receiver,
+            focus_receiver: None,
             pending: false,
         }
     }
@@ -142,6 +162,16 @@ impl Queue {
 
     pub fn is_current(&self, ticket: u64) -> bool {
         self.latest.load(Ordering::Acquire) == ticket
+    }
+
+    pub fn take_focus(&self) -> Option<Focused> {
+        let receiver = self.focus_receiver.as_ref()?;
+        while let Ok(update) = receiver.try_recv() {
+            if self.is_current(update.ticket) {
+                return Some(update);
+            }
+        }
+        None
     }
 
     pub fn enqueue_agent(&mut self, session: String, target: AgentTarget) -> anyhow::Result<()> {
@@ -178,6 +208,33 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::sync::Barrier;
     use std::time::Duration;
+
+    #[test]
+    fn confirmed_focus_arrives_before_completion_and_supersession_discards_old_updates() {
+        let (sender, receiver) = mpsc::channel();
+        let worker_sender = sender.clone();
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_barrier = barrier.clone();
+        let pane = PaneKey { session: verij_types::identity::SessionInstanceId("server".into()),
+            terminal: verij_types::identity::TerminalPaneId(1) };
+        let worker_pane = pane.clone();
+        let mut queue = Queue::start_with_executor(move |request, _| {
+            worker_sender.send(Focused { ticket: request.ticket, session: "inner".into(), pane: worker_pane.clone() }).unwrap();
+            worker_barrier.wait();
+            worker_barrier.wait();
+            Ok(Outcome::Legacy)
+        });
+        queue.focus_receiver = Some(receiver);
+        queue.enqueue(None, "inner".into(), None, None).unwrap();
+        barrier.wait();
+        assert_eq!(queue.take_focus().unwrap().pane, pane);
+        assert!(queue.pending);
+        assert!(queue.receiver.try_recv().is_err(), "completion still waits on visit work");
+        queue.invalidate();
+        sender.send(Focused { ticket: 1, session: "inner".into(), pane }).unwrap();
+        assert!(queue.take_focus().is_none());
+        barrier.wait();
+    }
 
     #[test]
     fn barrier_controlled_two_intents_suppress_older_followup_and_result() {

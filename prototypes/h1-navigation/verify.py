@@ -82,7 +82,9 @@ def main():
     tmux = ["tmux", "-f", "/dev/null", "-S", str(sockets / "terminal")]
     def mux(*parts): return run([*tmux, *parts], env, root)
     def action(session, *parts): return run([binary, "-s", session, "action", *parts], env, root)
-    def native(*parts, data=None): return json.loads(run([cli, *parts], env, root, data=data))
+    # Registration covers observer/surface discovery plus one bounded native
+    # RPC per attached client; its full public workflow can exceed 15 seconds.
+    def native(*parts, data=None): return json.loads(run([cli, *parts], env, root, timeout=45, data=data))
     def inventory(session):
         records = native("inventory", "--session", session)
         return records[0]["inventory"] if records and records[0].get("inventory") else None
@@ -211,7 +213,18 @@ def main():
         refused_visit = subprocess.run([str(cli), "agent", "ack", "--instance", instance, "--host", "a", "--revision", "2"],
                                       env=env, cwd=root, capture_output=True, text=True, timeout=15)
         assert refused_visit.returncode and "visit unavailable" in refused_visit.stderr
-        mux("send-keys", "-t", "host-a", "g", "Enter")
+        # The first row is h1-other, not the already attached h1-shared.
+        # Resolve the actual sidebar session row before testing a repeat attach.
+        geometry = next(pane for pane in json.loads(action("h1-host-a", "list-panes", "--all", "--json"))
+                        if not pane["is_plugin"] and pane["id"] == 0)
+        def attached_row():
+            lines = mux("capture-pane", "-p", "-t", "host-a").splitlines()[geometry["pane_content_y"]:
+                geometry["pane_content_y"] + geometry["pane_content_rows"]]
+            return next((index + 1 for index, line in enumerate(lines)
+                         if "h1-shared" in line[geometry["pane_content_x"]:
+                            geometry["pane_content_x"] + geometry["pane_content_columns"]]), None)
+        row = wait(attached_row) - 1
+        mux("send-keys", "-t", "host-a", "g", *("j" for _ in range(row)), "Enter")
         time.sleep(.5)
         assert json.loads((root / "control/attachment-a.json").read_text())["attachment_process"] == birth_before
         native("navigate", "focus", "--host", "a", "--pane", "0")

@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-10",
+  "status": "PASS",
+  "fixture_root": "vj-h2-ql68vhqn",
+  "report": "../artifacts/h2-latency-verified-release.json",
+  "root": "../artifacts/scratch/vj-h2-ql68vhqn",
+  "live_checks": 14,
+  "cross_session_hops": 8,
+  "semantic_records_synthetic": true,
+  "native_focus_and_receiver_input_real": true,
+  "independently_validated": true,
+  "rust_tests": 206,
+  "node_tests": 7,
+  "focus_ms": {
+    "minimum": 4922.05,
+    "median": 5960.93,
+    "maximum": 8039.17
+  },
+  "focus_to_highlight_ms": {
+    "median": 243.07,
+    "maximum": 322.17
+  },
+  "registration_remains_end_to_end_latency_limit": true,
+  "matched_before_after_speedup_claimed": false,
+  "verij_plugin_panes_per_inner_session_at_most": 3,
+  "cleanup": {
+    "private_socket_removed": true,
+    "known_processes_exited": true
+  },
+  "human_h3_approved": false
+}

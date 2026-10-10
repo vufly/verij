@@ -300,11 +300,22 @@ pub fn count_clients(list_clients_output: &str) -> usize {
 /// Concurrently drains bounded stdout and stderr buffers using background threads to avoid
 /// OS pipe deadlocks on large outputs. Kills on expiry.
 pub fn run_zellij_action(session: &str, action_args: &[&str], timeout: Duration) -> Result<String> {
+    run_zellij_action_with_receipt(session, action_args, timeout, None)
+}
+
+fn run_zellij_action_with_receipt(
+    session: &str,
+    action_args: &[&str],
+    timeout: Duration,
+    receipt: Option<(&Path, &ControlRequest)>,
+) -> Result<String> {
     if session.is_empty() || session.len() > 256 || session.chars().any(char::is_control) {
         bail!("invalid session name: {:?}", session);
     }
     let start = Instant::now();
-    let _startup = crate::session::startup_guard_until(start + timeout, None)?;
+    let started_at_ms = now_ms();
+    let receipt_server = receipt.map(|(_, request)| crate::process::identity(request.context.server_pid)).transpose()?;
+    let _startup = crate::session::query_guard_until(start + timeout, None)?;
 
     let zellij_bin = std::env::var("ZELLIJ_BIN").unwrap_or_else(|_| "zellij".to_string());
     let mut cmd = Command::new(&zellij_bin);
@@ -384,6 +395,38 @@ pub fn run_zellij_action(session: &str, action_args: &[&str], timeout: Duration)
                 return Ok(stdout_str);
             }
             None => {
+                if receipt.zip(receipt_server.as_ref()).is_some_and(|((path, request), server)| {
+                    let Ok(bytes) = fs::read(path) else { return false; };
+                    if bytes.len() > 256 * 1024 { return false; }
+                    let Ok(result) = serde_json::from_slice::<ControlResult>(&bytes) else { return false; };
+                    result.request == *request && crate::process::is_alive(server)
+                        && result.observation.as_ref().is_some_and(|observation| {
+                            observation.context == request.context
+                                && observation.session_name.as_deref() == Some(session)
+                                && observation.observed_at_ms >= started_at_ms
+                                && observation.observed_at_ms <= now_ms() + 1000
+                        })
+                }) {
+                    // The exact recipient has already replied. Let broadcast
+                    // transport finish off-thread, keeping its original bound.
+                    // Immediate disconnect can race stock peer-context cleanup.
+                    std::thread::spawn(move || {
+                        loop {
+                            match child.try_wait() {
+                                Ok(Some(_)) => break,
+                                _ if start.elapsed() >= timeout => {
+                                    let _ = child.kill();
+                                    let _ = child.wait();
+                                    break;
+                                }
+                                _ => std::thread::sleep(Duration::from_millis(20)),
+                            }
+                        }
+                        let _ = stdout_handle.join();
+                        let _ = stderr_handle.join();
+                    });
+                    return Ok(String::new());
+                }
                 if start.elapsed() >= timeout {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -420,6 +463,11 @@ pub fn run_zellij_action(session: &str, action_args: &[&str], timeout: Duration)
 /// 8. Enters nonce and validates binding-<nonce>.json with full tuple matching.
 /// 9. Rebind preserves existing sequence journal if same context (does not reset to seq 0).
 pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> {
+    register_if_current(control_dir, args, &|| true)
+}
+
+fn register_if_current(control_dir: &Path, args: &RegisterArgs, is_current: &dyn Fn() -> bool) -> Result<HostBinding> {
+    if !is_current() { bail!("registration superseded locally"); }
     if !valid_record_key(&args.host) {
         bail!("invalid host key: {:?}", args.host);
     }
@@ -567,6 +615,7 @@ pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> 
         })
     });
     if !existing_observer {
+        if !is_current() { bail!("registration superseded before observer launch"); }
         let launch_plugin_args = [
             "launch-plugin",
             "--floating",
@@ -587,6 +636,7 @@ pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> 
     let mut observer_context: Option<PluginContext> = None;
 
     while Instant::now() < observer_deadline {
+        if !is_current() { bail!("registration superseded while awaiting observer"); }
         if let Ok(entries) = fs::read_dir(control_dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name();
@@ -635,15 +685,15 @@ pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> 
         },
     };
     let locate_payload = serde_json::to_string(&locate_req)?;
-    run_zellij_action(
+    let locate_result_path = control_dir.join(format!("result-{}.json", locate_id));
+    let locate_dispatch = run_zellij_action_with_receipt(
         &args.host_session,
         &["pipe", "--name", VERIJ_CONTROL_PIPE, "--", &locate_payload],
         Duration::from_secs(6),
-    )
-    .context("Failed to dispatch Locate request to outer observer plugin")?;
+        Some((&locate_result_path, &locate_req)),
+    );
 
     // Poll bounded for result-<locate_id>.json
-    let locate_result_path = control_dir.join(format!("result-{}.json", locate_id));
     let locate_deadline = Instant::now() + Duration::from_secs(6);
     let mut outer_pane_pid: Option<u32> = None;
 
@@ -666,6 +716,7 @@ pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> 
         std::thread::sleep(Duration::from_millis(50));
     }
 
+    if outer_pane_pid.is_none() { locate_dispatch.context("Failed to dispatch Locate request to outer observer plugin")?; }
     let outer_pane_pid = outer_pane_pid.context(
         "Native SDK outer get_pane_pid returned None; outer workspace pane PID unavailable",
     )?;
@@ -690,7 +741,7 @@ pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> 
         },
     )?;
 
-    // Acquire register lock BEFORE sending the Ctrl+b gesture.
+    // Acquire register locks before opening the shared keyboard surface.
     let lock_path = control_dir.join(format!("{}.lock", args.host));
     let lock_file = OpenOptions::new()
         .read(true)
@@ -698,72 +749,61 @@ pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> 
         .create(true)
         .open(&lock_path)
         .with_context(|| format!("failed to open lock file: {}", lock_path.display()))?;
-    lock_file.lock_exclusive()?;
+    let host_lock_deadline = Instant::now() + Duration::from_secs(12);
+    loop {
+        if !is_current() { bail!("registration superseded while waiting for host lock"); }
+        match lock_file.try_lock_exclusive() {
+            Ok(()) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() >= host_lock_deadline { bail!("host control is busy; retry activation shortly"); }
+                std::thread::sleep(Duration::from_millis(30));
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
 
+    // Serialize temporary dialogs/nonces across hosts sharing this server.
+    let registration_server = ensure_registration_inventory(&args.session, &file_url, is_current)?;
+    crate::process::verify_server_connection(&attachment_process, &registration_server)?;
+    let session_lock = OpenOptions::new().read(true).write(true).create(true).truncate(false)
+        .open(control_dir.join(format!("registration-{}-{}.lock", registration_server.pid, registration_server.start_jiffies)))?;
+    let lock_deadline = Instant::now() + Duration::from_secs(12);
+    loop {
+        if !is_current() { bail!("registration superseded while waiting for shared surface"); }
+        match session_lock.try_lock_exclusive() {
+            Ok(()) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() >= lock_deadline { bail!("another host is registering; retry activation shortly"); }
+                std::thread::sleep(Duration::from_millis(30));
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    if !is_current() { bail!("registration superseded before surface launch"); }
+    let surface_request_id = Uuid::new_v4().simple().to_string();
+    let surface_config = format!("control_dir={wasi_control},state_dir={wasi_states},registration_surface=true,registration_request_id={surface_request_id}");
+    let launched = run_zellij_action(&args.session, &["launch-plugin", "--floating", "--no-focus", "--skip-plugin-cache", "--configuration", &surface_config, &file_url], Duration::from_secs(5))?;
+    let surface_id = launched.trim().strip_prefix("plugin_").and_then(|id| id.parse().ok());
+    let mut surface_cleanup = SurfaceCleanup {
+        session: args.session.clone(), server: registration_server.clone(), root: control_dir.to_path_buf(),
+        request_id: surface_request_id.clone(), plugin: surface_id, keep: false,
+    };
+    let (surface, focused_context) = prepare_registration_surface(control_dir, &args.session, surface_id, &surface_request_id, is_current)?;
+    surface_cleanup.plugin = Some(surface);
     let before_gesture = now_ms();
+    if !is_current() { bail!("registration superseded before keyboard gesture"); }
     let workspace_pane_id = format!("terminal_{}", args.workspace_pane);
 
-    // Send Ctrl+b gesture (ASCII byte 2) to outer workspace pane.
-    let gesture_res = run_zellij_action(
-        &args.host_session,
-        &["write", "--pane-id", &workspace_pane_id, "2"],
-        Duration::from_secs(5),
-    );
-    if let Err(e) = gesture_res {
-        let _ = lock_file.unlock();
-        return Err(e).context("Failed to send Ctrl+b gesture to outer workspace pane");
-    }
 
-    // Wait for current native plugin context focus BEFORE entering nonce.
-    // Requires focused_plugin == context.plugin_id and fresh observed >= gesture.
-    let focus_deadline = Instant::now() + Duration::from_secs(6);
-    let mut focused_context: Option<PluginContext> = None;
-
-    while Instant::now() < focus_deadline {
-        if let Ok(entries) = fs::read_dir(control_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str.starts_with("focus-") && name_str.ends_with(".json") {
-                    if let Ok(content) = fs::read_to_string(entry.path()) {
-                        if let Ok(obs) = serde_json::from_str::<FocusObservation>(&content) {
-                            if obs.session_name.as_deref() == Some(&args.session)
-                                && obs.observed_at_ms >= before_gesture
-                                && obs.focused_plugin == Some(obs.context.plugin_id)
-                            {
-                                let now = now_ms();
-                                if obs.observed_at_ms <= now + 5000 {
-                                    if let Ok(srv) =
-                                        crate::process::identity(obs.context.server_pid)
-                                    {
-                                        if crate::process::is_alive(&srv) {
-                                            focused_context = Some(obs.context);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if focused_context.is_some() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-
-    let focused_context = match focused_context {
-        Some(ctx) => ctx,
-        None => {
-            let _ = lock_file.unlock();
-            bail!("Native plugin context focus was not observed before entering nonce; registration unavailable");
-        }
-    };
+    // prepare_registration_surface already confirmed fresh native focus in
+    // every enumerated client. Do not wait another idle heartbeat to repeat it.
+    // This candidate context is not ownership; only the nonce receipt below is.
 
     // Enter unique random nonce and Enter.
     let nonce = Uuid::new_v4().simple().to_string();
+    if !is_current() { bail!("registration superseded before nonce entry"); }
+    crate::process::verify_server_connection(&attachment_process, &registration_server)?;
     let nonce_payload = format!("{}\r", nonce);
     let write_chars_res = run_zellij_action(
         &args.host_session,
@@ -786,6 +826,7 @@ pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> 
     let mut registration: Option<Registration> = None;
 
     while Instant::now() < binding_deadline {
+        if !is_current() { bail!("registration superseded while awaiting nonce receipt"); }
         if binding_file.exists() {
             if let Ok(content) = fs::read_to_string(&binding_file) {
                 if let Ok(reg) = serde_json::from_str::<Registration>(&content) {
@@ -798,6 +839,8 @@ pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> 
                         && reg.context.server_pid == focused_context.server_pid
                         && reg.context.plugin_id == focused_context.plugin_id
                         && reg.observation.context == reg.context
+                        && reg.observation.registration_surface
+                        && reg.observation.registration_request_id.as_deref() == Some(surface_request_id.as_str())
                         && reg.observation.session_name.as_deref() == Some(&args.session)
                         && reg.observation.focused_plugin == Some(reg.context.plugin_id)
                         && reg.observation.observed_at_ms >= before_gesture
@@ -871,6 +914,9 @@ pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> 
     };
 
     let binding_target = control_dir.join(format!("binding-host-{}.json", args.host));
+    let previous_binding = fs::read(&binding_target).ok()
+        .and_then(|bytes| serde_json::from_slice::<HostBinding>(&bytes).ok());
+    if !is_current() { bail!("registration superseded before binding publication"); }
     if let Err(e) = atomic_write_json(&binding_target, &host_binding) {
         let _ = lock_file.unlock();
         return Err(e);
@@ -912,7 +958,219 @@ pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> 
 
     let _ = lock_file.unlock();
 
+    surface_cleanup.keep = true;
+    if let Some(previous) = previous_binding {
+        let root = control_dir.to_path_buf();
+        let current = host_binding.clone();
+        std::thread::spawn(move || retire_unused_surface(&root, &previous, &current));
+    }
     Ok(host_binding)
+}
+
+/// Retired dedicated dialogs otherwise retain a WASM instance and heartbeat in
+/// every client after each hop. Keep any surface still referenced by another
+/// host, and address retirement to the original native context, never CLI focus.
+fn retire_unused_surface(root: &Path, previous: &HostBinding, current: &HostBinding) {
+    if previous.schema_version != SCHEMA_VERSION || previous.context == current.context
+        || !crate::process::is_alive(&previous.server_process) { return; }
+    let context = &previous.context;
+    let path = root.join(format!("focus-{}-{}-{}-{}.json", context.server_pid,
+        context.plugin_id, context.client_id, context.epoch));
+    let Some(observation) = fs::read(path).ok().and_then(|bytes| serde_json::from_slice::<FocusObservation>(&bytes).ok()) else { return; };
+    if observation.context != *context || !observation.registration_surface
+        || observation.registration_request_id.is_none() { return; }
+    let Ok(entries) = fs::read_dir(root) else { return; };
+    for entry in entries.flatten().filter(|entry| entry.file_name().to_string_lossy().starts_with("binding-host-")) {
+        let Some(binding) = fs::read(entry.path()).ok().and_then(|bytes| serde_json::from_slice::<HostBinding>(&bytes).ok()) else { return; };
+        if binding.server_process == previous.server_process && binding.context.plugin_id == context.plugin_id { return; }
+    }
+    let Some(session) = observation.session_name else { return; };
+    let _ = direct_request(root, &session, context.clone(), ControlOperation::RetireRegistrationSurface, 0);
+}
+
+struct SurfaceCleanup { session: String, server: ProcessIdentity, root: PathBuf, request_id: String, plugin: Option<u32>, keep: bool }
+impl Drop for SurfaceCleanup {
+    fn drop(&mut self) {
+        let same_server = crate::process::is_alive(&self.server) && crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir())
+            .iter().any(|s| s.name == self.session && s.inventory.as_ref().and_then(|i| i.server_process.as_ref()) == Some(&self.server));
+        if !self.keep && same_server {
+            let plugin = self.plugin.or_else(|| fs::read_dir(&self.root).ok()?.flatten().find_map(|entry| {
+                let observation: FocusObservation = serde_json::from_slice(&fs::read(entry.path()).ok()?).ok()?;
+                (observation.context.server_pid == self.server.pid && observation.registration_surface
+                    && observation.registration_request_id.as_deref() == Some(self.request_id.as_str()))
+                    .then_some(observation.context.plugin_id)
+            }));
+            if let Some(plugin) = plugin {
+                let _ = run_zellij_action(&self.session,
+                    &["close-pane", "--pane-id", &format!("plugin_{plugin}")], Duration::from_secs(2));
+            }
+        }
+    }
+}
+
+/// Older running sessions can still have a sessions/tabs-only exporter after
+/// installing the new WASM. Bootstrap a hidden current exporter before asking
+/// for ownership. Inventory never substitutes for the later keyboard receipt.
+fn ensure_registration_inventory(session: &str, plugin_url: &str, is_current: &dyn Fn() -> bool) -> Result<ProcessIdentity> {
+    let server = || {
+        crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir()).into_iter()
+            .find(|snapshot| snapshot.name == session)
+            .and_then(|snapshot| snapshot.inventory)
+            .and_then(|inventory| inventory.server_process)
+            .filter(crate::process::is_alive)
+    };
+    if let Some(server) = server() { return Ok(server); }
+    if !is_current() { bail!("registration superseded before inventory recovery"); }
+    let control = std::env::var("VERIJ_WASI_CONTROL_DIR").unwrap_or_else(|_| "/tmp/verij/control".into());
+    let states = std::env::var("VERIJ_WASI_STATES_DIR").unwrap_or_else(|_| "/tmp/verij/states".into());
+    let configuration = format!("observer=true,control_dir={control},state_dir={states}");
+    run_zellij_action(session, &["launch-plugin", "--floating", "--no-focus", "--skip-plugin-cache",
+        "--configuration", &configuration, plugin_url], Duration::from_secs(5))
+        .with_context(|| format!("Failed to recover monitoring inventory in session '{session}'"))?;
+    let deadline = Instant::now() + Duration::from_secs(6);
+    loop {
+        if !is_current() { bail!("registration superseded while awaiting inventory recovery"); }
+        if let Some(server) = server() { return Ok(server); }
+        if Instant::now() >= deadline {
+            bail!("Session '{session}' has no verified inner server inventory after exporter recovery; check Verij plugin permissions and agent doctor --session {session}");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// This temporary native registration dialog is shared across inner clients.
+/// Require actual native focus in every live context before writing the nonce
+/// through the owned Workspace tty. A later keyboard receipt identifies its
+/// actual client; CLI routing or the display count never creates a binding.
+fn prepare_registration_surface(root: &Path, session: &str, wanted: Option<u32>, request_id: &str, is_current: &dyn Fn() -> bool) -> Result<(u32, PluginContext)> {
+    let inventory = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir()).into_iter()
+        .find(|s| s.name == session).and_then(|s| s.inventory).context("Registration requires the current session's native pane inventory")?;
+    let server = inventory.server_process.context("Registration server incarnation is unavailable")?;
+    let clients = run_zellij_action(session, &["list-clients"], Duration::from_secs(3))?;
+    let ids: std::collections::BTreeSet<u16> = clients.lines().filter_map(|line| line.split_whitespace().next()?.parse().ok()).collect();
+    if ids.is_empty() { bail!("inner display unavailable"); }
+    if ids.len() > 16 { bail!("automatic registration supports at most 16 inner display clients"); }
+    let discovery_deadline = Instant::now() + Duration::from_secs(6);
+    let (plugin, observations) = loop {
+    if !is_current() { bail!("registration superseded during surface discovery"); }
+    let mut observations = std::collections::BTreeMap::new();
+    for entry in fs::read_dir(root)?.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with("focus-") { continue; }
+        let Ok(bytes) = fs::read(entry.path()) else { continue; };
+        let Ok(observation) = serde_json::from_slice::<FocusObservation>(&bytes) else { continue; };
+        if observation.session_name.as_deref() != Some(session)
+            || !observation.registration_surface
+            || observation.registration_request_id.as_deref() != Some(request_id)
+            || wanted.is_some_and(|id| observation.context.plugin_id != id)
+            || observation.context.server_pid != server.pid
+            || now_ms().saturating_sub(observation.observed_at_ms) > 5000
+            || observation.observed_at_ms > now_ms() + 1000 { continue; }
+        let key = (observation.context.plugin_id, observation.context.client_id);
+        if observations.get(&key).map_or(true, |old: &FocusObservation| old.observed_at_ms < observation.observed_at_ms) {
+            observations.insert(key, observation);
+        }
+    }
+    if let Some(plugin) = observations.keys().map(|(plugin,_)| *plugin).next() {
+        break (plugin, observations);
+    }
+    if Instant::now() >= discovery_deadline {
+        bail!("No fresh Verij registration surface for server {} clients {:?}; available contexts {:?}. Reload the session's current Verij exporter, then retry.",server.pid,ids,observations.keys().collect::<Vec<_>>());
+    }
+    std::thread::sleep(Duration::from_millis(50));
+    };
+    let mut contexts = Vec::new();
+    for id in &ids {
+        if !is_current() { bail!("registration superseded before displaying surface"); }
+        let (context, operation) = if let Some(observation) = observations.get(&(plugin, *id)) {
+            (observation.context.clone(), ControlOperation::RegistrationSurface)
+        } else {
+            // Other tabs may not have this new surface's WASM instance yet.
+            // Use an existing native context only to reveal the exact surface.
+            // Cached context addresses are not ownership or focus evidence:
+            // direct_request and the loop below require fresh native replies.
+            let context = fs::read_dir(root)?.flatten().filter_map(|entry| {
+                if !entry.file_name().to_string_lossy().starts_with("focus-") { return None; }
+                let observation: FocusObservation = serde_json::from_slice(&fs::read(entry.path()).ok()?).ok()?;
+                (observation.session_name.as_deref() == Some(session)
+                    && observation.context.server_pid == server.pid && observation.context.client_id == *id
+                    && observation.observed_at_ms <= now_ms() + 1000).then_some(observation)
+            }).max_by_key(|observation| observation.observed_at_ms).map(|observation| observation.context)
+                .with_context(|| format!("No exporter context for registration client {id}"))?;
+            (context, ControlOperation::RegistrationSurfaceFor { plugin_id: plugin })
+        };
+        let result = direct_request(root, session, context.clone(), operation, 0)?;
+        if result.status != ControlStatus::Observed { bail!("Registration surface dispatch unavailable: {:?}", result.status); }
+        contexts.push(context);
+    }
+    let deadline = Instant::now() + Duration::from_secs(4);
+    while Instant::now() < deadline {
+        if !crate::process::is_alive(&server) { bail!("Registration server incarnation changed"); }
+        if !is_current() { bail!("registration superseded while awaiting surface focus"); }
+        let focused = contexts.iter().all(|context| {
+            let path = root.join(format!("focus-{}-{}-{}-{}.json", context.server_pid,
+                context.plugin_id, context.client_id, context.epoch));
+            fs::read(path).ok().and_then(|bytes| serde_json::from_slice::<FocusObservation>(&bytes).ok())
+                .is_some_and(|observation| observation.context == *context
+                    && observation.session_name.as_deref() == Some(session)
+                    && observation.focused_plugin == Some(plugin)
+                    && now_ms().saturating_sub(observation.observed_at_ms) < 1500
+                    && observation.observed_at_ms <= now_ms() + 1000)
+        });
+        if focused {
+            // Only a fresh dedicated instance receiving actual Workspace keys
+            // creates the binding. Peer exporter contexts provide focus coverage.
+            return Ok((plugin, observations.values().next().unwrap().context.clone()));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    bail!("Registration surface focus is unavailable; no nonce was written to an agent terminal")
+}
+
+fn ensure_owned_binding(root: &Path, host: &str, is_current: &impl Fn() -> bool) -> Result<HostBinding> {
+    if !is_current() { bail!("agent activation superseded before binding recovery"); }
+    if let Ok(binding) = load_binding(root, host) {
+        if crate::process::verify_server_connection(&binding.attachment_process, &binding.server_process).is_ok()
+            && request(root, host, ControlOperation::Query, None).is_ok_and(|result| result.status == ControlStatus::Observed) {
+            return Ok(binding);
+        }
+    }
+    let bytes = fs::read(root.join(format!("attachment-{host}.json")))
+        .context("Open an inner session from its session row first; no owned Workspace attachment is available for registration")?;
+    let record: AttachmentRecord = serde_json::from_slice(&bytes)?;
+    if record.source != "owned_workspace_wrapper" || record.host != host
+        || !crate::process::is_alive(&record.attachment_process)
+        || crate::registry::marker_key(&record.host_session)?.as_deref() != Some(host) {
+        bail!("Workspace ownership is unavailable for native registration");
+    }
+    let hint = fs::read_to_string(crate::config::runtime_dir().join(format!("workspace-{host}.session")))
+        .context("Workspace attachment session is unavailable")?;
+    // An already-dispatched switch can outlive a superseded UI intent. Resolve
+    // the actual socket peer instead of treating its old marker as ownership.
+    let session = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir()).into_iter()
+        .find(|snapshot| snapshot.inventory.as_ref().and_then(|i| i.server_process.as_ref())
+            .is_some_and(|server| crate::process::verify_server_connection(&record.attachment_process, server).is_ok()))
+        .map(|snapshot| snapshot.name).unwrap_or_else(|| hint.trim().to_string());
+    let plugin = registration_plugin()?;
+    if !is_current() { bail!("agent activation superseded before registration"); }
+    let binding = register_if_current(root, &RegisterArgs {
+        host:host.into(),host_session:record.host_session,workspace_pane:record.workspace_pane.0,
+        client_pid:record.attachment_process.pid,session,plugin,
+    }, is_current)?;
+    if !is_current() { bail!("agent activation superseded during registration"); }
+    Ok(binding)
+}
+
+/// Reuse the installed URL/permission identity when it contains this build,
+/// including destination re-registration after switching away and back.
+fn registration_plugin() -> Result<PathBuf> {
+    let mut plugin = crate::layout::resolve_plugin_path(None)?;
+    let installed = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".local/share")))
+        .map(|p| p.join("verij/verij_plugin.wasm"));
+    if let Some(installed) = installed {
+        if fs::read(&plugin).ok().zip(fs::read(&installed).ok()).is_some_and(|(a,b)| a == b) { plugin = installed; }
+    }
+    Ok(plugin)
 }
 
 /// Loads and validates an existing verified host binding.
@@ -1269,16 +1527,17 @@ pub fn request(
     };
     let request_start_ms = now_ms();
 
-    let dispatch_res = run_zellij_action(
+    let result_file = control_dir.join(format!("result-{}.json", request_id));
+    let dispatch_res = run_zellij_action_with_receipt(
         &active_session,
         &["pipe", "--name", VERIJ_CONTROL_PIPE, "--", &payload],
         Duration::from_secs(6),
+        Some((&result_file, &req)),
     );
     // CLI pipe exit is not the control contract. A fully correlated native
     // reply may exist even when the broadcast CLI transport times out.
 
     // Poll bounded for result-<request_id>.json while holding lock.
-    let result_file = control_dir.join(format!("result-{}.json", request_id));
     let deadline = Instant::now() + Duration::from_secs(6);
     let mut found_result: Option<ControlResult> = None;
 
@@ -1423,7 +1682,8 @@ fn direct_request(
     };
     let started = now_ms();
     let server = crate::process::identity(request.context.server_pid)?;
-    run_zellij_action(
+    let path = root.join(format!("result-{}.json", request.request_id));
+    let dispatch = run_zellij_action_with_receipt(
         session,
         &[
             "pipe",
@@ -1433,8 +1693,8 @@ fn direct_request(
             &serde_json::to_string(&request)?,
         ],
         Duration::from_secs(5),
-    )?;
-    let path = root.join(format!("result-{}.json", request.request_id));
+        Some((&path, &request)),
+    );
     let deadline = Instant::now() + Duration::from_secs(6);
     while Instant::now() < deadline {
         match fs::read(&path) {
@@ -1475,7 +1735,10 @@ fn direct_request(
             Err(error) => return Err(error.into()),
         }
     }
-    bail!("outer observer request timed out")
+    if let Err(error) = dispatch {
+        return Err(error).context("Native-context request has no correlated result");
+    }
+    bail!("native-context observer request timed out")
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1688,7 +1951,23 @@ pub fn switch(
     session_name: &str,
     terminal: TerminalPaneId,
 ) -> Result<ControlResult> {
+    switch_if_current(control_dir, host_key, session_name, terminal, &|| true)
+}
+
+fn switch_if_current(
+    control_dir: &Path,
+    host_key: &str,
+    session_name: &str,
+    terminal: TerminalPaneId,
+    is_current: &dyn Fn() -> bool,
+) -> Result<ControlResult> {
+    if !is_current() { bail!("session switch superseded before dispatch"); }
     let saved_binding = load_binding(control_dir, host_key)?;
+    let destination_server = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir()).into_iter()
+        .find(|snapshot| snapshot.name == session_name)
+        .and_then(|snapshot| snapshot.inventory)
+        .and_then(|inventory| inventory.server_process)
+        .context("destination server inventory is unavailable")?;
     let switch_start_ms = now_ms();
 
     let res = request(
@@ -1707,6 +1986,7 @@ pub fn switch(
         let mut destination_observed = false;
 
         while Instant::now() < hb_deadline {
+            if !is_current() { bail!("session switch superseded while awaiting destination"); }
             if let Ok(entries) = fs::read_dir(control_dir) {
                 for entry in entries.flatten() {
                     let name = entry.file_name();
@@ -1725,9 +2005,11 @@ pub fn switch(
                     }
                 }
             }
-            if destination_observed {
+            if destination_observed && crate::process::verify_server_connection(
+                &saved_binding.attachment_process, &destination_server).is_ok() {
                 break;
             }
+            destination_observed = false;
             std::thread::sleep(Duration::from_millis(50));
         }
 
@@ -1744,10 +2026,10 @@ pub fn switch(
             workspace_pane: saved_binding.workspace_pane.0,
             client_pid: saved_binding.attachment_process.pid,
             session: session_name.to_string(),
-            plugin: crate::layout::resolve_plugin_path(None)?,
+            plugin: registration_plugin()?,
         };
 
-        register(control_dir, &register_args).with_context(|| {
+        register_if_current(control_dir, &register_args, is_current).with_context(|| {
             format!(
                 "Failed to rebind host '{}' to destination session '{}' after switch",
                 host_key, session_name
@@ -1768,7 +2050,7 @@ pub fn rebind(control_dir: &Path, host_key: &str, new_session: &str) -> Result<H
         workspace_pane: binding.workspace_pane.0,
         client_pid: binding.attachment_process.pid,
         session: new_session.to_string(),
-        plugin: crate::layout::resolve_plugin_path(None)?,
+        plugin: registration_plugin()?,
     };
     register(control_dir, &args)
 }
@@ -1811,13 +2093,14 @@ pub fn verified_visit(control_dir: &Path, host_key: &str) -> Option<(ControlResu
 
 /// UI targets are immutable instance/pane keys, with the completion revision
 /// captured by that UI. Resolve mutable location only inside the worker.
-pub fn activate_instance(
+pub(crate) fn activate_instance(
     control_dir: &Path,
     host: &str,
     instance: &verij_types::identity::AgentInstanceId,
     expected_pane: &PaneKey,
     revision: Option<u64>,
     is_current: impl Fn() -> bool,
+    on_focus: impl Fn(&str, &PaneKey),
 ) -> Result<(ControlResult, Option<verij_types::agent::InstanceAck>)> {
     if !is_current() {
         bail!("agent navigation superseded locally");
@@ -1856,9 +2139,9 @@ pub fn activate_instance(
     if !is_current() {
         bail!("agent navigation superseded before dispatch");
     }
-    let binding = load_binding(control_dir, host)?;
+    let binding = ensure_owned_binding(control_dir, host, &is_current)?;
     if SessionInstanceId::from_process(&binding.server_process) != expected_pane.session {
-        switch(control_dir, host, &snapshot.name, expected_pane.terminal)?;
+        switch_if_current(control_dir, host, &snapshot.name, expected_pane.terminal, &is_current)?;
         let bound = load_binding(control_dir, host)?;
         if SessionInstanceId::from_process(&bound.server_process) != expected_pane.session {
             bail!("target incarnation changed during switch");
@@ -1874,6 +2157,8 @@ pub fn activate_instance(
     if result.status != ControlStatus::InnerFocusObserved {
         bail!("agent activation unverified: {:?}", result.status);
     }
+    if !is_current() { bail!("agent navigation superseded after focus"); }
+    on_focus(&snapshot.name, expected_pane);
     let ack = if let Some(revision) = revision.filter(|revision| *revision > 0) {
         Some(crate::agent_cli::acknowledge_visit_if_current(
             crate::agent_cli::AckArgs {
@@ -1982,7 +2267,7 @@ pub async fn execute(command: NavigationCommand) -> Result<()> {
                         &identity.process,
                     )?;
                 }
-                let binding = load_binding(&control_dir, &host)?;
+                let binding = ensure_owned_binding(&control_dir, &host, &|| true)?;
                 if SessionInstanceId::from_process(&binding.server_process)
                     != identity.pane_key.session
                 {
@@ -2095,6 +2380,13 @@ mod tests {
 
     #[test]
     fn test_socketenv_isolation_and_bounded_drain() {
+        if std::env::var_os("VERIJ_NAV_MOCK_CHILD").is_none() {
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "navigation::tests::test_socketenv_isolation_and_bounded_drain"])
+                .env("VERIJ_NAV_MOCK_CHILD", "1").output().unwrap();
+            assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+            return;
+        }
         let temp_dir =
             std::env::temp_dir().join(format!("vj-nav-mock-{}", Uuid::new_v4().simple()));
         fs::create_dir_all(&temp_dir).unwrap();
@@ -2108,6 +2400,10 @@ fi
 if [ -n "$ZELLIJ_SESSION_NAME" ] || [ -n "$TMUX" ] || [ -n "$VERIJ_ZELLIJ_LEAK" ]; then
     echo "LEAKED_ENV" >&2
     exit 3
+fi
+if [ "$4" = "receipt-hang" ]; then
+    echo "$$" > "$5"
+    exec sleep 10
 fi
 echo "OK: SOCKET=$ZELLIJ_SOCKET_DIR ARGS=$*"
 exit 0
@@ -2130,6 +2426,45 @@ exit 0
 
         assert!(out.contains("OK: SOCKET=/tmp/custom-isolated-sock"));
         assert!(out.contains("ARGS=-s test-sess action list-panes"));
+
+        let request = ControlRequest {
+            schema_version: SCHEMA_VERSION,
+            request_id: "receipt-test".into(),
+            context: test_context(std::process::id(), 1, 1, "receipt-epoch"),
+            sequence: 0,
+            operation: ControlOperation::Query,
+        };
+        let path = temp_dir.join("result-receipt-test.json");
+        let mut result: ControlResult = serde_json::from_value(serde_json::json!({
+            "request": request, "status": "observed", "whole_host_verified": false, "acknowledge_done": false,
+            "observation": {"context": request.context, "session_name": "test-sess", "terminal": 0,
+                "observed_at_ms": now_ms()}
+        })).unwrap();
+        let writer_path = path.clone();
+        let mut fresh = result.clone();
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            fresh.observation.as_mut().unwrap().observed_at_ms = now_ms();
+            atomic_write_json(&writer_path, &fresh).unwrap();
+        });
+        let started = Instant::now();
+        let pid_path = temp_dir.join("transport-pid");
+        run_zellij_action_with_receipt("test-sess", &["receipt-hang", pid_path.to_str().unwrap()], Duration::from_millis(600), Some((&path, &request))).unwrap();
+        writer.join().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(1), "native receipt must not wait for a lingering transport");
+        let pid: u32 = fs::read_to_string(&pid_path).unwrap().trim().parse().unwrap();
+        let transport = crate::process::identity(pid).expect("transport must finish gracefully after its native receipt");
+        while crate::process::is_alive(&transport) {
+            assert!(started.elapsed() < Duration::from_secs(2), "transport cleanup exceeded its original deadline");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        // Even a fresh result from another request cannot stop this transport.
+        result.request.request_id = "wrong-request".into();
+        result.observation.as_mut().unwrap().observed_at_ms = now_ms();
+        atomic_write_json(&path, &result).unwrap();
+        let error = run_zellij_action_with_receipt("test-sess", &["receipt-hang", pid_path.to_str().unwrap()], Duration::from_millis(150), Some((&path, &request))).unwrap_err();
+        assert!(error.to_string().contains("timed out"));
 
         std::env::remove_var("ZELLIJ_BIN");
         std::env::remove_var("ZELLIJ_SOCKET_DIR");
@@ -2215,6 +2550,8 @@ exit 0
 
         // 1. Stale heartbeat (>5000ms old)
         let stale_obs = FocusObservation {
+            registration_request_id: None,
+            registration_surface: false,
             context: ctx.clone(),
             session_name: Some("inner".to_string()),
             terminal: None,
@@ -2232,6 +2569,8 @@ exit 0
 
         // 2. Future heartbeat (>5000ms in future)
         let future_obs = FocusObservation {
+            registration_request_id: None,
+            registration_surface: false,
             context: ctx.clone(),
             session_name: Some("inner".to_string()),
             terminal: None,

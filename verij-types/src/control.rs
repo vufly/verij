@@ -17,6 +17,11 @@ pub struct ControlRequest {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ControlOperation {
     Query,
+    RegistrationSurface,
+    RegistrationSurfaceFor {
+        plugin_id: u32,
+    },
+    RetireRegistrationSurface,
     Locate {
         terminal: TerminalPaneId,
     },
@@ -45,6 +50,11 @@ pub struct FocusObservation {
     /// execution watermark or evidence that a native action completed.
     #[serde(default)]
     pub application_sequence: u64,
+    #[serde(default)]
+    pub registration_surface: bool,
+    /// Verij-owned surface creation correlation, never client ownership proof.
+    #[serde(default)]
+    pub registration_request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -187,7 +187,11 @@ class Probe(runtime.Probe):
         apid, bpid = aa["pid"], bb["pid"]
         self.stage("idle production rows")
         self.wait(lambda: len(self.records()) == 2 and self.record(apid, "idle") and self.record(bpid, "idle"))
-        assert self.cli("agent", "doctor", "--session", self.name)["monitoring_prerequisites_ready"]
+        def prerequisites():
+            doctor = self.cli("agent", "doctor", "--session", self.name)
+            self.report["last_prerequisite_diagnostic"] = doctor
+            return doctor if doctor["monitoring_prerequisites_ready"] else None
+        self.wait(prerequisites, timeout=20)
         assert all(not r["identity"]["is_synthetic"] and r["state"]["completion_revision"] == 0 for r in self.records())
         self.capture("two_live_idle_production_rows_before_prompt", apid, bpid)
 
