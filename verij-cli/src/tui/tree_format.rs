@@ -1411,11 +1411,11 @@ mod tests {
         let mut label_cfg = TreeConfig::default();
         label_cfg
             .agent_names
-            .insert("opencode".into(), "  \r\n".into());
+            .insert("opencode".into(), "  ▣\r\n".into());
         label_cfg.agent_names.insert("agy".into(), "   ".into());
         let label_fmt = TreeFormatter::new(&label_cfg, &ColorConfig::default());
         let label_row1 = output(&label_fmt, &agent1, &snap, false, false, true, false);
-        assert_eq!(content(&label_row1), "│ ⠋  opencode-task");
+        assert_eq!(content(&label_row1), "│ ⠋ ▣ opencode-task");
         let label_row2 = output(&label_fmt, &agent2, &snap, false, false, false, true);
         assert_eq!(content(&label_row2), "│ ! agy agy-task");
 
@@ -1426,13 +1426,13 @@ mod tests {
         let unk_row = output(&label_fmt, &unknown_agent, &snap, false, false, true, false);
         assert!(content(&unk_row).contains(" unknown "));
 
-        label_cfg.agent_names.insert("agy".into(), "".into());
+        label_cfg.agent_names.insert("agy".into(), "⮝".into());
         let label_fmt = TreeFormatter::new(&label_cfg, &ColorConfig::default());
         assert_eq!(
             content(&output(
                 &label_fmt, &agent2, &snap, false, false, false, true
             )),
-            "│ !  agy-task"
+            "│ ! ⮝ agy-task"
         );
         for selected in [false, true] {
             for active in [false, true] {
@@ -1441,7 +1441,7 @@ mod tests {
                     view.is_active = active;
                 }
                 let row = output(&label_fmt, &node, &snap, selected, false, true, false);
-                let label = row.spans.iter().find(|s| s.content == "").unwrap();
+                let label = row.spans.iter().find(|s| s.content == "▣").unwrap();
                 let title = row
                     .spans
                     .iter()

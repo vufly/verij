@@ -810,10 +810,10 @@ branch_last = "└"
 # Optional agent labels; missing/blank values use the raw name. Names are bold by default.
 # Codex, Claude and Pi entries are placeholders for future monitoring support.
 # [tui.tree.agent_names]
-# opencode = ""
+# opencode = "▣"
 # codex = ""
 # claude = ""
-# agy = ""
+# agy = "⮝"
 # pi = "󰏿"
 
 [tui.tree.session_styles]
@@ -938,20 +938,20 @@ mod tests {
         let with_names: Config = toml::from_str(
             r#"
 [tui.tree.agent_names]
-opencode = ""
+opencode = "▣"
 codex = ""
 claude = ""
-agy = ""
+agy = "⮝"
 pi = "󰏿"
 "#,
         )
         .unwrap();
         assert_eq!(with_names.tui.tree.agent_names.len(), 5);
         for (kind, label) in [
-            ("opencode", ""),
+            ("opencode", "▣"),
             ("codex", ""),
             ("claude", ""),
-            ("agy", ""),
+            ("agy", "⮝"),
             ("pi", "󰏿"),
         ] {
             assert_eq!(with_names.tui.tree.agent_names[kind], label);

@@ -202,10 +202,10 @@ Inline style directives affect text spans on top of the chosen row base. Changin
 
 ```toml
 [tui.tree.agent_names]
-opencode = ""
+opencode = "▣"
 codex = ""
 claude = ""
-agy = ""
+agy = "⮝"
 pi = "󰏿"
 ```
 

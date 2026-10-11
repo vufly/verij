@@ -253,10 +253,10 @@ active = "fg=active_fg,bg=active_bg"
 both = "fg=selected_fg,bg=selected_bg"
 
 [tui.tree.agent_names]
-opencode = ""
+opencode = "▣"
 codex = ""
 claude = ""
-agy = ""
+agy = "⮝"
 pi = "󰏿"
 ```
 
