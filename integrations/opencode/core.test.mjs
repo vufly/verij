@@ -1,11 +1,20 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { normalize, reconcile, SnapshotQueue } from "./core.mjs"
+import { normalize, reconcile, supportsVersion, SnapshotQueue } from "./core.mjs"
 
 const version = "1.18.34"
 const family = () => ({ root: { id: "root", title: "Title" }, members: [{ id: "root" }, { id: "child", parentID: "root" }],
   messages: [{ info: { id: "user", role: "user" } }, { info: { id: "assistant", parentID: "user", role: "assistant",
     finish: "stop", time: { completed: 42 } } }], permissions: [], questions: [], statuses: {} })
+
+test("OpenCode 1.x minor and patch upgrades stay supported", () => {
+  for (const version of ["1.0.0", "1.18.32", "1.18.34", "1.18.35", "1.19.0", "1.99.999", "1.19.0-beta.1", "1.19.0+build.42"]) {
+    assert.equal(supportsVersion(version), true, version)
+  }
+  for (const version of ["0.18.34", "2.0.0", "10.0.0", "1.18", "1.x.x", "1.18.35-", "1.18.35+", "1.18.35.0", "", undefined]) {
+    assert.equal(supportsVersion(version), false, String(version))
+  }
+})
 
 test("only current root outcome and quiescent family establish completion", () => {
   const f = family()

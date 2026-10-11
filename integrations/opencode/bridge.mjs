@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process"
-import { events, normalize, unknown, reconcile, versions, SnapshotQueue } from "./core.mjs"
+import { events, normalize, unknown, reconcile, supportsVersion, SnapshotQueue } from "./core.mjs"
 
 export default {
   id: "verij.monitoring.v1",
   async tui(api, options = {}) {
     const version = api.app?.version
-    // File plugins have no engines guard. Select only explicitly verified APIs.
-    if (!versions.includes(version)) {
+    // Minor and patch upgrades within OpenCode 1.x remain compatible.
+    if (!supportsVersion(version)) {
       api.ui?.toast?.({ title: "Verij monitoring", message: `Unsupported OpenCode ${version}`, variant: "warning" })
       return
     }

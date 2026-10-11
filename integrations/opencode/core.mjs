@@ -1,6 +1,8 @@
-// Metadata projection for the verified OpenCode 1.18.x TUI contract.
+// Metadata projection for the OpenCode 1.x TUI contract.
 // No prompts, message text, tool arguments/output or error bodies leave this module.
-export const versions = ["1.18.32", "1.18.33", "1.18.34"]
+export function supportsVersion(version) {
+  return typeof version === "string" && /^1\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?$/.test(version)
+}
 export const events = ["session.created", "session.updated", "session.deleted", "session.status",
   "session.idle", "session.error", "message.updated", "message.removed", "message.part.updated",
   "permission.asked", "permission.replied", "question.asked", "question.replied", "question.rejected",

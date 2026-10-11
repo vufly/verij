@@ -1,4 +1,4 @@
-//! OpenCode 1.18.x TUI-local, metadata-only snapshot contract.
+//! OpenCode 1.x TUI-local, metadata-only snapshot contract.
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -9,8 +9,29 @@ use verij_types::agent::{
 };
 
 pub const BRIDGE_VERSION: u32 = 1;
-pub const SUPPORTED: &[&str] = &["1.18.32", "1.18.33", "1.18.34"];
+pub const SUPPORTED_VERSIONS: &str = "1.x.x";
 pub const LEASE_MS: u64 = 15_000;
+
+pub fn supports_version(version: &str) -> bool {
+    let release = if let Some((release, suffix)) = version.split_once(['-', '+']) {
+        if suffix.is_empty()
+            || !suffix
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'+' | b'-'))
+        {
+            return false;
+        }
+        release
+    } else {
+        version
+    };
+    let parts: Vec<_> = release.split('.').collect();
+    parts.len() == 3
+        && parts[0] == "1"
+        && parts[1..]
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+}
 
 pub fn lease_expired(state: &AgentState, now: u64) -> bool {
     state.sources.get("opencode").is_some_and(|source| {
@@ -41,8 +62,14 @@ pub struct Snapshot {
 
 impl Snapshot {
     fn validate(&self) -> Result<()> {
-        if self.schema_version != BRIDGE_VERSION || !SUPPORTED.contains(&self.version.as_str()) {
-            bail!("unsupported OpenCode snapshot/version");
+        if self.schema_version != BRIDGE_VERSION {
+            bail!("unsupported OpenCode snapshot schema");
+        }
+        if !supports_version(&self.version) {
+            bail!(
+                "unsupported OpenCode {}; supported: {SUPPORTED_VERSIONS}",
+                self.version
+            );
         }
         for id in [&self.conversation_id, &self.turn_id, &self.error_name]
             .into_iter()
@@ -211,6 +238,7 @@ pub fn run(_session: String, pane: u32, pid: u32) -> Result<()> {
         .get("opencode")
         .map_or(1, |s| s.source_epoch + 1);
     let mut revision = 0;
+    let mut last_version = "1.0.0".to_string();
     let mut stdout = std::io::stdout().lock();
     writeln!(
         stdout,
@@ -249,6 +277,7 @@ pub fn run(_session: String, pane: u32, pid: u32) -> Result<()> {
                 },
                 finish,
             )?;
+            last_version.clone_from(&snapshot.version);
             writeln!(
                 stdout,
                 "{}",
@@ -262,7 +291,7 @@ pub fn run(_session: String, pane: u32, pid: u32) -> Result<()> {
     // Disabling/reloading the observer does not imply agent exit or success.
     let unknown = Snapshot {
         schema_version: BRIDGE_VERSION,
-        version: SUPPORTED[2].into(),
+        version: last_version,
         ..Default::default()
     };
     let _ = crate::agent_store::update(
@@ -279,6 +308,45 @@ pub fn run(_session: String, pane: u32, pid: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshots_accept_1_x_upgrades_but_require_current_schema() {
+        let mut snapshot = Snapshot {
+            schema_version: BRIDGE_VERSION,
+            ..Default::default()
+        };
+        for version in [
+            "1.0.0",
+            "1.18.32",
+            "1.18.34",
+            "1.18.35",
+            "1.19.0",
+            "1.99.999",
+            "1.19.0-beta.1",
+            "1.19.0+build.42",
+        ] {
+            snapshot.version = version.into();
+            assert!(snapshot.project(1, 1).is_ok(), "{version}");
+        }
+        for version in [
+            "0.18.34",
+            "2.0.0",
+            "10.0.0",
+            "1.18",
+            "1.x.x",
+            "1.18.35-",
+            "1.18.35+",
+            "1.18.35.0",
+            "",
+        ] {
+            snapshot.version = version.into();
+            assert!(snapshot.project(1, 1).is_err(), "{version}");
+        }
+        snapshot.version = "1.19.0".into();
+        snapshot.schema_version = BRIDGE_VERSION + 1;
+        assert!(snapshot.project(1, 1).is_err());
+    }
+
     #[test]
     fn outcomes_require_owned_turn_and_quiescence() {
         let mut snapshot = Snapshot {

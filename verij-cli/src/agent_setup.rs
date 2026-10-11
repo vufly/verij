@@ -424,10 +424,10 @@ fn atomic_text(path: &Path, text: &str) -> Result<()> {
 pub fn setup(args: SetupArgs) -> Result<()> {
     if matches!(args.adapter, Adapter::Agy) { return crate::agy_setup::setup(args); }
     let version = version(&args.opencode_bin)?;
-    if !crate::opencode::SUPPORTED.contains(&version.as_str()) {
+    if !crate::opencode::supports_version(&version) {
         bail!(
-            "unsupported OpenCode {version}; verified: {:?}",
-            crate::opencode::SUPPORTED
+            "unsupported OpenCode {version}; supported: {}",
+            crate::opencode::SUPPORTED_VERSIONS
         );
     }
     let path = target(args.config_dir)?;
@@ -595,7 +595,7 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
     let inventory_ready = inventory_sessions.iter().any(|s| s["status"] == "ready");
     let version_supported = version
         .as_deref()
-        .is_some_and(|v| crate::opencode::SUPPORTED.contains(&v));
+        .is_some_and(crate::opencode::supports_version);
     let adapter_runtime = std::env::var("VERIJ_AGENT_STATE_DIR")
         .ok()
         .filter(|value| !value.trim().is_empty())
@@ -651,7 +651,7 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
             "adapter":"opencode", "bridge_version":crate::opencode::BRIDGE_VERSION,
-            "opencode_version":version, "supported_versions":crate::opencode::SUPPORTED,
+            "opencode_version":version, "supported_versions":[crate::opencode::SUPPORTED_VERSIONS],
             "version_supported":version_supported,
             "config":path, "configured":entry.is_some(), "disabled":disabled,
             "assets_match":exact_assets, "reporter":reporter, "reporter_available":reporter_available,"reporter_version":reporter_version,
