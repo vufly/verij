@@ -4,6 +4,25 @@ Status: **Phase 1 diagnostics implemented; remaining coordination/recovery phase
 
 ## What the Error Means
 
+The tree uses inner-session inventory to place an agent beneath its tab. Agent
+activation additionally verifies the outer host's Workspace attachment and its
+client-specific binding. A correctly placed agent can therefore fail navigation
+when the Workspace attachment record refers to a process that has exited.
+
+When that recorded process has exited, Verij attempts one recovery using the
+registered host and exact Workspace terminal. It resolves the terminal's current
+foreground job leader, requires a Zellij executable with verified terminal
+ancestry and stdio, and checks its kernel socket connection to exactly one known
+inner server. It then performs normal native registration, including a fresh
+Workspace pane lookup and client-specific keyboard receipt. Completion
+acknowledgement still requires the existing verified visit and revision checks.
+
+Recovery reports `stale Workspace attachment; client recovery failed` when it
+cannot establish this evidence. It cannot recover a missing attachment record,
+a shell or another foreground program, or a Zellij client running beneath a
+different foreground job leader. Session names, tab titles, and cached pane IDs
+alone do not produce an ownership binding.
+
 `outer native focus observation unavailable` means Verij confirmed the target terminal inside the inner session, then failed to confirm focus on the outer pane containing that session: Workspace.
 
 The target terminal may already be selected internally. This error indicates unverified navigation, not an agent execution failure. It does not prove that a race occurred; missing panes, stale context, supersession, and observation failure can produce the same message.

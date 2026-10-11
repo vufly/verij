@@ -137,6 +137,31 @@ pub fn verify_foreground(
     verify_terminal_job(server, pane, agent, false)
 }
 
+/// Resolve the current foreground job leader from the pane's controlling tty.
+/// A cached wrapper PID can become stale when its shell launches a new client.
+#[cfg(target_os = "linux")]
+pub fn foreground_process(
+    server: &ProcessIdentity,
+    pane: &ProcessIdentity,
+) -> Result<ProcessIdentity> {
+    if !is_alive(server) || !is_alive(pane) {
+        bail!("Workspace server or terminal process exited");
+    }
+    let foreground = u32::try_from(stat(pane.pid)?.foreground)
+        .context("Workspace has no foreground terminal job")?;
+    let process = identity(foreground)?;
+    verify_foreground(server, pane, &process)?;
+    Ok(process)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn foreground_process(
+    _: &ProcessIdentity,
+    _: &ProcessIdentity,
+) -> Result<ProcessIdentity> {
+    bail!("Workspace foreground discovery unavailable on this platform")
+}
+
 /// Agy redirects stdio to logs after retaining writable renderer descriptors.
 /// This exception is restricted to its actual executable and interactive mode.
 #[cfg(target_os = "linux")]
@@ -311,6 +336,84 @@ pub fn verify_server_connection(_: &ProcessIdentity, _: &ProcessIdentity) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn foreground_discovery_uses_live_terminal_job_and_rejects_stale_birth() {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::process::CommandExt;
+
+        let mut master = -1;
+        let mut slave = -1;
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                )
+            },
+            0
+        );
+        let _master = unsafe { OwnedFd::from_raw_fd(master) };
+        let input = unsafe { std::fs::File::from_raw_fd(slave) };
+        let output = input.try_clone().unwrap();
+        let slave_fd = input.as_raw_fd();
+        let mut command = std::process::Command::new("sleep");
+        command.arg("30").stdin(input).stdout(output);
+        unsafe {
+            command.pre_exec(move || {
+                if libc::setsid() < 0
+                    || libc::ioctl(slave_fd, libc::TIOCSCTTY, 0) < 0
+                    || libc::tcsetpgrp(slave_fd, libc::getpid()) < 0
+                {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command.spawn().unwrap();
+        let server = identity(std::process::id()).unwrap();
+        let pane = identity(child.id()).unwrap();
+        let discovered = foreground_process(&server, &pane);
+        let mut stale = pane.clone();
+        stale.start_jiffies += 1;
+        let stale_result = foreground_process(&server, &stale);
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(discovered.unwrap(), pane);
+        assert!(stale_result.is_err());
+        assert!(foreground_process(&server, &pane).is_err());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn foreground_discovery_rejects_detached_process_without_controlling_tty() {
+        use std::os::unix::process::CommandExt;
+        let mut command = std::process::Command::new("sleep");
+        command
+            .arg("30")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null());
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command.spawn().unwrap();
+        let server = identity(std::process::id()).unwrap();
+        let pane = identity(child.id()).unwrap();
+        let result = foreground_process(&server, &pane);
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(result.is_err());
+    }
+
     #[test]
     #[cfg(target_os = "linux")]
     fn socket_peer_connection_is_observed_from_kernel() {

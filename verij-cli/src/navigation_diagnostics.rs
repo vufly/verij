@@ -262,6 +262,10 @@ impl NavigationError {
                 || msg_lower.contains("not registered")
             {
                 "missing host binding".to_string()
+            } else if msg_lower.contains("workspace attachment is stale") {
+                "stale Workspace attachment; client recovery failed".to_string()
+            } else if msg_lower.contains("workspace attachment identity") {
+                "Workspace attachment does not match host".to_string()
             } else if msg_lower.contains("attachment")
                 && (msg_lower.contains("missing") || msg_lower.contains("no owned"))
             {
@@ -1501,6 +1505,21 @@ mod tests {
     fn test_navigation_error_display_scenarios() {
         let (temp_dir, _guard) = test_dir("nav-err");
         let intent = NavigationIntent::new(Some("test-host"));
+
+        let stale_workspace = intent.record_failure(
+            &temp_dir,
+            NavigationStage::Precondition,
+            NavigationErrorKind::OwnershipFailure,
+            None,
+            &NavigationProgress::default(),
+            DiagnosticEvidence::new(),
+            false,
+            anyhow::anyhow!("Workspace attachment is stale; foreground client recovery failed"),
+        );
+        assert_eq!(
+            stale_workspace.to_string(),
+            "Navigation precondition failed: stale Workspace attachment; client recovery failed; verify target and retry."
+        );
 
         // Scenario A: Inner confirmed, outer unconfirmed (explicit PaneMissing)
         let prog_a = NavigationProgress {

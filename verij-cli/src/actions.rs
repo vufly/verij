@@ -550,7 +550,10 @@ fn attach_in_right_pane(target_session: &str) -> Result<()> {
                     let owner = value.get("attachment_process").cloned().and_then(|value| {
                         serde_json::from_value::<verij_types::identity::ProcessIdentity>(value).ok()
                     });
-                    if value["source"] == "owned_workspace_wrapper"
+                    if matches!(
+                        value["source"].as_str(),
+                        Some("owned_workspace_wrapper" | "native_workspace_recovery")
+                    )
                         && value["host_session"].as_str() == actual_host.as_deref()
                         && value["workspace_pane"].as_u64() == Some(u64::from(actual_pane.id))
                         && owner.as_ref().is_some_and(crate::process::is_alive)

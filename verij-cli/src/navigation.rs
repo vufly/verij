@@ -176,6 +176,15 @@ pub struct AttachmentRecord {
     pub attachment_process: ProcessIdentity,
 }
 
+impl AttachmentRecord {
+    fn has_verified_source(&self) -> bool {
+        matches!(
+            self.source.as_str(),
+            "owned_workspace_wrapper" | "native_workspace_recovery"
+        )
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CapabilityLimits {
@@ -523,9 +532,9 @@ fn register_if_current(
         )
     })?;
 
-    if att_record.source != "owned_workspace_wrapper" {
+    if !att_record.has_verified_source() {
         bail!(
-            "Attachment source mismatch: expected 'owned_workspace_wrapper', got {:?}",
+            "Attachment source is not a verified Workspace source: {:?}",
             att_record.source
         );
     }
@@ -1164,37 +1173,128 @@ fn ensure_owned_binding(
     is_current: &impl Fn() -> bool,
     intent: Option<&NavigationIntent>,
 ) -> Result<HostBinding> {
-    if !is_current() { bail!("agent activation superseded before binding recovery"); }
+    if !is_current() {
+        bail!("agent activation superseded before binding recovery");
+    }
     if let Ok(binding) = load_binding(root, host) {
-        if crate::process::verify_server_connection(&binding.attachment_process, &binding.server_process).is_ok()
-            && request_with_intent(root, host, ControlOperation::Query, None, intent).is_ok_and(|result| result.status == ControlStatus::Observed) {
+        if crate::process::verify_server_connection(
+            &binding.attachment_process,
+            &binding.server_process,
+        )
+        .is_ok()
+            && request_with_intent(root, host, ControlOperation::Query, None, intent)
+                .is_ok_and(|result| result.status == ControlStatus::Observed)
+        {
             return Ok(binding);
         }
     }
     let bytes = fs::read(root.join(format!("attachment-{host}.json")))
         .context("Open an inner session from its session row first; no owned Workspace attachment is available for registration")?;
-    let record: AttachmentRecord = serde_json::from_slice(&bytes)?;
-    if record.source != "owned_workspace_wrapper" || record.host != host
-        || !crate::process::is_alive(&record.attachment_process)
-        || crate::registry::marker_key(&record.host_session)?.as_deref() != Some(host) {
-        bail!("Workspace ownership is unavailable for native registration");
+    let mut record: AttachmentRecord = serde_json::from_slice(&bytes)?;
+    if !record.has_verified_source()
+        || record.host != host
+        || crate::registry::marker_key(&record.host_session)?.as_deref() != Some(host)
+    {
+        bail!("Workspace attachment identity does not match the registered host");
     }
-    let hint = fs::read_to_string(crate::config::runtime_dir().join(format!("workspace-{host}.session")))
-        .context("Workspace attachment session is unavailable")?;
+    let snapshots = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir());
+    if !crate::process::is_alive(&record.attachment_process) {
+        record = recover_workspace_attachment(&record, &snapshots)
+            .context("Workspace attachment is stale; foreground client recovery failed")?;
+        if !is_current() {
+            bail!("agent activation superseded during attachment recovery");
+        }
+        atomic_write_json(&root.join(format!("attachment-{host}.json")), &record)?;
+    }
     // An already-dispatched switch can outlive a superseded UI intent. Resolve
     // the actual socket peer instead of treating its old marker as ownership.
-    let session = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir()).into_iter()
-        .find(|snapshot| snapshot.inventory.as_ref().and_then(|i| i.server_process.as_ref())
-            .is_some_and(|server| crate::process::verify_server_connection(&record.attachment_process, server).is_ok()))
-        .map(|snapshot| snapshot.name).unwrap_or_else(|| hint.trim().to_string());
+    let session = snapshots
+        .into_iter()
+        .find(|snapshot| {
+            snapshot
+                .inventory
+                .as_ref()
+                .and_then(|i| i.server_process.as_ref())
+                .is_some_and(|server| {
+                    crate::process::verify_server_connection(&record.attachment_process, server)
+                        .is_ok()
+                })
+        })
+        .map(|snapshot| snapshot.name)
+        .or_else(|| {
+            fs::read_to_string(
+                crate::config::runtime_dir().join(format!("workspace-{host}.session")),
+            )
+            .ok()
+            .map(|hint| hint.trim().to_string())
+            .filter(|hint| !hint.is_empty())
+        })
+        .context("Workspace attachment session is unavailable")?;
     let plugin = registration_plugin()?;
-    if !is_current() { bail!("agent activation superseded before registration"); }
-    let binding = register_if_current(root, &RegisterArgs {
-        host:host.into(),host_session:record.host_session,workspace_pane:record.workspace_pane.0,
-        client_pid:record.attachment_process.pid,session,plugin,
-    }, is_current, intent)?;
-    if !is_current() { bail!("agent activation superseded during registration"); }
+    if !is_current() {
+        bail!("agent activation superseded before registration");
+    }
+    let binding = register_if_current(
+        root,
+        &RegisterArgs {
+            host: host.into(),
+            host_session: record.host_session,
+            workspace_pane: record.workspace_pane.0,
+            client_pid: record.attachment_process.pid,
+            session,
+            plugin,
+        },
+        is_current,
+        intent,
+    )?;
+    if !is_current() {
+        bail!("agent activation superseded during registration");
+    }
     Ok(binding)
+}
+
+/// Tree topology locates the exact Workspace terminal. Kernel foreground and
+/// socket evidence qualify its replacement client; registration still requires
+/// a fresh native Locate response and the usual client-specific nonce receipt.
+fn recover_workspace_attachment(
+    previous: &AttachmentRecord,
+    snapshots: &[verij_types::SessionSnapshot],
+) -> Result<AttachmentRecord> {
+    let inventory = snapshots
+        .iter()
+        .find(|snapshot| snapshot.name == previous.host_session && !snapshot.needs_resurrection)
+        .and_then(|snapshot| snapshot.inventory.as_ref())
+        .context("Workspace host topology unavailable")?;
+    let server = inventory
+        .server_process
+        .as_ref()
+        .context("Workspace host server incarnation unavailable")?;
+    let pane = inventory
+        .panes
+        .iter()
+        .find(|pane| pane.terminal_id == previous.workspace_pane && !pane.exited)
+        .and_then(|pane| pane.pane_process.as_ref())
+        .context("Workspace terminal process unavailable")?;
+    let client = crate::process::foreground_process(server, pane)?;
+    let executable = fs::read_link(format!("/proc/{}/exe", client.pid))?;
+    if executable.file_name().and_then(|name| name.to_str()) != Some("zellij") {
+        bail!("Workspace foreground process is not a Zellij attachment client");
+    }
+    let peers: Vec<_> = snapshots
+        .iter()
+        .filter(|snapshot| snapshot.name != previous.host_session && !snapshot.needs_resurrection)
+        .filter_map(|snapshot| snapshot.inventory.as_ref()?.server_process.as_ref())
+        .filter(|server| crate::process::verify_server_connection(&client, server).is_ok())
+        .collect();
+    if peers.len() != 1 {
+        bail!("Workspace client connection to an inner server is unavailable or ambiguous");
+    }
+    crate::process::verify_foreground(server, pane, &client)?;
+    Ok(AttachmentRecord {
+        source: "native_workspace_recovery".into(),
+        attachment_process: client,
+        ..previous.clone()
+    })
 }
 
 /// Reuse the installed URL/permission identity when it contains this build,
@@ -2780,6 +2880,171 @@ pub async fn execute(command: NavigationCommand) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn stale_workspace_attachment_recovers_only_exact_foreground_connected_client() {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::{net::UnixStream, process::CommandExt};
+
+        // Other tests fork subprocesses concurrently. Isolate the temporary
+        // executable so none can inherit its writer and cause ETXTBSY at exec.
+        if std::env::var_os("VERIJ_WORKSPACE_RECOVERY_TEST_CHILD").is_none() {
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "navigation::tests::stale_workspace_attachment_recovers_only_exact_foreground_connected_client"])
+                .env("VERIJ_WORKSPACE_RECOVERY_TEST_CHILD", "1").output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        struct ClientFixture {
+            child: std::process::Child,
+            _master: OwnedFd,
+            directory: PathBuf,
+        }
+        impl Drop for ClientFixture {
+            fn drop(&mut self) {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+                let _ = fs::remove_dir_all(&self.directory);
+            }
+        }
+
+        let directory = std::env::temp_dir().join(format!("vj-recovery-{}", Uuid::new_v4().simple()));
+        fs::create_dir_all(&directory).unwrap();
+        // A harmless long-lived executable with the expected name lets us
+        // exercise kernel terminal/socket discovery without changing Zellij.
+        let executable = directory.join("zellij");
+        fs::copy("/bin/sh", &executable).unwrap();
+        let (client_socket, server_socket) = UnixStream::pair().unwrap();
+        let mut master = -1;
+        let mut slave = -1;
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                )
+            },
+            0
+        );
+        let master = unsafe { OwnedFd::from_raw_fd(master) };
+        let input = unsafe { fs::File::from_raw_fd(slave) };
+        let output = input.try_clone().unwrap();
+        let slave_fd = input.as_raw_fd();
+        let socket_fd = client_socket.as_raw_fd();
+        let mut command = Command::new(&executable);
+        command
+            .arg("-c")
+            .arg("read line")
+            .stdin(input)
+            .stdout(output);
+        unsafe {
+            command.pre_exec(move || {
+                if libc::setsid() < 0
+                    || libc::ioctl(slave_fd, libc::TIOCSCTTY, 0) < 0
+                    || libc::tcsetpgrp(slave_fd, libc::getpid()) < 0
+                    || libc::dup2(socket_fd, 100) < 0
+                {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let fixture = ClientFixture {
+            child: command.spawn().unwrap(),
+            _master: master,
+            directory,
+        };
+        drop(client_socket);
+        let client = crate::process::identity(fixture.child.id()).unwrap();
+        let server = crate::process::identity(std::process::id()).unwrap();
+        let make_snapshot = |name: &str, panes: serde_json::Value| -> verij_types::SessionSnapshot {
+            serde_json::from_value(serde_json::json!({
+                "name": name, "is_current": false, "tabs": [],
+                "inventory": {
+                    "schema_version": 1,
+                    "producer": {"server_pid":server.pid,"plugin_id":1,"client_id":1,"epoch":"recovery"},
+                    "revision":1, "exported_at_ms":now_ms(),
+                    "session_instance_id":SessionInstanceId::from_process(&server),
+                    "server_process":server, "capabilities":[], "tabs":[], "panes":panes
+                }
+            })).unwrap()
+        };
+        let mut snapshots = vec![
+            make_snapshot(
+                "host",
+                serde_json::json!([{
+                    "terminal_id": 1, "tab_position":0, "title":"Workspace", "is_floating":false,
+                    "is_suppressed":false, "is_fullscreen":false, "layer_focused":true,
+                    "exited":false, "pane_pid":client.pid, "pane_process":client
+                }]),
+            ),
+            make_snapshot("inner", serde_json::json!([])),
+        ];
+        let mut stale = client.clone();
+        stale.start_jiffies += 1;
+        let previous = AttachmentRecord {
+            source: "owned_workspace_wrapper".into(),
+            host: "host-key".into(),
+            host_session: "host".into(),
+            workspace_pane: TerminalPaneId(1),
+            attachment_process: stale,
+        };
+        let recovered = recover_workspace_attachment(&previous, &snapshots).unwrap();
+        assert_eq!(recovered.attachment_process, client);
+        assert_eq!(recovered.source, "native_workspace_recovery");
+        assert!(recovered.has_verified_source());
+        assert_eq!(recovered.host, previous.host);
+        assert_eq!(recovered.workspace_pane, previous.workspace_pane);
+
+        let renamed = fixture.directory.join("other-program");
+        fs::rename(&executable, &renamed).unwrap();
+        assert!(recover_workspace_attachment(&previous, &snapshots).is_err());
+        fs::rename(&renamed, &executable).unwrap();
+        snapshots[0]
+            .inventory
+            .as_mut()
+            .unwrap()
+            .server_process
+            .as_mut()
+            .unwrap()
+            .start_jiffies += 1;
+        assert!(recover_workspace_attachment(&previous, &snapshots).is_err());
+        snapshots[0].inventory.as_mut().unwrap().server_process = Some(server.clone());
+
+        let mut wrong_pane = previous.clone();
+        wrong_pane.workspace_pane = TerminalPaneId(2);
+        assert!(recover_workspace_attachment(&wrong_pane, &snapshots).is_err());
+        snapshots[0].inventory.as_mut().unwrap().panes[0].exited = true;
+        assert!(recover_workspace_attachment(&previous, &snapshots).is_err());
+        snapshots[0].inventory.as_mut().unwrap().panes[0].exited = false;
+        snapshots.push(make_snapshot("ambiguous", serde_json::json!([])));
+        assert!(recover_workspace_attachment(&previous, &snapshots).is_err());
+        snapshots.pop();
+        drop(server_socket);
+        assert!(recover_workspace_attachment(&previous, &snapshots).is_err());
+    }
+
+    #[test]
+    fn unknown_attachment_source_cannot_register_as_recovered_workspace() {
+        let record = AttachmentRecord {
+            source: "unverified_tree".into(),
+            host: "host".into(),
+            host_session: "host".into(),
+            workspace_pane: TerminalPaneId(1),
+            attachment_process: test_process_identity(42, 1),
+        };
+        assert!(!record.has_verified_source());
+    }
 
     #[test]
     fn returning_to_live_plugin_recovers_its_sequence_without_a_stock_watermark() {
