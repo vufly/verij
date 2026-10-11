@@ -44,6 +44,11 @@ fn millis() -> u64 {
 }
 
 impl Control {
+    #[cfg(target_arch = "wasm32")]
+    pub fn set_session(&mut self, session: &str) {
+        self.session = Some(session.to_owned());
+    }
+
     pub fn context(&self) -> &PluginContext {
         &self.context
     }
@@ -105,7 +110,7 @@ impl Control {
 
     fn observation(&self) -> FocusObservation {
         let focus = if self.ready {
-            match get_focused_pane_info() {
+            match crate::queries::focused_pane() {
                 Ok((_, pane)) => Some(pane),
                 Err(error) => {
                     if self.trace {
@@ -218,7 +223,7 @@ impl Control {
                 }
             }
             Event::Key(key) if self.ready && key.key_modifiers.is_empty() => {
-                let focused = get_focused_pane_info().ok()
+                let focused = crate::queries::focused_pane().ok()
                     .is_some_and(|(_, pane)| pane == PaneId::Plugin(self.context.plugin_id));
                 if !focused { return; }
                 match key.bare_key {
@@ -332,7 +337,7 @@ impl Control {
                 show_self(true);
             }
             if let ControlOperation::RegistrationSurfaceFor { plugin_id } = &request.operation {
-                if !get_pane_info(PaneId::Plugin(*plugin_id)).is_some_and(|pane| pane.is_plugin && !pane.exited) {
+                if !crate::queries::pane_info(PaneId::Plugin(*plugin_id)).is_some_and(|pane| pane.is_plugin && !pane.exited) {
                     self.result(request, ControlStatus::Unavailable);
                     return;
                 }
@@ -360,7 +365,7 @@ impl Control {
         }
         match &request.operation {
             ControlOperation::Focus { terminal } => {
-                if !get_pane_info(PaneId::Terminal(terminal.0))
+                if !crate::queries::pane_info(PaneId::Terminal(terminal.0))
                     .map(|pane| !pane.is_plugin && !pane.exited)
                     .unwrap_or(false)
                 {

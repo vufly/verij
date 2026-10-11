@@ -5,7 +5,7 @@
 /// Runs headless inside EVERY inner Zellij session.
 ///
 /// Responsibilities:
-///   1. State & Inventory Export: On `SessionUpdate`, `TabUpdate`, or `PaneUpdate`,
+///   1. State & Inventory Export: On a bounded one-second SDK poll,
 ///      serializes the session's own tabs and full terminal pane topology into
 ///      `SessionSnapshot` with `SessionInventory` and writes it to
 ///      `/tmp/verij/states/`.
@@ -17,6 +17,7 @@
 ///      ("The Inception Switch").
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::time::{Duration, Instant};
 use verij_types::identity::{PluginContext, TerminalPaneId};
 use verij_types::inventory::{
     default_capabilities, legacy_filename, per_exporter_filename, temp_filename, PaneSnapshot,
@@ -25,6 +26,7 @@ use verij_types::inventory::{
 use verij_types::{SessionSnapshot, TabSnapshot, VERIJ_CONTROL_PIPE, VERIJ_STATES_DIR};
 use zellij_tile::prelude::*;
 mod control;
+mod queries;
 
 // ---------------------------------------------------------------------------
 // Process Locator Helper
@@ -87,6 +89,9 @@ pub struct State {
 
     /// Latest exported inventory snapshot.
     pub last_inventory: Option<SessionInventory>,
+
+    /// Inventory polling shares control's timer without following its fast focus polls.
+    pub next_inventory_poll: Option<Instant>,
 }
 
 thread_local! {
@@ -134,13 +139,11 @@ fn load() {
         }
     });
 
-    eprintln!("[verij-plugin] load: subscribing to SessionUpdate, TabUpdate, PaneUpdate");
-    subscribe(&[
-        EventType::SessionUpdate,
-        EventType::TabUpdate,
-        EventType::PaneUpdate,
-        EventType::PermissionRequestResult,
-    ]);
+    // Stock Zellij queues every subscribed update before calling WASM. Filtering
+    // unchanged facts inside update() cannot prevent that queue or decode cost.
+    // Poll instead; pipes, permission results and keyboard registration stay live.
+    eprintln!("[verij-plugin] load: bounded inventory polling (1s)");
+    subscribe(&[EventType::PermissionRequestResult]);
 
     request_permission(&[
         PermissionType::ReadApplicationState,
@@ -401,7 +404,12 @@ impl ZellijPlugin for State {
                 }
             }
 
-            Event::PermissionRequestResult(_) => {
+            Event::PermissionRequestResult(PermissionStatus::Granted) => {
+                self.next_inventory_poll = Some(Instant::now() + Duration::from_secs(1));
+                self.resolve_session_from_snapshot();
+            }
+
+            Event::Timer(_) if self.inventory_poll_due(Instant::now()) => {
                 self.resolve_session_from_snapshot();
             }
 
@@ -419,6 +427,16 @@ impl ZellijPlugin for State {
 // ---------------------------------------------------------------------------
 
 impl State {
+    fn inventory_poll_due(&mut self, now: Instant) -> bool {
+        match self.next_inventory_poll {
+            Some(next) if now >= next => {
+                self.next_inventory_poll = Some(now + Duration::from_secs(1));
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub fn new() -> Self {
         let epoch = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
             Ok(d) => d.as_nanos().to_string(),
@@ -634,59 +652,62 @@ impl State {
         }
     }
 
-    /// Attempts to populate session name and initial tabs using `get_session_list()`.
+    /// Apply a fresh SDK snapshot, projecting active-tab state for this exporter client.
+    /// Global session metadata does not identify which tab a particular client views.
+    #[cfg(any(target_arch = "wasm32", test))]
+    fn apply_polled_snapshot(&mut self, mut current: SessionInfo, focus: Option<(usize, PaneId)>) {
+        if let Some((tab_id, _)) = focus {
+            for tab in &mut current.tabs {
+                tab.active = tab.tab_id as usize == tab_id;
+            }
+        }
+        let old_name = self.session_name.clone();
+        let name_changed = self.session_name.as_deref() != Some(&current.name);
+        self.session_name = Some(current.name);
+        let clients_changed = self.connected_clients != Some(current.connected_clients);
+        self.connected_clients = Some(current.connected_clients);
+        let (tabs, raw_tabs_changed) = self.update_tabs_from_info(&current.tabs);
+        let tabs_changed = self.tabs != tabs;
+        self.tabs = tabs;
+        let panes_changed = Self::terminal_manifest(&self.panes)
+            != Self::terminal_manifest(&current.panes);
+        self.panes = current.panes;
+        let active_pane = focus
+            .and_then(|(_, pane)| match pane {
+                PaneId::Terminal(id) => self.panes.panes.values().flatten()
+                    .find(|pane| !pane.is_plugin && pane.id == id)
+                    .map(|pane| pane.title.clone()),
+                PaneId::Plugin(_) => None,
+            });
+        let pane_changed = self.active_pane != active_pane;
+        self.active_pane = active_pane;
+        if name_changed || clients_changed || tabs_changed || raw_tabs_changed
+            || panes_changed || pane_changed {
+            if name_changed {
+                if let Some(old) = old_name { self.cleanup_renamed_session_file(&old); }
+            }
+            self.export_state();
+        }
+    }
+
+    /// Bounded full-topology refresh, including sessions with no attached clients.
     pub fn resolve_session_from_snapshot(&mut self) {
         #[cfg(target_arch = "wasm32")]
         {
-            if let Ok(snapshot) = get_session_list() {
+            if let Ok(snapshot) = queries::session_list() {
                 if let Some(current) = snapshot
                     .live_sessions
                     .into_iter()
                     .find(|s| s.is_current_session)
                 {
-                    let old_name = self.session_name.clone();
-                    let name_changed = self.session_name.as_deref() != Some(&current.name);
-                    self.session_name = Some(current.name.clone());
-
-                    let connected_clients = Some(current.connected_clients);
-                    let clients_changed = self.connected_clients != connected_clients;
-                    self.connected_clients = connected_clients;
-
-                    let (new_tabs, raw_tabs_changed) = if self.tab_updates_seen {
-                        (self.tabs.clone(), false)
-                    } else {
-                        self.update_tabs_from_info(&current.tabs)
-                    };
-                    let tabs_changed = self.tabs != new_tabs;
-                    self.tabs = new_tabs;
-
-                    let panes_changed = if self.pane_updates_seen {
-                        false
-                    } else {
-                        let changed = Self::terminal_manifest(&self.panes)
-                            != Self::terminal_manifest(&current.panes);
-                        self.panes = current.panes;
-                        changed
-                    };
-
-                    let active_pane = Self::active_pane_name(&self.raw_tabs, &self.panes);
-                    let pane_changed = self.active_pane != active_pane;
-                    self.active_pane = active_pane;
-
-                    if name_changed
-                        || tabs_changed
-                        || raw_tabs_changed
-                        || clients_changed
-                        || pane_changed
-                        || panes_changed
-                    {
-                        if name_changed {
-                            if let Some(ref old) = old_name {
-                                self.cleanup_renamed_session_file(old);
-                            }
+                    let focus = (current.connected_clients > 0)
+                        .then(|| queries::focused_pane().ok()).flatten();
+                    CONTROL.with(|control| {
+                        if let Some(controller) = control.borrow_mut().as_mut() {
+                            controller.set_session(&current.name);
                         }
-                        self.export_state();
-                    }
+                    });
+                    self.apply_polled_snapshot(current, focus);
                 }
             }
         }
@@ -849,6 +870,58 @@ impl State {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn inventory_timer_ignores_fast_focus_and_obsolete_callbacks() {
+        let now = Instant::now();
+        let mut state = State::new();
+        assert!(!state.inventory_poll_due(now), "permissions must enable inventory polling");
+        state.next_inventory_poll = Some(now + Duration::from_secs(1));
+        for ms in [20, 200, 400, 800] {
+            assert!(!state.inventory_poll_due(now + Duration::from_millis(ms)));
+        }
+        assert!(state.inventory_poll_due(now + Duration::from_secs(1)));
+        assert!(!state.inventory_poll_due(now + Duration::from_secs(1)));
+        assert!(!state.inventory_poll_due(now + Duration::from_millis(1200)));
+        assert!(state.inventory_poll_due(now + Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn polled_inventory_projects_client_focus_and_removes_closed_panes() {
+        let directory = std::env::temp_dir().join(format!("verij-poll-{}", uuid_for_test()));
+        let mut state = State::new();
+        state.export_dir = directory.to_string_lossy().into_owned();
+        let mut current = SessionInfo {
+            name: "polled".into(), connected_clients: 2,
+            tabs: vec![
+                TabInfo { tab_id: 7, position: 0, active: true, name: "first".into(), ..Default::default() },
+                TabInfo { tab_id: 12, position: 1, name: "second".into(), ..Default::default() },
+            ],
+            panes: PaneManifest { panes: HashMap::from([
+                (0, vec![PaneInfo { id: 1, title: "one".into(), is_focused: true, ..Default::default() }]),
+                (1, vec![PaneInfo { id: 2, title: "two".into(), is_focused: true, ..Default::default() }]),
+            ]) }, ..Default::default()
+        };
+        state.apply_polled_snapshot(current.clone(), Some((12, PaneId::Terminal(2))));
+        assert!(!state.tabs[0].is_active);
+        assert!(state.tabs[1].is_active);
+        assert_eq!(state.active_pane.as_deref(), Some("two"));
+        let revision = state.revision;
+        state.apply_polled_snapshot(current.clone(), Some((12, PaneId::Terminal(2))));
+        assert_eq!(state.revision, revision, "unchanged polls must not write inventory");
+        current.panes.panes.remove(&1);
+        current.tabs.remove(1);
+        current.connected_clients = 0;
+        state.apply_polled_snapshot(current, None);
+        assert_eq!(state.last_inventory.as_ref().unwrap().panes.len(), 1);
+        assert_eq!(state.connected_clients, Some(0));
+        assert!(state.active_pane.is_none());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn uuid_for_test() -> u128 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    }
 
     #[test]
     fn test_tab_update_retains_panes_and_recalculates_title() {

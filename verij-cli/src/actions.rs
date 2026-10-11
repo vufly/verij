@@ -79,14 +79,20 @@ pub fn create_inner_session(
         anyhow::bail!("Session '{new_session_name}' lost its initial layout after detaching temporary client");
     }
 
-    // 2. Check if agent state file appears (auto-loaded via Zellij load_plugins).
-    // If not after brief delay, explicitly launch plugin with --floating --no-focus fallback.
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    let state_file = std::path::PathBuf::from(format!("/tmp/verij/states/{new_session_name}.json"));
-    if !state_file.exists() {
-        if let Some(path) = plugin_path {
+    // 2. Publication can lag permission/loading and polling. Inspect actual
+    // plugin topology before launching a fallback; a missing JSON file is not
+    // evidence that the configured background exporter is absent.
+    if let Some(path) = plugin_path {
+        let output = crate::session::zellij_output(&[
+            "-s", new_session_name, "action", "list-panes", "--all", "--json",
+        ])?;
+        if !output.status.success() {
+            anyhow::bail!("Failed to inspect exporter in '{new_session_name}'");
+        }
+        let panes: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)?;
+        if !exporter_loaded(&panes, path) {
             let plugin_url = format!("file:{}", path.display());
-            let _ = crate::session::zellij_action(&[
+            crate::session::zellij_action(&[
                     "-s",
                     new_session_name,
                     "action",
@@ -94,7 +100,7 @@ pub fn create_inner_session(
                     "--floating",
                     "--no-focus",
                     &plugin_url,
-                ]);
+                ])?;
         }
     }
 
@@ -107,6 +113,21 @@ pub fn create_inner_session(
     )?;
 
     Ok(())
+}
+
+fn exporter_loaded(panes: &[serde_json::Value], path: &Path) -> bool {
+    panes.iter().any(|pane| {
+        pane["is_plugin"].as_bool() == Some(true)
+            && pane["exited"].as_bool() != Some(true)
+            && pane["plugin_url"].as_str().is_some_and(|url| {
+                let loaded = url.strip_prefix("file:").unwrap_or(url);
+                Path::new(loaded) == path
+                    || matches!(Path::new(loaded).file_name().and_then(|name| name.to_str()),
+                        Some("verij_plugin.wasm" | "verij-plugin.wasm"))
+                    || std::fs::canonicalize(loaded).ok().zip(std::fs::canonicalize(path).ok())
+                        .is_some_and(|(loaded, requested)| loaded == requested)
+            })
+    })
 }
 
 /// Switch to the target session and optionally navigate to a specific tab.
@@ -716,6 +737,24 @@ fn first_tab_has_terminal(panes: &[serde_json::Value]) -> bool {
 mod readiness_tests {
     use super::{first_tab_plugin_ready, kdl_option};
     use serde_json::json;
+
+    #[test]
+    fn missing_publication_does_not_duplicate_background_exporter() {
+        let path = std::path::Path::new("/tmp/verij_plugin.wasm");
+        let loaded = json!({
+            "is_plugin": true, "exited": false, "is_suppressed": true,
+            "plugin_url": "file:/tmp/verij_plugin.wasm"
+        });
+        assert!(super::exporter_loaded(&[loaded.clone()], path));
+        assert!(super::exporter_loaded(&[json!({
+            "is_plugin": true, "plugin_url": "file:/home/user/.local/share/verij/verij_plugin.wasm"
+        })], path), "configured installed URL must not be duplicated by a dist-path fallback");
+        let mut exited = loaded;
+        exited["exited"] = json!(true);
+        assert!(!super::exporter_loaded(&[exited], path));
+        assert!(!super::exporter_loaded(&[json!({"is_plugin": true, "plugin_url": "zellij:link"})], path));
+        assert!(!super::exporter_loaded(&[], path));
+    }
 
     #[cfg(unix)]
     #[test]
