@@ -25,6 +25,7 @@ mod inventory;
 mod process;
 mod workspace;
 mod navigation;
+pub(crate) mod navigation_diagnostics;
 mod config;
 mod fs_watcher;
 mod host;

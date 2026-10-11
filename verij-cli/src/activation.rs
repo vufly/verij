@@ -4,6 +4,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     mpsc, Arc,
 };
+use uuid::Uuid;
 use verij_types::agent::InstanceAck;
 use verij_types::identity::{AgentInstanceId, PaneKey};
 
@@ -26,6 +27,7 @@ pub enum Outcome {
 
 pub struct Activation {
     pub ticket: u64,
+    pub intent_id: String,
     pub old_session: Option<String>,
     pub session: String,
     pub tab: Option<usize>,
@@ -57,7 +59,11 @@ impl Queue {
         let (focus_sender, focus_receiver) = mpsc::channel();
         let mut queue = Self::start_with_executor(move |request, active| {
             if let Some(target) = request.agent.as_ref() {
-                crate::navigation::activate_instance(
+                let intent = crate::navigation::NavigationIntent::with_id(
+                    &request.intent_id,
+                    Some(&target.host),
+                );
+                crate::navigation::activate_instance_with_intent(
                     &crate::navigation::resolve_control_dir(),
                     &target.host,
                     &target.instance,
@@ -73,6 +79,7 @@ impl Queue {
                             });
                         }
                     },
+                    Some(&intent),
                 )
                 .and_then(|(result, ack)| {
                     let session = result
@@ -86,7 +93,13 @@ impl Queue {
                         instance: target.instance.clone(),
                     })
                 })
-                .map_err(|error| format!("{error:#}"))
+                .map_err(|error| {
+                    if let Some(nav_err) = error.downcast_ref::<crate::navigation::NavigationError>() {
+                        nav_err.to_string()
+                    } else {
+                        format!("{error:#}")
+                    }
+                })
             } else {
                 let old =
                     crate::actions::workspace_session().or_else(|| request.old_session.clone());
@@ -148,8 +161,10 @@ impl Queue {
         title: Option<String>,
     ) -> anyhow::Result<()> {
         let ticket = self.latest.fetch_add(1, Ordering::AcqRel) + 1;
+        let intent_id = format!("intent-{}", Uuid::new_v4().simple());
         self.sender.send(Activation {
             ticket,
+            intent_id,
             old_session,
             session,
             tab,
@@ -176,8 +191,10 @@ impl Queue {
 
     pub fn enqueue_agent(&mut self, session: String, target: AgentTarget) -> anyhow::Result<()> {
         let ticket = self.latest.fetch_add(1, Ordering::AcqRel) + 1;
+        let intent_id = format!("intent-{}", Uuid::new_v4().simple());
         self.sender.send(Activation {
             ticket,
+            intent_id,
             old_session: None,
             session,
             tab: None,

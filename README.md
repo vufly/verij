@@ -261,6 +261,8 @@ New inner sessions receive a fake-PTY attach while their initial layout is creat
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Navigation reliability plan](docs/NAVIGATION_RELIABILITY_PLAN.md) — phased coordination, diagnostics, recovery, and verification work
+- [Navigation recovery guide](docs/NAVIGATION_RECOVERY.md) — focus-error meaning, human workarounds, and diagnostic evidence
 - [Agent monitoring design](docs/AGENT_MONITORING.md) — approved behavior; current H3/H4 integrations accepted for master/global installation
 - [OpenCode monitoring setup](integrations/opencode/README.md) — pane-local adapter installation, diagnostics and supported behavior
 - [Agy/Magy monitoring setup](integrations/agy/README.md) — callback composition, neutral hooks, pane-backed watches and capability limits

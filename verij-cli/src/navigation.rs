@@ -17,7 +17,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use verij_types::control::{
@@ -160,6 +160,13 @@ fn next_sequence(local: u64, observed: u64) -> Result<u64> {
         .context("application request sequence exhausted")
 }
 
+// ---------------------------------------------------------------------------
+// Phase 1 Navigation Diagnostics & Failures
+// ---------------------------------------------------------------------------
+
+pub use crate::navigation_diagnostics::*;
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttachmentRecord {
     pub source: String,
@@ -201,12 +208,7 @@ pub fn capability_limits() -> CapabilityLimits {
 // Paths and Atomic Utilities
 // ---------------------------------------------------------------------------
 
-pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
+
 
 /// Resolves the control runtime directory.
 ///
@@ -462,11 +464,17 @@ fn run_zellij_action_with_receipt(
 /// 7. Awaits focused plugin observation (focused_plugin == context.plugin_id and fresh).
 /// 8. Enters nonce and validates binding-<nonce>.json with full tuple matching.
 /// 9. Rebind preserves existing sequence journal if same context (does not reset to seq 0).
+#[allow(dead_code)]
 pub fn register(control_dir: &Path, args: &RegisterArgs) -> Result<HostBinding> {
-    register_if_current(control_dir, args, &|| true)
+    register_if_current(control_dir, args, &|| true, None)
 }
 
-fn register_if_current(control_dir: &Path, args: &RegisterArgs, is_current: &dyn Fn() -> bool) -> Result<HostBinding> {
+fn register_if_current(
+    control_dir: &Path,
+    args: &RegisterArgs,
+    is_current: &dyn Fn() -> bool,
+    intent: Option<&NavigationIntent>,
+) -> Result<HostBinding> {
     if !is_current() { bail!("registration superseded locally"); }
     if !valid_record_key(&args.host) {
         bail!("invalid host key: {:?}", args.host);
@@ -673,53 +681,42 @@ fn register_if_current(control_dir: &Path, args: &RegisterArgs, is_current: &dyn
         bail!("Outer server process PID {} is not alive", outer_server.pid);
     }
 
-    // Send exact context Locate request via public pipe
-    let locate_id = Uuid::new_v4().simple().to_string();
-    let locate_req = ControlRequest {
-        schema_version: SCHEMA_VERSION,
-        request_id: locate_id.clone(),
-        context: observer_context.clone(),
-        sequence: 0,
-        operation: ControlOperation::Locate {
+    let locate_outcome = direct_request_tracked(
+        control_dir,
+        &args.host_session,
+        observer_context.clone(),
+        ControlOperation::Locate {
             terminal: TerminalPaneId(args.workspace_pane),
         },
-    };
-    let locate_payload = serde_json::to_string(&locate_req)?;
-    let locate_result_path = control_dir.join(format!("result-{}.json", locate_id));
-    let locate_dispatch = run_zellij_action_with_receipt(
-        &args.host_session,
-        &["pipe", "--name", VERIJ_CONTROL_PIPE, "--", &locate_payload],
-        Duration::from_secs(6),
-        Some((&locate_result_path, &locate_req)),
-    );
+        0,
+        intent,
+    )?;
 
-    // Poll bounded for result-<locate_id>.json
-    let locate_deadline = Instant::now() + Duration::from_secs(6);
-    let mut outer_pane_pid: Option<u32> = None;
-
-    while Instant::now() < locate_deadline {
-        if locate_result_path.exists() {
-            if let Ok(content) = fs::read_to_string(&locate_result_path) {
-                if let Ok(res) = serde_json::from_str::<ControlResult>(&content) {
-                    if res.request == locate_req && res.status == ControlStatus::Observed {
-                        if let Some(obs) = res.observation {
-                            if obs.queried_terminal == Some(TerminalPaneId(args.workspace_pane)) {
-                                outer_pane_pid = obs.pane_pid;
-                                let _ = fs::remove_file(&locate_result_path);
-                                break;
-                            }
-                        }
-                    }
-                }
+    let locate_res = match locate_outcome {
+        RequestOutcome::Success(res) => res,
+        other => {
+            if let Some(intent) = intent {
+                let nav_err = record_outcome_diagnostic(
+                    intent,
+                    control_dir,
+                    NavigationStage::Rebind,
+                    other,
+                    Some(TerminalPaneId(args.workspace_pane)),
+                    Some(args.host_session.clone()),
+                )
+                .unwrap_err();
+                return Err(nav_err.into());
+            } else {
+                bail!("Locate request to outer observer failed: {:?}", other);
             }
         }
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    };
 
-    if outer_pane_pid.is_none() { locate_dispatch.context("Failed to dispatch Locate request to outer observer plugin")?; }
-    let outer_pane_pid = outer_pane_pid.context(
-        "Native SDK outer get_pane_pid returned None; outer workspace pane PID unavailable",
-    )?;
+    let outer_pane_pid = locate_res
+        .observation
+        .as_ref()
+        .and_then(|obs| obs.pane_pid)
+        .context("Native SDK outer get_pane_pid returned None; outer workspace pane PID unavailable")?;
 
     // Validate actual outer server OS birth and pane PID via crate::process::identity,
     // then call crate::process::verify_foreground(outerserver, paneprocess, attachment_process).
@@ -789,7 +786,7 @@ fn register_if_current(control_dir: &Path, args: &RegisterArgs, is_current: &dyn
         session: args.session.clone(), server: registration_server.clone(), root: control_dir.to_path_buf(),
         request_id: surface_request_id.clone(), plugin: surface_id, keep: false,
     };
-    let (surface, focused_context) = prepare_registration_surface(control_dir, &args.session, surface_id, &surface_request_id, is_current)?;
+    let (surface, focused_context) = prepare_registration_surface(control_dir, &args.session, surface_id, &surface_request_id, is_current, intent)?;
     surface_cleanup.plugin = Some(surface);
     let before_gesture = now_ms();
     if !is_current() { bail!("registration superseded before keyboard gesture"); }
@@ -1042,7 +1039,14 @@ fn ensure_registration_inventory(session: &str, plugin_url: &str, is_current: &d
 /// Require actual native focus in every live context before writing the nonce
 /// through the owned Workspace tty. A later keyboard receipt identifies its
 /// actual client; CLI routing or the display count never creates a binding.
-fn prepare_registration_surface(root: &Path, session: &str, wanted: Option<u32>, request_id: &str, is_current: &dyn Fn() -> bool) -> Result<(u32, PluginContext)> {
+fn prepare_registration_surface(
+    root: &Path,
+    session: &str,
+    wanted: Option<u32>,
+    request_id: &str,
+    is_current: &dyn Fn() -> bool,
+    intent: Option<&NavigationIntent>,
+) -> Result<(u32, PluginContext)> {
     let inventory = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir()).into_iter()
         .find(|s| s.name == session).and_then(|s| s.inventory).context("Registration requires the current session's native pane inventory")?;
     let server = inventory.server_process.context("Registration server incarnation is unavailable")?;
@@ -1098,8 +1102,36 @@ fn prepare_registration_surface(root: &Path, session: &str, wanted: Option<u32>,
                 .with_context(|| format!("No exporter context for registration client {id}"))?;
             (context, ControlOperation::RegistrationSurfaceFor { plugin_id: plugin })
         };
-        let result = direct_request(root, session, context.clone(), operation, 0)?;
-        if result.status != ControlStatus::Observed { bail!("Registration surface dispatch unavailable: {:?}", result.status); }
+        let outcome = direct_request_tracked(root, session, context.clone(), operation, 0, intent)?;
+        let _result = if let Some(intent) = intent {
+            let rebind_ctx = StageContext::new(intent, root, NavigationStage::Rebind)
+                .session(Some(session.to_string()));
+            let res = rebind_ctx.record_outcome(outcome)?;
+            if res.status != ControlStatus::Observed {
+                let ev = rebind_ctx.evidence().with_result(&res);
+                return Err(rebind_ctx
+                    .fail_status(
+                        NavigationErrorKind::ObservationMismatch,
+                        Some(res.status.clone()),
+                        ev,
+                        true,
+                        anyhow::anyhow!("Registration surface dispatch unavailable: {:?}", res.status),
+                    )
+                    .into());
+            }
+            res
+        } else {
+            let res = match outcome {
+                RequestOutcome::Success(res) | RequestOutcome::ExplicitFailure(res) => res,
+                RequestOutcome::TimedOut { .. } => bail!("Registration surface dispatch timed out"),
+                RequestOutcome::DispatchFailed { error, .. } => return Err(error),
+                RequestOutcome::Rejected { error, .. } => return Err(error),
+            };
+            if res.status != ControlStatus::Observed {
+                bail!("Registration surface dispatch unavailable: {:?}", res.status);
+            }
+            res
+        };
         contexts.push(context);
     }
     let deadline = Instant::now() + Duration::from_secs(4);
@@ -1126,11 +1158,16 @@ fn prepare_registration_surface(root: &Path, session: &str, wanted: Option<u32>,
     bail!("Registration surface focus is unavailable; no nonce was written to an agent terminal")
 }
 
-fn ensure_owned_binding(root: &Path, host: &str, is_current: &impl Fn() -> bool) -> Result<HostBinding> {
+fn ensure_owned_binding(
+    root: &Path,
+    host: &str,
+    is_current: &impl Fn() -> bool,
+    intent: Option<&NavigationIntent>,
+) -> Result<HostBinding> {
     if !is_current() { bail!("agent activation superseded before binding recovery"); }
     if let Ok(binding) = load_binding(root, host) {
         if crate::process::verify_server_connection(&binding.attachment_process, &binding.server_process).is_ok()
-            && request(root, host, ControlOperation::Query, None).is_ok_and(|result| result.status == ControlStatus::Observed) {
+            && request_with_intent(root, host, ControlOperation::Query, None, intent).is_ok_and(|result| result.status == ControlStatus::Observed) {
             return Ok(binding);
         }
     }
@@ -1155,7 +1192,7 @@ fn ensure_owned_binding(root: &Path, host: &str, is_current: &impl Fn() -> bool)
     let binding = register_if_current(root, &RegisterArgs {
         host:host.into(),host_session:record.host_session,workspace_pane:record.workspace_pane.0,
         client_pid:record.attachment_process.pid,session,plugin,
-    }, is_current)?;
+    }, is_current, intent)?;
     if !is_current() { bail!("agent activation superseded during registration"); }
     Ok(binding)
 }
@@ -1324,6 +1361,37 @@ pub fn request(
     operation: ControlOperation,
     target_session: Option<&str>,
 ) -> Result<ControlResult> {
+    request_with_intent(control_dir, host_key, operation, target_session, None)
+}
+
+pub fn request_with_intent(
+    control_dir: &Path,
+    host_key: &str,
+    operation: ControlOperation,
+    target_session: Option<&str>,
+    intent: Option<&NavigationIntent>,
+) -> Result<ControlResult> {
+    match request_tracked(control_dir, host_key, operation, target_session, intent)? {
+        RequestOutcome::Success(res) | RequestOutcome::ExplicitFailure(res) => Ok(res),
+        RequestOutcome::TimedOut { request } => Ok(ControlResult {
+            request,
+            status: ControlStatus::Unavailable,
+            observation: None,
+            whole_host_verified: false,
+            acknowledge_done: false,
+        }),
+        RequestOutcome::DispatchFailed { error, .. } => Err(error),
+        RequestOutcome::Rejected { error, .. } => Err(error),
+    }
+}
+
+pub(crate) fn request_tracked(
+    control_dir: &Path,
+    host_key: &str,
+    operation: ControlOperation,
+    target_session: Option<&str>,
+    intent: Option<&NavigationIntent>,
+) -> Result<RequestOutcome> {
     let binding = load_binding(control_dir, host_key)?;
 
     // Determine target actual session from fresh binding heartbeat.
@@ -1510,6 +1578,9 @@ pub fn request(
     }
 
     let request_id = Uuid::new_v4().simple().to_string();
+    if let Some(intent) = intent {
+        intent.record_request_id(&request_id);
+    }
     let req = ControlRequest {
         schema_version: SCHEMA_VERSION,
         request_id: request_id.clone(),
@@ -1534,12 +1605,10 @@ pub fn request(
         Duration::from_secs(6),
         Some((&result_file, &req)),
     );
-    // CLI pipe exit is not the control contract. A fully correlated native
-    // reply may exist even when the broadcast CLI transport times out.
 
     // Poll bounded for result-<request_id>.json while holding lock.
     let deadline = Instant::now() + Duration::from_secs(6);
-    let mut found_result: Option<ControlResult> = None;
+    let mut evaluated_outcome: Option<RequestOutcome> = None;
 
     while Instant::now() < deadline {
         if result_file.exists() {
@@ -1554,87 +1623,46 @@ pub fn request(
                 Ok(r) => r,
                 Err(e) => {
                     let _ = lock_file.unlock();
-                    return Err(e).context("Malformed control result JSON: fail closed");
+                    let _ = fs::remove_file(&result_file);
+                    return Ok(RequestOutcome::Rejected {
+                        request: req,
+                        failure_kind: NavigationErrorKind::ControlFailure,
+                        raw_status: None,
+                        raw_observation: None,
+                        error: anyhow::Error::from(e).context("Malformed control result JSON: fail closed"),
+                    });
                 }
             };
 
-            if result.request != req {
-                let _ = lock_file.unlock();
-                bail!("Control result correlation mismatch: request does not match");
-            }
+            let outcome = evaluate_control_result(
+                result,
+                &req,
+                &active_session,
+                &binding.server_process,
+                request_start_ms,
+                now_ms(),
+            );
 
-            let current_server = match crate::process::identity(binding.context.server_pid) {
-                Ok(s) => s,
-                Err(e) => {
-                    let _ = lock_file.unlock();
-                    return Err(e);
-                }
-            };
-            if current_server != binding.server_process {
-                let _ = lock_file.unlock();
-                bail!("Server process changed during control request execution");
-            }
-
-            if result.status == ControlStatus::InnerFocusObserved {
-                let obs = match result.observation.as_ref() {
-                    Some(o) => o,
-                    None => {
-                        let _ = lock_file.unlock();
-                        bail!("InnerFocusObserved must have observation; fail closed");
-                    }
-                };
-                if obs.context != req.context {
-                    let _ = lock_file.unlock();
-                    bail!("Focus observation context mismatch");
-                }
-                if obs.session_name.as_deref() != Some(&active_session) {
-                    let _ = lock_file.unlock();
-                    bail!(
-                        "Focus observation session mismatch: expected {:?}, got {:?}",
-                        active_session,
-                        obs.session_name
-                    );
-                }
-                if let ControlOperation::Focus { terminal } = &req.operation {
-                    if obs.terminal != Some(*terminal) {
-                        let _ = lock_file.unlock();
-                        bail!(
-                            "Focus observation terminal mismatch: expected {:?}, got {:?}",
-                            terminal,
-                            obs.terminal
-                        );
+            // Append verified results to persistent results journal.
+            match &outcome {
+                RequestOutcome::Success(clean) | RequestOutcome::ExplicitFailure(clean) => {
+                    let ndjson_path = control_dir.join("control-results.ndjson");
+                    if let Ok(mut ndjson_file) = OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&ndjson_path)
+                    {
+                        if let Ok(line) = serde_json::to_string(clean) {
+                            let _ = writeln!(ndjson_file, "{}", line);
+                            let _ = ndjson_file.sync_all();
+                        }
                     }
                 }
-                if obs.observed_at_ms < request_start_ms {
-                    let _ = lock_file.unlock();
-                    bail!(
-                        "Focus observation is stale (observed {} < request start {})",
-                        obs.observed_at_ms,
-                        request_start_ms
-                    );
-                }
+                _ => {}
             }
 
-            // Append verified result to persistent results journal.
-            let ndjson_path = control_dir.join("control-results.ndjson");
-            if let Ok(mut ndjson_file) = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&ndjson_path)
-            {
-                if let Ok(line) = serde_json::to_string(&result) {
-                    let _ = writeln!(ndjson_file, "{}", line);
-                    let _ = ndjson_file.sync_all();
-                }
-            }
-
-            // Prune one-shot result file.
             let _ = fs::remove_file(&result_file);
-
-            let mut final_result = result;
-            final_result.acknowledge_done = false;
-            final_result.whole_host_verified = false;
-            found_result = Some(final_result);
+            evaluated_outcome = Some(outcome);
             break;
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -1642,22 +1670,11 @@ pub fn request(
 
     let _ = lock_file.unlock();
 
-    if found_result.is_none() {
-        if let Err(error) = dispatch_res {
-            return Err(error).context("Failed to send control request via Zellij named pipe");
-        }
-    }
-
-    match found_result {
-        Some(res) => Ok(res),
-        None => Ok(ControlResult {
-            request: req,
-            status: ControlStatus::Unavailable,
-            observation: None,
-            whole_host_verified: false,
-            acknowledge_done: false,
-        }),
-    }
+    Ok(classify_transport_outcome(
+        dispatch_res.map(|_| ()).map_err(|e| e.context("Failed to send control request via Zellij named pipe")),
+        evaluated_outcome,
+        req,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -1666,22 +1683,30 @@ pub fn request(
 
 /// A native-context RPC for the outer observer avoids CLI nested/last-active
 /// focus routing. Caller validates the only display and actual attachment tty.
-fn direct_request(
+pub(crate) fn direct_request_tracked(
     root: &Path,
     session: &str,
     context: PluginContext,
     operation: ControlOperation,
     sequence: u64,
-) -> Result<ControlResult> {
+    intent: Option<&NavigationIntent>,
+) -> Result<RequestOutcome> {
+    let request_id = Uuid::new_v4().simple().to_string();
+    if let Some(intent) = intent {
+        intent.record_request_id(&request_id);
+    }
     let request = ControlRequest {
         schema_version: SCHEMA_VERSION,
-        request_id: Uuid::new_v4().simple().to_string(),
+        request_id: request_id.clone(),
         context,
         sequence,
         operation,
     };
     let started = now_ms();
     let server = crate::process::identity(request.context.server_pid)?;
+    if !crate::process::is_alive(&server) {
+        bail!("Zellij server process PID {} is no longer alive", server.pid);
+    }
     let path = root.join(format!("result-{}.json", request.request_id));
     let dispatch = run_zellij_action_with_receipt(
         session,
@@ -1696,38 +1721,52 @@ fn direct_request(
         Some((&path, &request)),
     );
     let deadline = Instant::now() + Duration::from_secs(6);
+    let mut evaluated_outcome: Option<RequestOutcome> = None;
     while Instant::now() < deadline {
         match fs::read(&path) {
             Ok(bytes) => {
-                let result: ControlResult =
-                    serde_json::from_slice(&bytes).context("malformed outer observer result")?;
-                let observation = result
-                    .observation
-                    .as_ref()
-                    .context("outer observation unavailable")?;
-                if result.request != request
-                    || observation.context != request.context
-                    || observation.session_name.as_deref() != Some(session)
-                    || observation.observed_at_ms < started
-                    || observation.observed_at_ms > now_ms() + 1000
-                    || !crate::process::is_alive(&server)
-                {
-                    bail!("outer observer result identity/freshness mismatch");
-                }
-                // Retain the same reviewed identity/status projection as inner
-                // requests so whole-host visit brackets can be corroborated.
-                if let Ok(mut journal) = OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(root.join("control-results.ndjson"))
-                {
-                    if let Ok(line) = serde_json::to_string(&result) {
-                        let _ = writeln!(journal, "{line}");
-                        let _ = journal.sync_all();
+                let result: ControlResult = match serde_json::from_slice(&bytes) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let _ = fs::remove_file(&path);
+                        return Ok(RequestOutcome::Rejected {
+                            request,
+                            failure_kind: NavigationErrorKind::ControlFailure,
+                            raw_status: None,
+                            raw_observation: None,
+                            error: anyhow::Error::from(e).context("malformed outer observer result"),
+                        });
                     }
+                };
+
+                let outcome = evaluate_control_result(
+                    result,
+                    &request,
+                    session,
+                    &server,
+                    started,
+                    now_ms(),
+                );
+
+                match &outcome {
+                    RequestOutcome::Success(clean) | RequestOutcome::ExplicitFailure(clean) => {
+                        if let Ok(mut journal) = OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(root.join("control-results.ndjson"))
+                        {
+                            if let Ok(line) = serde_json::to_string(clean) {
+                                let _ = writeln!(journal, "{line}");
+                                let _ = journal.sync_all();
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                fs::remove_file(path)?;
-                return Ok(result);
+
+                let _ = fs::remove_file(&path);
+                evaluated_outcome = Some(outcome);
+                break;
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 std::thread::sleep(Duration::from_millis(30))
@@ -1735,10 +1774,27 @@ fn direct_request(
             Err(error) => return Err(error.into()),
         }
     }
-    if let Err(error) = dispatch {
-        return Err(error).context("Native-context request has no correlated result");
+
+    Ok(classify_transport_outcome(
+        dispatch.map(|_| ()).map_err(|e| e.context("Native-context request has no correlated result")),
+        evaluated_outcome,
+        request,
+    ))
+}
+
+fn direct_request(
+    root: &Path,
+    session: &str,
+    context: PluginContext,
+    operation: ControlOperation,
+    sequence: u64,
+) -> Result<ControlResult> {
+    match direct_request_tracked(root, session, context, operation, sequence, None)? {
+        RequestOutcome::Success(res) | RequestOutcome::ExplicitFailure(res) => Ok(res),
+        RequestOutcome::TimedOut { .. } => bail!("native-context observer request timed out"),
+        RequestOutcome::DispatchFailed { error, .. } => Err(error),
+        RequestOutcome::Rejected { error, .. } => Err(error),
     }
-    bail!("native-context observer request timed out")
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1748,11 +1804,12 @@ struct OuterOwnership {
     terminal: TerminalPaneId,
 }
 
-fn outer_operation(
+fn outer_operation_tracked(
     root: &Path,
     binding: &HostBinding,
     operation: ControlOperation,
-) -> Result<ControlResult> {
+    intent: Option<&NavigationIntent>,
+) -> Result<RequestOutcome> {
     let clients = run_zellij_action(
         &binding.host_session,
         &["list-clients"],
@@ -1806,7 +1863,10 @@ fn outer_operation(
             context: context.clone(),
             sequence: 0,
         },
-        Err(error) => return Err(error.into()),
+        Err(error) => {
+            let _ = lock.unlock();
+            return Err(error.into());
+        }
     };
     if journal.context != context {
         journal = HostJournal {
@@ -1821,28 +1881,65 @@ fn outer_operation(
     let sequence = if passive {
         0
     } else {
-        journal.sequence = journal
-            .sequence
-            .checked_add(1)
-            .context("outer sequence exhausted")?;
-        atomic_write_json(&path, &journal)?;
-        journal.sequence
+        match journal.sequence.checked_add(1) {
+            Some(seq) => {
+                journal.sequence = seq;
+                if let Err(err) = atomic_write_json(&path, &journal) {
+                    let _ = lock.unlock();
+                    return Err(err);
+                }
+                journal.sequence
+            }
+            None => {
+                let _ = lock.unlock();
+                bail!("outer sequence exhausted");
+            }
+        }
     };
-    let result = direct_request(root, &binding.host_session, context, operation, sequence)?;
-    if result.observation.as_ref().is_some_and(|observation| {
-        observation.terminal == Some(binding.workspace_pane)
-            && (observation.queried_terminal != Some(binding.workspace_pane)
-                || observation.pane_pid != Some(pane.pid))
-    }) {
-        bail!("outer SDK terminal process locator changed");
+    let exec_res = direct_request_tracked(root, &binding.host_session, context, operation, sequence, intent);
+    let _ = lock.unlock();
+    let outcome = exec_res?;
+    if let RequestOutcome::Success(ref result) = outcome {
+        if result.observation.as_ref().is_some_and(|observation| {
+            observation.terminal == Some(binding.workspace_pane)
+                && (observation.queried_terminal != Some(binding.workspace_pane)
+                    || observation.pane_pid != Some(pane.pid))
+        }) {
+            return Ok(RequestOutcome::Rejected {
+                request: result.request.clone(),
+                failure_kind: NavigationErrorKind::OwnershipFailure,
+                raw_status: Some(result.status.clone()),
+                raw_observation: result.observation.clone(),
+                error: anyhow::anyhow!("outer SDK terminal process locator changed"),
+            });
+        }
+        if !crate::process::is_alive(&server)
+            || !crate::process::is_alive(&pane)
+            || !crate::process::is_alive(&binding.attachment_process)
+        {
+            return Ok(RequestOutcome::Rejected {
+                request: result.request.clone(),
+                failure_kind: NavigationErrorKind::OwnershipFailure,
+                raw_status: Some(result.status.clone()),
+                raw_observation: result.observation.clone(),
+                error: anyhow::anyhow!("outer ownership changed during observation"),
+            });
+        }
     }
-    if !crate::process::is_alive(&server)
-        || !crate::process::is_alive(&pane)
-        || !crate::process::is_alive(&binding.attachment_process)
-    {
-        bail!("outer ownership changed during observation");
+    Ok(outcome)
+}
+
+fn outer_operation(
+    root: &Path,
+    binding: &HostBinding,
+    operation: ControlOperation,
+) -> Result<ControlResult> {
+    match outer_operation_tracked(root, binding, operation, None)? {
+        RequestOutcome::Success(res) | RequestOutcome::ExplicitFailure(res) => Ok(res),
+        RequestOutcome::TimedOut { .. } => bail!("outer native focus observation unavailable"),
+        RequestOutcome::DispatchFailed { error, .. } => Err(error),
+        RequestOutcome::Rejected { error, .. } => Err(error),
     }
-    Ok(result)
 }
 
 /// Focuses an inner terminal pane and, upon successful inner observation,
@@ -1851,6 +1948,7 @@ fn outer_operation(
 /// Verifies exactly 1 outer client before focus.
 /// Checks attachment process birth both before and after focus transfer.
 /// Observes fresh pre/post exact pane and handles "already focused" error cleanly.
+#[allow(dead_code)]
 pub fn activate<F>(
     control_dir: &Path,
     host_key: &str,
@@ -1861,80 +1959,210 @@ pub fn activate<F>(
 where
     F: Fn() -> bool,
 {
-    let binding = load_binding(control_dir, host_key)?;
+    activate_with_intent(control_dir, host_key, terminal, target_session, is_current, None)
+}
 
-    // Check attachment birth before focus.
+pub fn activate_with_intent<F>(
+    control_dir: &Path,
+    host_key: &str,
+    terminal: TerminalPaneId,
+    target_session: Option<&str>,
+    is_current: Option<F>,
+    intent: Option<&NavigationIntent>,
+) -> Result<ControlResult>
+where
+    F: Fn() -> bool,
+{
+    let intent_storage;
+    let intent = match intent {
+        Some(i) => i,
+        None => {
+            intent_storage = NavigationIntent::new(Some(host_key));
+            &intent_storage
+        }
+    };
+
+    // 1. Precondition checks
+    let pre = StageContext::new(intent, control_dir, NavigationStage::Precondition)
+        .target(terminal)
+        .session(target_session.map(str::to_string));
+
+    let binding = pre.wrap(
+        NavigationErrorKind::PreconditionFailure,
+        load_binding(control_dir, host_key)
+            .context("Missing verified host binding; register required"),
+    )?;
+
     if is_current.as_ref().is_some_and(|current| !current()) {
-        bail!("navigation superseded locally before dispatch");
-    }
-    let att_before = crate::process::identity(binding.attachment_process.pid)
-        .context("Failed to verify attachment process identity before focus")?;
-    if att_before != binding.attachment_process || !crate::process::is_alive(&att_before) {
-        bail!(
-            "Attachment process (PID {}) is not alive before focus",
-            binding.attachment_process.pid
-        );
+        return Err(pre
+            .fail(
+                NavigationErrorKind::Superseded,
+                anyhow::anyhow!("navigation superseded locally before dispatch"),
+            )
+            .into());
     }
 
-    // Verify outer host session has exactly 1 display client attached.
-    let list_clients_out = run_zellij_action(
-        &binding.host_session,
-        &["list-clients"],
-        Duration::from_secs(5),
-    )
-    .context("Failed to query outer host session clients")?;
+    let _att_before = match crate::process::identity(binding.attachment_process.pid) {
+        Ok(att) if att == binding.attachment_process && crate::process::is_alive(&att) => att,
+        Ok(att) => {
+            return Err(pre
+                .fail(
+                    NavigationErrorKind::OwnershipFailure,
+                    anyhow::anyhow!(
+                        "Attachment process (PID {}) is not alive or changed before focus",
+                        att.pid
+                    ),
+                )
+                .into());
+        }
+        Err(err) => return Err(pre.fail(NavigationErrorKind::OwnershipFailure, err).into()),
+    };
+
+    let list_clients_out = pre.wrap(
+        NavigationErrorKind::DispatchFailure,
+        run_zellij_action(
+            &binding.host_session,
+            &["list-clients"],
+            Duration::from_secs(5),
+        ),
+    )?;
     let client_count = count_clients(&list_clients_out);
     if client_count != 1 {
-        bail!(
-            "Outer host session '{}' must have exactly 1 attached client before focus (found {})",
-            binding.host_session,
-            client_count
-        );
+        return Err(pre
+            .fail(
+                NavigationErrorKind::OwnershipFailure,
+                anyhow::anyhow!(
+                    "Outer host session {} must have exactly 1 attached client before focus (found {})",
+                    binding.host_session, client_count
+                ),
+            )
+            .into());
     }
 
-    let mut res = request(
-        control_dir,
-        host_key,
-        ControlOperation::Focus { terminal },
-        target_session,
+    // 2. Inner focus request
+    let inner_ctx = StageContext::new(intent, control_dir, NavigationStage::InnerFocus)
+        .target(terminal)
+        .session(target_session.map(str::to_string));
+    let inner_outcome = inner_ctx.wrap(
+        NavigationErrorKind::PreconditionFailure,
+        request_tracked(
+            control_dir,
+            host_key,
+            ControlOperation::Focus { terminal },
+            target_session,
+            Some(intent),
+        ),
     )?;
+
+    let res = inner_ctx.record_outcome(inner_outcome)?;
 
     if let Some(ref cb) = is_current {
         if !cb() {
-            res.status = ControlStatus::Superseded;
-            res.acknowledge_done = false;
-            res.whole_host_verified = false;
-            return Ok(res);
+            let ev = inner_ctx.evidence().with_result(&res);
+            return Err(inner_ctx
+                .fail_status(
+                    NavigationErrorKind::Superseded,
+                    Some(res.status),
+                    ev,
+                    true,
+                    anyhow::anyhow!("navigation superseded locally after inner dispatch"),
+                )
+                .into());
         }
     }
 
-    if res.status == ControlStatus::InnerFocusObserved {
-        let outer = outer_operation(
+    if res.status != ControlStatus::InnerFocusObserved {
+        let failure_kind = if res.status == ControlStatus::Superseded {
+            NavigationErrorKind::Superseded
+        } else {
+            NavigationErrorKind::ControlFailure
+        };
+        let ev = inner_ctx.evidence().with_result(&res);
+        return Err(inner_ctx
+            .fail_status(
+                failure_kind,
+                Some(res.status.clone()),
+                ev,
+                true,
+                anyhow::anyhow!("inner focus unconfirmed: {:?}", res.status),
+            )
+            .into());
+    }
+
+    // 3. Outer focus operation
+    let outer_ctx = StageContext::new(intent, control_dir, NavigationStage::OuterFocus)
+        .target(binding.workspace_pane)
+        .session(Some(binding.host_session.clone()));
+    let outer_outcome = outer_ctx.wrap(
+        NavigationErrorKind::PreconditionFailure,
+        outer_operation_tracked(
             control_dir,
             &binding,
             ControlOperation::Focus {
                 terminal: binding.workspace_pane,
             },
-        )?;
-        if outer.status != ControlStatus::InnerFocusObserved
-            || outer.observation.as_ref().and_then(|o| o.terminal) != Some(binding.workspace_pane)
-        {
-            bail!("outer native focus observation unavailable");
+            Some(intent),
+        ),
+    )?;
+
+    let outer_res = outer_ctx.record_outcome(outer_outcome)?;
+
+    if outer_res.status != ControlStatus::InnerFocusObserved {
+        let ev = outer_ctx.evidence().with_result(&outer_res);
+        return Err(outer_ctx
+            .fail_status(
+                NavigationErrorKind::ObservationMismatch,
+                Some(outer_res.status.clone()),
+                ev,
+                true,
+                anyhow::anyhow!(
+                    "outer focus status is not InnerFocusObserved: {:?}",
+                    outer_res.status
+                ),
+            )
+            .into());
+    }
+
+    if let Some(ref obs) = outer_res.observation {
+        if obs.terminal != Some(binding.workspace_pane) {
+            let ev = outer_ctx.evidence().with_result(&outer_res);
+            return Err(outer_ctx
+                .fail_status(
+                    NavigationErrorKind::ObservationMismatch,
+                    Some(outer_res.status.clone()),
+                    ev,
+                    false,
+                    anyhow::anyhow!("outer focus observed wrong pane: {:?}", obs.terminal),
+                )
+                .into());
         }
     }
 
-    // Check attachment birth after focus.
-    let att_after = crate::process::identity(binding.attachment_process.pid)
-        .context("Failed to verify attachment process identity after focus")?;
-    if att_after != binding.attachment_process || !crate::process::is_alive(&att_after) {
-        bail!(
-            "Attachment process (PID {}) changed or exited after focus",
-            binding.attachment_process.pid
-        );
-    }
+    // 4. Post-focus verification
+    let ver_ctx = StageContext::new(intent, control_dir, NavigationStage::Verification)
+        .target(binding.workspace_pane)
+        .session(Some(binding.host_session.clone()));
+    match crate::process::identity(binding.attachment_process.pid) {
+        Ok(att) if att == binding.attachment_process && crate::process::is_alive(&att) => att,
+        Ok(att) => {
+            let ev = ver_ctx
+                .evidence()
+                .observed_terminal(binding.workspace_pane);
+            return Err(ver_ctx
+                .fail_with(
+                    NavigationErrorKind::OwnershipFailure,
+                    anyhow::anyhow!(
+                        "Attachment process (PID {}) changed or exited after focus",
+                        att.pid
+                    ),
+                    ev,
+                    false,
+                )
+                .into());
+        }
+        Err(err) => return Err(ver_ctx.fail(NavigationErrorKind::OwnershipFailure, err).into()),
+    };
 
-    res.acknowledge_done = false;
-    res.whole_host_verified = false;
     Ok(res)
 }
 
@@ -1945,6 +2173,7 @@ where
 /// Dispatches a session switch operation via the public plugin.
 /// Captures binding before dispatch, then uses saved binding to register destination
 /// only after rendered/fresh destination heartbeat is observed. Does not ignore failure.
+#[allow(dead_code)]
 pub fn switch(
     control_dir: &Path,
     host_key: &str,
@@ -1954,6 +2183,7 @@ pub fn switch(
     switch_if_current(control_dir, host_key, session_name, terminal, &|| true)
 }
 
+#[allow(dead_code)]
 fn switch_if_current(
     control_dir: &Path,
     host_key: &str,
@@ -1961,32 +2191,96 @@ fn switch_if_current(
     terminal: TerminalPaneId,
     is_current: &dyn Fn() -> bool,
 ) -> Result<ControlResult> {
-    if !is_current() { bail!("session switch superseded before dispatch"); }
-    let saved_binding = load_binding(control_dir, host_key)?;
-    let destination_server = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir()).into_iter()
+    switch_if_current_with_intent(control_dir, host_key, session_name, terminal, is_current, None)
+}
+
+fn switch_if_current_with_intent(
+    control_dir: &Path,
+    host_key: &str,
+    session_name: &str,
+    terminal: TerminalPaneId,
+    is_current: &dyn Fn() -> bool,
+    intent: Option<&NavigationIntent>,
+) -> Result<ControlResult> {
+    let intent_storage;
+    let intent = match intent {
+        Some(i) => i,
+        None => {
+            intent_storage = NavigationIntent::new(Some(host_key));
+            &intent_storage
+        }
+    };
+
+    let sw_ctx = StageContext::new(intent, control_dir, NavigationStage::Switch)
+        .target(terminal)
+        .session(Some(session_name.to_string()));
+
+    if !is_current() {
+        return Err(sw_ctx
+            .fail(
+                NavigationErrorKind::Superseded,
+                anyhow::anyhow!("session switch superseded before dispatch"),
+            )
+            .into());
+    }
+
+    let saved_binding = sw_ctx.wrap(
+        NavigationErrorKind::PreconditionFailure,
+        load_binding(control_dir, host_key),
+    )?;
+
+    let destination_server = match crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir())
+        .into_iter()
         .find(|snapshot| snapshot.name == session_name)
         .and_then(|snapshot| snapshot.inventory)
         .and_then(|inventory| inventory.server_process)
-        .context("destination server inventory is unavailable")?;
+    {
+        Some(s) => s,
+        None => {
+            return Err(sw_ctx
+                .fail(
+                    NavigationErrorKind::PreconditionFailure,
+                    anyhow::anyhow!("destination server inventory is unavailable"),
+                )
+                .into());
+        }
+    };
+
     let switch_start_ms = now_ms();
 
-    let res = request(
-        control_dir,
-        host_key,
-        ControlOperation::Switch {
-            session_name: session_name.to_string(),
-            terminal,
-        },
-        None,
+    let exec = sw_ctx.wrap(
+        NavigationErrorKind::PreconditionFailure,
+        request_tracked(
+            control_dir,
+            host_key,
+            ControlOperation::Switch {
+                session_name: session_name.to_string(),
+                terminal,
+            },
+            None,
+            Some(intent),
+        ),
     )?;
 
+    let res = sw_ctx.record_outcome(exec)?;
+
     if res.status == ControlStatus::SwitchDispatchedUnverified {
-        // Wait until rendered/fresh destination heartbeat is observed in control_dir.
         let hb_deadline = Instant::now() + Duration::from_secs(6);
         let mut destination_observed = false;
 
         while Instant::now() < hb_deadline {
-            if !is_current() { bail!("session switch superseded while awaiting destination"); }
+            if !is_current() {
+                let ev = sw_ctx.evidence().with_result(&res);
+                return Err(sw_ctx
+                    .fail_status(
+                        NavigationErrorKind::Superseded,
+                        Some(res.status.clone()),
+                        ev,
+                        false,
+                        anyhow::anyhow!("session switch superseded while awaiting destination"),
+                    )
+                    .into());
+            }
             if let Ok(entries) = fs::read_dir(control_dir) {
                 for entry in entries.flatten() {
                     let name = entry.file_name();
@@ -2005,8 +2299,13 @@ fn switch_if_current(
                     }
                 }
             }
-            if destination_observed && crate::process::verify_server_connection(
-                &saved_binding.attachment_process, &destination_server).is_ok() {
+            if destination_observed
+                && crate::process::verify_server_connection(
+                    &saved_binding.attachment_process,
+                    &destination_server,
+                )
+                .is_ok()
+            {
                 break;
             }
             destination_observed = false;
@@ -2014,11 +2313,33 @@ fn switch_if_current(
         }
 
         if !destination_observed {
-            bail!(
-                "Timed out awaiting fresh heartbeat from destination session '{}' after switch dispatch",
-                session_name
-            );
+            let ev = sw_ctx.evidence().with_result(&res);
+            return Err(sw_ctx
+                .fail_with(
+                    NavigationErrorKind::Timeout,
+                    anyhow::anyhow!(
+                        "Timed out awaiting fresh heartbeat from destination session {} after switch dispatch",
+                        session_name
+                    ),
+                    ev,
+                    false,
+                )
+                .into());
         }
+
+        intent.update_progress(|p| {
+            p.switch_observed = true;
+        });
+        sw_ctx.record_success(Some(res.status.clone()), sw_ctx.evidence().with_result(&res));
+
+        let rebind_ctx = StageContext::new(intent, control_dir, NavigationStage::Rebind)
+            .target(terminal)
+            .session(Some(session_name.to_string()));
+
+        let plugin = rebind_ctx.wrap(
+            NavigationErrorKind::PreconditionFailure,
+            registration_plugin().context("failed to resolve registration plugin during rebind"),
+        )?;
 
         let register_args = RegisterArgs {
             host: host_key.to_string(),
@@ -2026,23 +2347,44 @@ fn switch_if_current(
             workspace_pane: saved_binding.workspace_pane.0,
             client_pid: saved_binding.attachment_process.pid,
             session: session_name.to_string(),
-            plugin: registration_plugin()?,
+            plugin,
         };
 
-        register_if_current(control_dir, &register_args, is_current).with_context(|| {
-            format!(
-                "Failed to rebind host '{}' to destination session '{}' after switch",
-                host_key, session_name
-            )
-        })?;
+        let new_binding = rebind_ctx.wrap(
+            NavigationErrorKind::PreconditionFailure,
+            register_if_current(control_dir, &register_args, is_current, Some(intent)).context(
+                format!(
+                    "Failed to rebind host {} to destination session {} after switch",
+                    host_key, session_name
+                ),
+            ),
+        )?;
+
+        intent.update_progress(|p| {
+            p.rebound = true;
+        });
+        let rebind_ev = rebind_ctx
+            .evidence()
+            .requested_context(Some(new_binding.context.clone()))
+            .observed_context(Some(new_binding.context.clone()));
+        rebind_ctx.record_success(None, rebind_ev);
     }
 
     Ok(res)
 }
 
-/// Rebinds a host to a destination inner session, reusing the host nonce gesture.
 #[allow(dead_code)]
 pub fn rebind(control_dir: &Path, host_key: &str, new_session: &str) -> Result<HostBinding> {
+    rebind_with_intent(control_dir, host_key, new_session, None)
+}
+
+#[allow(dead_code)]
+pub fn rebind_with_intent(
+    control_dir: &Path,
+    host_key: &str,
+    new_session: &str,
+    intent: Option<&NavigationIntent>,
+) -> Result<HostBinding> {
     let binding = load_binding(control_dir, host_key)?;
     let args = RegisterArgs {
         host: host_key.to_string(),
@@ -2052,7 +2394,7 @@ pub fn rebind(control_dir: &Path, host_key: &str, new_session: &str) -> Result<H
         session: new_session.to_string(),
         plugin: registration_plugin()?,
     };
-    register(control_dir, &args)
+    register_if_current(control_dir, &args, &|| true, intent)
 }
 
 /// Optional whole-host visit verification helper.
@@ -2093,6 +2435,7 @@ pub fn verified_visit(control_dir: &Path, host_key: &str) -> Option<(ControlResu
 
 /// UI targets are immutable instance/pane keys, with the completion revision
 /// captured by that UI. Resolve mutable location only inside the worker.
+#[allow(dead_code)]
 pub(crate) fn activate_instance(
     control_dir: &Path,
     host: &str,
@@ -2102,72 +2445,225 @@ pub(crate) fn activate_instance(
     is_current: impl Fn() -> bool,
     on_focus: impl Fn(&str, &PaneKey),
 ) -> Result<(ControlResult, Option<verij_types::agent::InstanceAck>)> {
+    activate_instance_with_intent(
+        control_dir,
+        host,
+        instance,
+        expected_pane,
+        revision,
+        is_current,
+        on_focus,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn activate_instance_with_intent(
+    control_dir: &Path,
+    host: &str,
+    instance: &verij_types::identity::AgentInstanceId,
+    expected_pane: &PaneKey,
+    revision: Option<u64>,
+    is_current: impl Fn() -> bool,
+    on_focus: impl Fn(&str, &PaneKey),
+    intent: Option<&NavigationIntent>,
+) -> Result<(ControlResult, Option<verij_types::agent::InstanceAck>)> {
+    let intent_storage;
+    let intent = match intent {
+        Some(i) => i,
+        None => {
+            intent_storage = NavigationIntent::new(Some(host));
+            &intent_storage
+        }
+    };
+
+    let pre = StageContext::new(intent, control_dir, NavigationStage::Precondition)
+        .target(expected_pane.terminal);
+
+    if revision == Some(0) {
+        return Err(pre
+            .fail(
+                NavigationErrorKind::PreconditionFailure,
+                anyhow::anyhow!("visit acknowledgement revision cannot be zero"),
+            )
+            .into());
+    }
+
     if !is_current() {
-        bail!("agent navigation superseded locally");
+        return Err(pre
+            .fail(
+                NavigationErrorKind::Superseded,
+                anyhow::anyhow!("agent navigation superseded locally"),
+            )
+            .into());
     }
-    let (identity, _) = crate::agent_store::inspect(instance)?;
+
+    let (identity, _) = pre.wrap(
+        NavigationErrorKind::PreconditionFailure,
+        crate::agent_store::inspect(instance),
+    )?;
+
     if identity.pane_key != *expected_pane || !crate::process::is_alive(&identity.process) {
-        bail!("agent instance binding is no longer live");
+        let ev = pre.evidence().observed_terminal(identity.pane_key.terminal);
+        return Err(pre
+            .fail_with(
+                NavigationErrorKind::OwnershipFailure,
+                anyhow::anyhow!("agent instance binding is no longer live"),
+                ev,
+                false,
+            )
+            .into());
     }
+
     let snapshots = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir());
-    let snapshot = snapshots
-        .iter()
-        .find(|snapshot| {
-            snapshot
-                .inventory
-                .as_ref()
-                .and_then(|inventory| inventory.session_instance_id.as_ref())
-                == Some(expected_pane.session.clone()).as_ref()
-        })
-        .context("agent server lifetime no longer exists")?;
+    let snapshot = match snapshots.iter().find(|snapshot| {
+        snapshot
+            .inventory
+            .as_ref()
+            .and_then(|inventory| inventory.session_instance_id.as_ref())
+            == Some(expected_pane.session.clone()).as_ref()
+    }) {
+        Some(s) => s,
+        None => {
+            return Err(pre
+                .fail(
+                    NavigationErrorKind::PreconditionFailure,
+                    anyhow::anyhow!("agent server lifetime no longer exists"),
+                )
+                .into());
+        }
+    };
+
+    let pre_sess = pre.clone().session(Some(snapshot.name.clone()));
+
     let inventory = snapshot.inventory.as_ref().unwrap();
-    let pane = inventory
+    let pane = match inventory
         .panes
         .iter()
         .find(|pane| pane.terminal_id == expected_pane.terminal && !pane.exited)
-        .context("agent terminal no longer exists")?;
-    crate::magy::verify_owner(
-        &identity,
-        inventory
-            .server_process
-            .as_ref()
-            .context("server birth unavailable")?,
-        pane.pane_process
-            .as_ref()
-            .context("pane birth unavailable")?,
-    )?;
-    if !is_current() {
-        bail!("agent navigation superseded before dispatch");
+    {
+        Some(p) => p,
+        None => {
+            return Err(pre_sess
+                .fail(
+                    NavigationErrorKind::PreconditionFailure,
+                    anyhow::anyhow!("agent terminal no longer exists"),
+                )
+                .into());
+        }
+    };
+
+    let srv_proc = match inventory.server_process.as_ref() {
+        Some(p) => p,
+        None => {
+            return Err(pre_sess
+                .fail(
+                    NavigationErrorKind::OwnershipFailure,
+                    anyhow::anyhow!("server birth unavailable"),
+                )
+                .into());
+        }
+    };
+    let pane_proc = match pane.pane_process.as_ref() {
+        Some(p) => p,
+        None => {
+            return Err(pre_sess
+                .fail(
+                    NavigationErrorKind::OwnershipFailure,
+                    anyhow::anyhow!("pane birth unavailable"),
+                )
+                .into());
+        }
+    };
+
+    if let Err(err) = crate::magy::verify_owner(&identity, srv_proc, pane_proc) {
+        return Err(pre_sess
+            .fail(NavigationErrorKind::OwnershipFailure, err)
+            .into());
     }
-    let binding = ensure_owned_binding(control_dir, host, &is_current)?;
+
+    if !is_current() {
+        return Err(pre_sess
+            .fail(
+                NavigationErrorKind::Superseded,
+                anyhow::anyhow!("agent navigation superseded before dispatch"),
+            )
+            .into());
+    }
+
+    let binding = pre_sess.wrap(
+        NavigationErrorKind::OwnershipFailure,
+        ensure_owned_binding(control_dir, host, &is_current, Some(intent)),
+    )?;
+
     if SessionInstanceId::from_process(&binding.server_process) != expected_pane.session {
-        switch_if_current(control_dir, host, &snapshot.name, expected_pane.terminal, &is_current)?;
-        let bound = load_binding(control_dir, host)?;
+        switch_if_current_with_intent(
+            control_dir,
+            host,
+            &snapshot.name,
+            expected_pane.terminal,
+            &is_current,
+            Some(intent),
+        )?;
+        let sw_ctx = StageContext::new(intent, control_dir, NavigationStage::Switch)
+            .target(expected_pane.terminal)
+            .session(Some(snapshot.name.clone()));
+        let bound = sw_ctx.wrap(
+            NavigationErrorKind::PreconditionFailure,
+            load_binding(control_dir, host).context("failed to load binding after switch"),
+        )?;
         if SessionInstanceId::from_process(&bound.server_process) != expected_pane.session {
-            bail!("target incarnation changed during switch");
+            return Err(sw_ctx
+                .fail(
+                    NavigationErrorKind::OwnershipFailure,
+                    anyhow::anyhow!("target incarnation changed during switch"),
+                )
+                .into());
         }
     }
-    let result = activate(
+
+    let result = activate_with_intent(
         control_dir,
         host,
         expected_pane.terminal,
         Some(&snapshot.name),
         Some(&is_current),
+        Some(intent),
     )?;
-    if result.status != ControlStatus::InnerFocusObserved {
-        bail!("agent activation unverified: {:?}", result.status);
+
+    if !is_current() {
+        let outer_ctx = StageContext::new(intent, control_dir, NavigationStage::OuterFocus)
+            .target(expected_pane.terminal)
+            .session(Some(snapshot.name.clone()));
+        let ev = outer_ctx.evidence().with_result(&result);
+        return Err(outer_ctx
+            .fail_status(
+                NavigationErrorKind::Superseded,
+                Some(result.status.clone()),
+                ev,
+                true,
+                anyhow::anyhow!("agent navigation superseded after focus"),
+            )
+            .into());
     }
-    if !is_current() { bail!("agent navigation superseded after focus"); }
+
     on_focus(&snapshot.name, expected_pane);
-    let ack = if let Some(revision) = revision.filter(|revision| *revision > 0) {
-        Some(crate::agent_cli::acknowledge_visit_if_current(
-            crate::agent_cli::AckArgs {
-                instance: instance.0.clone(),
-                host: host.into(),
-                revision,
-            },
-            is_current,
-        )?)
+    let ack = if let Some(revision) = revision {
+        let ver_ctx = StageContext::new(intent, control_dir, NavigationStage::Verification)
+            .target(expected_pane.terminal)
+            .session(Some(snapshot.name.clone()));
+        let ack = ver_ctx.wrap(
+            NavigationErrorKind::PreconditionFailure,
+            crate::agent_cli::acknowledge_visit_if_current(
+                crate::agent_cli::AckArgs {
+                    instance: instance.0.clone(),
+                    host: host.into(),
+                    revision,
+                },
+                is_current,
+            ),
+        )?;
+        Some(ack)
     } else {
         None
     };
@@ -2182,7 +2678,20 @@ pub async fn execute(command: NavigationCommand) -> Result<()> {
 
         match command {
             NavigationCommand::Register(args) => {
-                let binding = register(&control_dir, &args)?;
+                let intent = NavigationIntent::new(Some(&args.host));
+                let reg_ctx = StageContext::new(&intent, &control_dir, NavigationStage::Rebind)
+                    .target(TerminalPaneId(args.workspace_pane))
+                    .session(Some(args.session.clone()));
+                let binding = reg_ctx.wrap(
+                    NavigationErrorKind::PreconditionFailure,
+                    register_if_current(&control_dir, &args, &|| true, Some(&intent)),
+                )?;
+                intent.update_progress(|p| p.rebound = true);
+                let ev = reg_ctx
+                    .evidence()
+                    .requested_context(Some(binding.context.clone()))
+                    .observed_context(Some(binding.context.clone()));
+                reg_ctx.record_success(None, ev);
                 println!("{}", serde_json::to_string_pretty(&binding)?);
                 Ok(())
             }
@@ -2197,25 +2706,27 @@ pub async fn execute(command: NavigationCommand) -> Result<()> {
                 Ok(())
             }
             NavigationCommand::Focus(args) => {
-                let res = activate(
+                let intent = NavigationIntent::new(Some(&args.host));
+                let res = activate_with_intent(
                     &control_dir,
                     &args.host,
                     TerminalPaneId(args.pane),
                     args.session.as_deref(),
                     None::<fn() -> bool>,
+                    Some(&intent),
                 )?;
                 println!("{}", serde_json::to_string_pretty(&res)?);
-                if res.status != ControlStatus::InnerFocusObserved {
-                    bail!("native pane activation unverified: {:?}", res.status);
-                }
                 Ok(())
             }
             NavigationCommand::Switch(args) => {
-                let res = switch(
+                let intent = NavigationIntent::new(Some(&args.host));
+                let res = switch_if_current_with_intent(
                     &control_dir,
                     &args.host,
                     &args.session,
                     TerminalPaneId(args.pane),
+                    &|| true,
+                    Some(&intent),
                 )?;
                 println!("{}", serde_json::to_string_pretty(&res)?);
                 Ok(())
@@ -2233,76 +2744,27 @@ pub async fn execute(command: NavigationCommand) -> Result<()> {
                 instance,
                 revision,
             } => {
-                let identity = crate::agent_store::inspect(
-                    &verij_types::identity::AgentInstanceId(instance.clone()),
-                )?
-                .0;
-                let snapshots =
-                    crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir());
-                let snapshot = snapshots
-                    .iter()
-                    .find(|snapshot| {
-                        snapshot
-                            .inventory
-                            .as_ref()
-                            .and_then(|inventory| inventory.session_instance_id.as_ref())
-                            == Some(&identity.pane_key.session)
-                    })
-                    .context("agent server lifetime no longer exists")?;
-                let inventory = snapshot.inventory.as_ref().unwrap();
-                let pane = inventory
-                    .panes
-                    .iter()
-                    .find(|pane| pane.terminal_id == identity.pane_key.terminal && !pane.exited)
-                    .context("agent terminal no longer exists")?;
-                if !identity.is_synthetic {
-                    crate::magy::verify_owner(
-                        &identity,
-                        inventory
-                            .server_process
-                            .as_ref()
-                            .context("server birth unavailable")?,
-                        pane.pane_process
-                            .as_ref()
-                            .context("pane birth unavailable")?,
-                    )?;
-                }
-                let binding = ensure_owned_binding(&control_dir, &host, &|| true)?;
-                if SessionInstanceId::from_process(&binding.server_process)
-                    != identity.pane_key.session
-                {
-                    switch(
-                        &control_dir,
-                        &host,
-                        &snapshot.name,
-                        identity.pane_key.terminal,
-                    )?;
-                    let bound = load_binding(&control_dir, &host)?;
-                    if SessionInstanceId::from_process(&bound.server_process)
-                        != identity.pane_key.session
-                    {
-                        bail!("target incarnation changed during switch");
-                    }
-                }
-                let result = activate(
+                let intent = NavigationIntent::new(Some(&host));
+                let inst_id = verij_types::identity::AgentInstanceId(instance.clone());
+                let pre_ctx =
+                    StageContext::new(&intent, &control_dir, NavigationStage::Precondition);
+                let (identity, _) = pre_ctx.wrap(
+                    NavigationErrorKind::PreconditionFailure,
+                    crate::agent_store::inspect(&inst_id),
+                )?;
+                let (result, ack) = activate_instance_with_intent(
                     &control_dir,
                     &host,
-                    identity.pane_key.terminal,
-                    Some(&snapshot.name),
-                    None::<fn() -> bool>,
+                    &inst_id,
+                    &identity.pane_key,
+                    revision,
+                    || true,
+                    |_, _| {},
+                    Some(&intent),
                 )?;
-                if result.status != ControlStatus::InnerFocusObserved {
-                    bail!("agent activation unverified: {:?}", result.status);
-                }
                 println!("{}", serde_json::to_string(&result)?);
-                if let Some(revision) = revision {
-                    crate::agent_cli::execute(crate::agent_cli::AgentCommand::Ack(
-                        crate::agent_cli::AckArgs {
-                            instance,
-                            host,
-                            revision,
-                        },
-                    ))?;
+                if let Some(ack) = ack {
+                    eprintln!("acknowledged visit revision {}", ack.acknowledged_revision);
                 }
                 Ok(())
             }
@@ -2692,5 +3154,48 @@ exit 0
         let temp_dir =
             std::env::temp_dir().join(format!("vj-nav-test-{}", Uuid::new_v4().simple()));
         assert!(verified_visit(&temp_dir, "test-host").is_none());
+    }
+
+    #[test]
+    fn test_activate_instance_revision_zero_precondition_rejection() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("vj-nav-rev0-test-{}", Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let intent = NavigationIntent::new(Some("test-host"));
+        let instance = verij_types::identity::AgentInstanceId("inst-rev0".into());
+        let expected_pane = PaneKey {
+            session: verij_types::identity::SessionInstanceId("sess-1".into()),
+            terminal: TerminalPaneId(42),
+        };
+
+        let err = activate_instance_with_intent(
+            &temp_dir,
+            "test-host",
+            &instance,
+            &expected_pane,
+            Some(0),
+            || true,
+            |_, _| {},
+            Some(&intent),
+        )
+        .unwrap_err();
+
+        let nav_err = err
+            .downcast_ref::<NavigationError>()
+            .expect("Must be NavigationError");
+        assert_eq!(nav_err.diagnostic.stage, NavigationStage::Precondition);
+        assert_eq!(
+            nav_err.diagnostic.failure_kind,
+            Some(NavigationErrorKind::PreconditionFailure)
+        );
+        assert!(nav_err
+            .diagnostic
+            .error_message
+            .as_ref()
+            .unwrap()
+            .contains("cannot be zero"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
