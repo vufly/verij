@@ -15,24 +15,26 @@ mod actions;
 mod activation;
 mod agent_cli;
 mod agent_setup;
-mod agy;
-mod agy_setup;
-mod magy;
-mod opencode;
 mod agent_store;
 mod agent_watcher;
-mod inventory;
-mod process;
-mod workspace;
-mod navigation;
-pub(crate) mod navigation_diagnostics;
+mod agy;
+mod agy_setup;
+mod codex;
+mod codex_setup;
 mod config;
 mod fs_watcher;
 mod host;
+mod inventory;
 mod layout;
+mod magy;
+mod navigation;
+pub(crate) mod navigation_diagnostics;
+mod opencode;
+mod process;
 mod registry;
 mod session;
 mod tui;
+mod workspace;
 mod zellij_config;
 
 // ---------------------------------------------------------------------------
@@ -120,13 +122,17 @@ enum Commands {
     },
 
     /// Internal owned Workspace attachment; never infers native client IDs.
-    #[command(hide=true)]
+    #[command(hide = true)]
     Workspace {
         session: String,
-        #[arg(long)] host: Option<String>,
-        #[arg(long)] plugin: Option<PathBuf>,
-        #[arg(long)] client_config: Option<PathBuf>,
-        #[arg(long)] force_run_commands: bool,
+        #[arg(long)]
+        host: Option<String>,
+        #[arg(long)]
+        plugin: Option<PathBuf>,
+        #[arg(long)]
+        client_config: Option<PathBuf>,
+        #[arg(long)]
+        force_run_commands: bool,
     },
 
     /// Agent registration, normalized reporting and inspection.
@@ -241,10 +247,7 @@ fn handle_start(args: StartArgs) -> Result<()> {
                 );
             }
 
-            eprintln!(
-                "Session '{}' already exists. Attaching to it...",
-                host_name
-            );
+            eprintln!("Session '{}' already exists. Attaching to it...", host_name);
             session::restore_last_inner_session(host_name)?;
             let host_config = zellij_config::write_host_config(&cfg)?;
             return session::attach_session(host_name, &host_config);
@@ -307,7 +310,8 @@ mod tests {
     fn sidebar_width_uses_cli_then_config_then_default() {
         let defaults = config::Config::default();
         assert_eq!(effective_sidebar_width(None, &defaults), "25%");
-        let config: config::Config = toml::from_str("[workspace]\nsidebar_width = '32%'\n").unwrap();
+        let config: config::Config =
+            toml::from_str("[workspace]\nsidebar_width = '32%'\n").unwrap();
         assert_eq!(effective_sidebar_width(None, &config), "32%");
         assert_eq!(effective_sidebar_width(Some("18%"), &config), "18%");
     }
@@ -330,8 +334,14 @@ mod tests {
             sidebar_width: Some("18%".into()),
             no_attach: false,
         };
-        assert_eq!(layout_for_new_host(&args, &config::Config::default(), "test").unwrap(), path);
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "layout { tab name=\"custom\" }\n");
+        assert_eq!(
+            layout_for_new_host(&args, &config::Config::default(), "test").unwrap(),
+            path
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "layout { tab name=\"custom\" }\n"
+        );
         std::fs::remove_file(path).unwrap();
     }
 }
@@ -347,9 +357,17 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Start(args) => handle_start(args),
         Commands::Attach(args) => handle_attach(args),
-        Commands::List { live, exited, missing } => host::list(live, exited, missing),
+        Commands::List {
+            live,
+            exited,
+            missing,
+        } => host::list(live, exited, missing),
         Commands::Show { name, check } => host::show(&name, check),
-        Commands::Delete { name, zellij, force } => host::delete(&name, zellij, force),
+        Commands::Delete {
+            name,
+            zellij,
+            force,
+        } => host::delete(&name, zellij, force),
         Commands::Prune { dry_run } => host::prune(dry_run),
         Commands::Rename { old, new } => host::rename(&old, &new),
         Commands::Recover { name } => host::recover(name.as_deref()),
@@ -365,11 +383,19 @@ async fn main() -> Result<()> {
         }
         Commands::Inventory { session } => {
             let mut snapshots = inventory::read_states(&fs_watcher::resolve_states_dir());
-            if let Some(name) = session { snapshots.retain(|snapshot|snapshot.name==name); }
-            println!("{}",serde_json::to_string_pretty(&snapshots)?);
+            if let Some(name) = session {
+                snapshots.retain(|snapshot| snapshot.name == name);
+            }
+            println!("{}", serde_json::to_string_pretty(&snapshots)?);
             Ok(())
         }
-        Commands::Workspace { session,host,plugin,client_config,force_run_commands } => workspace::attach(&session,host,plugin,client_config,force_run_commands),
+        Commands::Workspace {
+            session,
+            host,
+            plugin,
+            client_config,
+            force_run_commands,
+        } => workspace::attach(&session, host, plugin, client_config, force_run_commands),
         Commands::Agent(command) => agent_cli::execute(command),
         Commands::Navigate(command) => navigation::execute(command).await,
         Commands::Config(cmd) => match cmd {

@@ -379,6 +379,7 @@ pub struct AgentsConfig {
     pub title_sources: Vec<String>,
     pub opencode: AgentOverride,
     pub agy: AgentOverride,
+    pub codex: AgentOverride,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -393,6 +394,7 @@ impl Default for AgentsConfig {
             title_sources: vec!["pane".into(), "conversation".into(), "agent".into()],
             opencode: AgentOverride::default(),
             agy: AgentOverride::default(),
+            codex: AgentOverride::default(),
         }
     }
 }
@@ -420,6 +422,7 @@ impl AgentsConfig {
         let override_opt = match kind {
             AgentKind::Opencode => &self.opencode.title_sources,
             AgentKind::Agy => &self.agy.title_sources,
+            AgentKind::Codex => &self.codex.title_sources,
             AgentKind::Unknown => &None,
         };
 
@@ -470,6 +473,7 @@ fn agent_display_name(kind: AgentKind) -> String {
     match kind {
         AgentKind::Opencode => "opencode".to_string(),
         AgentKind::Agy => "agy".to_string(),
+        AgentKind::Codex => "codex".to_string(),
         AgentKind::Unknown => "agent".to_string(),
     }
 }
@@ -994,6 +998,24 @@ pi = "󰏿"
             "my-pane"
         );
 
+        // codex custom override
+        custom.codex.title_sources = Some(vec!["agent".into()]);
+        assert_eq!(
+            custom.title_for(AgentKind::Codex, "my-pane", "conv-title"),
+            "codex"
+        );
+
+        // Default Codex resolution
+        assert_eq!(
+            cfg.title_for(AgentKind::Codex, "codex-pane", "codex-conv"),
+            "codex-pane"
+        );
+        assert_eq!(
+            cfg.title_for(AgentKind::Codex, "", "codex-conv"),
+            "codex-conv"
+        );
+        assert_eq!(cfg.title_for(AgentKind::Codex, "   ", "   "), "codex");
+
         // Invalid source name in override falls back to inherited
         let mut invalid_override = AgentsConfig::default();
         invalid_override.agy.title_sources = Some(vec!["bogus".into()]);
@@ -1038,6 +1060,16 @@ sidebar_width = "30%"
 
         let cfg: Config = toml::from_str("[tui]\n").unwrap();
         assert!(cfg.tui.single_click_action);
+
+        let codex_toml = r#"
+[agents.codex]
+title_sources = ["agent"]
+"#;
+        let cfg: Config = toml::from_str(codex_toml).unwrap();
+        assert_eq!(
+            cfg.agents.title_for(AgentKind::Codex, "pane", "conv"),
+            "codex"
+        );
     }
 
     #[test]
@@ -1045,7 +1077,8 @@ sidebar_width = "30%"
         let defaults = Config::default();
         assert_eq!(defaults.tui.after_detach, AfterSessionAction::Nearest);
         assert_eq!(defaults.tui.after_kill, AfterSessionAction::Nearest);
-        let config: Config = toml::from_str("[tui]\nafter_detach = 'empty'\nafter_kill = 'nearest'\n").unwrap();
+        let config: Config =
+            toml::from_str("[tui]\nafter_detach = 'empty'\nafter_kill = 'nearest'\n").unwrap();
         assert_eq!(config.tui.after_detach, AfterSessionAction::Empty);
         assert_eq!(config.tui.after_kill, AfterSessionAction::Nearest);
         assert!(toml::from_str::<Config>("[tui]\nafter_kill = 'invalid'\n").is_err());
