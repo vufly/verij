@@ -194,6 +194,28 @@ both = "fg=selected_fg,bg=selected_bg"
 
 Inline style directives affect text spans on top of the chosen row base. Changing existing `[colors]` entries also changes default tree styles that reference those names. Templates and glyphs must produce one line per row; line breaks in snapshot names render as spaces.
 
+#### Agent row formatting and display labels
+
+`[tui.tree]` also formats agent rows via `agent_format`. The default template wraps the agent name in `#[bold]#{agent_name}#[default]`, keeping row base colors (such as selection or active focus) while bolding only the name. Custom templates can apply their own styling to `#{agent_name}`.
+
+`[tui.tree.agent_names]` maps agent kind keys to custom display labels:
+
+```toml
+[tui.tree.agent_names]
+opencode = ""
+codex = ""
+claude = ""
+agy = ""
+pi = "󰏿"
+```
+
+- **Missing/blank fallback**: If an agent kind key is omitted or configured with a blank string, it falls back to the raw kind name (`opencode`, `agy`).
+- **Literal display text**: Values are treated as literal text (trimmed, control characters replaced with spaces, and limited to 256 characters) and are never parsed as format or styling codes. Text labels work as well as icons.
+- **Restart requirement**: Changes to `[tui.tree.agent_names]` take effect after restarting the sidebar TUI.
+- **Future placeholders**: `codex`, `claude`, and `pi` entries are accepted for future agent integrations; configuring them does not activate monitoring for those tools.
+
+Labels affect only `#{agent_name}`. Agent titles, title-source precedence, identities, and navigation targets retain their existing meaning.
+
 ## TUI Controls
 
 | Key | Action |

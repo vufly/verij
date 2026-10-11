@@ -243,15 +243,32 @@ Extend `[tui.tree]` rather than introducing a second formatting language:
 
 ```toml
 [tui.tree]
-# Illustrative unstyled template. Defaults can include status-specific styles.
-agent_format = '#{tree_prefix}#{status_icon} #{agent_name} #{agent_title}'
+# Illustrative template with bold agent name. Defaults include status-specific icons and styles.
+agent_format = '#{tree_prefix}#{status_icon} #[bold]#{agent_name}#[default] #{agent_title}'
 
 [tui.tree.agent_styles]
 normal = ""
 selected = "fg=selected_fg,bg=selected_bg"
 active = "fg=active_fg,bg=active_bg"
 both = "fg=selected_fg,bg=selected_bg"
+
+[tui.tree.agent_names]
+opencode = ""
+codex = ""
+claude = ""
+agy = ""
+pi = "󰏿"
 ```
+
+Display label semantics:
+
+- **Fallback**: Missing keys or blank entries fall back to the raw kind name (`opencode`, `agy`).
+- **Styling**: The default agent template bolds only the agent name segment via `#[bold]#{agent_name}#[default]`, preserving underlying row base colors (e.g. selection background). Custom templates are responsible for their own styling.
+- **Literal text**: Configured values are literal text (control characters replaced with spaces, trimmed, and limited to 256 characters when the formatter is created) and are never evaluated as format strings. Text labels work as well as icons.
+- **Sidebar restart**: Configuration edits take effect when the sidebar TUI is restarted.
+- **Placeholders**: `codex`, `claude`, and `pi` entries are accepted for future adapter support and do not enable monitoring.
+
+These labels affect only `#{agent_name}`; `#{agent_title}` and its title-source policy still use the existing raw agent name as their fallback. Labels never serve as identity keys or navigation targets.
 
 The renderer supplies ancestor indentation through `tree_prefix`; `branch` remains available for custom formats as the first/middle/last glyph among the row's siblings. Default agent rows omit `branch` to save a column. The implementation must specify sibling metadata explicitly rather than infer it from adjacent flattened rows.
 

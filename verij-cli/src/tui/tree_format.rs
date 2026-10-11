@@ -1,4 +1,5 @@
 //! Compiled tmux-like formats for the navigable session/tab tree.
+use std::collections::BTreeMap;
 use std::ops::Range;
 
 use ratatui::{
@@ -73,6 +74,7 @@ pub struct TreeFormatter {
     session: Vec<Token>,
     tab: Vec<Token>,
     agent: Vec<Token>,
+    agent_names: BTreeMap<String, String>,
     session_styles: CompiledStyles,
     tab_styles: CompiledStyles,
     agent_styles: CompiledStyles,
@@ -108,6 +110,14 @@ impl TreeFormatter {
                 value.to_string()
             }
         };
+        let agent_names = config
+            .agent_names
+            .iter()
+            .filter_map(|(kind, label)| {
+                let label = sanitize_display_text(label);
+                (!label.is_empty()).then(|| (kind.clone(), label))
+            })
+            .collect();
         Self {
             session: compile(
                 &config.session_format,
@@ -116,6 +126,7 @@ impl TreeFormatter {
             ),
             tab: compile(&config.tab_format, DEFAULT_TAB_FORMAT, "tab_format"),
             agent: compile(&config.agent_format, DEFAULT_AGENT_FORMAT, "agent_format"),
+            agent_names,
             session_styles: CompiledStyles::compile(
                 &config.session_styles,
                 &defaults.session_styles,
@@ -484,8 +495,8 @@ impl RowContext<'_> {
             },
             "agent_name" => match self.node {
                 TreeNode::AgentPane { view, .. } => {
-                    let name = view.kind.to_string();
-                    name
+                    let raw = view.kind.to_string();
+                    self.formatter.agent_names.get(&raw).cloned().unwrap_or(raw)
                 }
                 _ => String::new(),
             },
@@ -1354,6 +1365,16 @@ mod tests {
         let row1 = output(&formatter, &agent1, &snap, false, false, true, false);
         assert_eq!(content(&row1), "│ ⠋ opencode opencode-task");
 
+        // Bold agent name, normal title, and preserved row base colors.
+        let name_span = row1.spans.iter().find(|s| s.content == "opencode").unwrap();
+        assert!(name_span.style.add_modifier.contains(Modifier::BOLD));
+        let title_span = row1
+            .spans
+            .iter()
+            .find(|s| s.content == "opencode-task")
+            .unwrap();
+        assert!(!title_span.style.add_modifier.contains(Modifier::BOLD));
+
         // Agent 2 (last agent under non-last tab)
         let agent2_meta = RowMeta {
             key: NodeKey::Agent {
@@ -1385,6 +1406,64 @@ mod tests {
         };
         let row2 = output(&formatter, &agent2, &snap, false, false, false, true);
         assert_eq!(content(&row2), "│ ! agy agy-task");
+
+        // Sanitized, blank (discarded -> fallback), and missing label handling.
+        let mut label_cfg = TreeConfig::default();
+        label_cfg
+            .agent_names
+            .insert("opencode".into(), "  \r\n".into());
+        label_cfg.agent_names.insert("agy".into(), "   ".into());
+        let label_fmt = TreeFormatter::new(&label_cfg, &ColorConfig::default());
+        let label_row1 = output(&label_fmt, &agent1, &snap, false, false, true, false);
+        assert_eq!(content(&label_row1), "│ ⠋  opencode-task");
+        let label_row2 = output(&label_fmt, &agent2, &snap, false, false, false, true);
+        assert_eq!(content(&label_row2), "│ ! agy agy-task");
+
+        let mut unknown_agent = agent1.clone();
+        if let TreeNode::AgentPane { view, .. } = &mut unknown_agent {
+            view.kind = AgentKind::Unknown;
+        }
+        let unk_row = output(&label_fmt, &unknown_agent, &snap, false, false, true, false);
+        assert!(content(&unk_row).contains(" unknown "));
+
+        label_cfg.agent_names.insert("agy".into(), "".into());
+        let label_fmt = TreeFormatter::new(&label_cfg, &ColorConfig::default());
+        assert_eq!(
+            content(&output(
+                &label_fmt, &agent2, &snap, false, false, false, true
+            )),
+            "│ !  agy-task"
+        );
+        for selected in [false, true] {
+            for active in [false, true] {
+                let mut node = agent1.clone();
+                if let TreeNode::AgentPane { view, .. } = &mut node {
+                    view.is_active = active;
+                }
+                let row = output(&label_fmt, &node, &snap, selected, false, true, false);
+                let label = row.spans.iter().find(|s| s.content == "").unwrap();
+                let title = row
+                    .spans
+                    .iter()
+                    .find(|s| s.content == "opencode-task")
+                    .unwrap();
+                assert!(label.style.add_modifier.contains(Modifier::BOLD));
+                assert!(!title.style.add_modifier.contains(Modifier::BOLD));
+                for span in [label, title] {
+                    assert_eq!(span.style.fg, row.base.fg);
+                    assert_eq!(span.style.bg, row.base.bg);
+                }
+            }
+        }
+
+        // Literal template-looking label is treated as raw text, not format tokens.
+        let mut lit_cfg = TreeConfig::default();
+        lit_cfg
+            .agent_names
+            .insert("opencode".into(), "#[bold]#{status_icon}".into());
+        let lit_fmt = TreeFormatter::new(&lit_cfg, &ColorConfig::default());
+        let lit_row = output(&lit_fmt, &agent1, &snap, false, false, true, false);
+        assert_eq!(content(&lit_row), "│ ⠋ #[bold]#{status_icon} opencode-task");
 
         // Agent 3 under last tab (tab has NO more siblings -> tab_has_more = false)
         let agent3_meta = RowMeta {

@@ -117,6 +117,8 @@ pub struct TreeConfig {
     pub session_format: String,
     pub tab_format: String,
     pub agent_format: String,
+    /// Literal labels keyed by raw agent kind; omitted/blank values use the raw name.
+    pub agent_names: BTreeMap<String, String>,
     pub fold_collapsed: String,
     pub fold_expanded: String,
     pub branch_first: String,
@@ -139,7 +141,7 @@ pub struct TreeRowStyles {
 // These formats, rather than rendering branches, define the default appearance.
 pub const DEFAULT_SESSION_FORMAT: &str = "#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}#{?has_agents,#{?agent_summary, #{agent_summary},},}";
 pub const DEFAULT_TAB_FORMAT: &str = "#{branch} #{?has_agents,#{fold_marker} ,}#{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}#{?has_agents,#{?agent_summary, #{agent_summary},},}";
-pub const DEFAULT_AGENT_FORMAT: &str = "#{tree_prefix}#{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #{agent_name} #{agent_title}";
+pub const DEFAULT_AGENT_FORMAT: &str = "#{tree_prefix}#{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #[bold]#{agent_name}#[default] #{agent_title}";
 
 impl Default for TreeConfig {
     fn default() -> Self {
@@ -147,6 +149,7 @@ impl Default for TreeConfig {
             session_format: DEFAULT_SESSION_FORMAT.into(),
             tab_format: DEFAULT_TAB_FORMAT.into(),
             agent_format: DEFAULT_AGENT_FORMAT.into(),
+            agent_names: BTreeMap::new(),
             fold_collapsed: "▷".into(),
             fold_expanded: "▽".into(),
             branch_first: "├".into(),
@@ -797,12 +800,21 @@ title_sources = ["pane", "conversation", "agent"]
 [tui.tree]
 session_format = '#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}#{?has_agents,#{?agent_summary, #{agent_summary},},}'
 tab_format = '#{branch} #{?has_agents,#{fold_marker} ,}#{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}#{?has_agents,#{?agent_summary, #{agent_summary},},}'
-agent_format = '#{tree_prefix}#{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #{agent_name} #{agent_title}'
+agent_format = '#{tree_prefix}#{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #[bold]#{agent_name}#[default] #{agent_title}'
 fold_collapsed = "▷"
 fold_expanded = "▽"
 branch_first = "├" # first of multiple tabs; a single tab uses branch_last
 branch_middle = "├"
 branch_last = "└"
+
+# Optional agent labels; missing/blank values use the raw name. Names are bold by default.
+# Codex, Claude and Pi entries are placeholders for future monitoring support.
+# [tui.tree.agent_names]
+# opencode = ""
+# codex = ""
+# claude = ""
+# agy = ""
+# pi = "󰏿"
 
 [tui.tree.session_styles]
 normal = ""
@@ -896,6 +908,7 @@ mod tests {
             starter.tui.tree.agent_format,
             defaults.tui.tree.agent_format
         );
+        assert_eq!(starter.tui.tree.agent_names, defaults.tui.tree.agent_names);
         assert_eq!(
             starter.tui.tree.branch_first,
             defaults.tui.tree.branch_first
@@ -922,9 +935,33 @@ mod tests {
         assert_eq!(starter.colors.idle, defaults.colors.idle);
         assert_eq!(starter.colors.unknown, defaults.colors.unknown);
 
+        let with_names: Config = toml::from_str(
+            r#"
+[tui.tree.agent_names]
+opencode = ""
+codex = ""
+claude = ""
+agy = ""
+pi = "󰏿"
+"#,
+        )
+        .unwrap();
+        assert_eq!(with_names.tui.tree.agent_names.len(), 5);
+        for (kind, label) in [
+            ("opencode", ""),
+            ("codex", ""),
+            ("claude", ""),
+            ("agy", ""),
+            ("pi", "󰏿"),
+        ] {
+            assert_eq!(with_names.tui.tree.agent_names[kind], label);
+        }
+        assert_eq!(with_names.tui.tree.agent_format, DEFAULT_AGENT_FORMAT);
+
         let partial: Config = toml::from_str("[tui.tree]\nbranch_first = '╞'\n").unwrap();
         assert_eq!(partial.tui.tree.branch_first, "╞");
         assert_eq!(partial.tui.tree.branch_middle, "├");
+        assert!(partial.tui.tree.agent_names.is_empty());
     }
 
     #[test]
