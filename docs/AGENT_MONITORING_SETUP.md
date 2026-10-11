@@ -13,7 +13,7 @@ Repository: `https://github.com/vufly/verij`, branch **`agent-monitoring`**.
 | H2: agent tree and host-local completion UI | `0b713191047b8d30ddb42edaa5e94b64b58b2b1c` | Approved and pushed |
 | H3: OpenCode production adapter | `445519f` | Committed and verified; human review pending |
 
-H2 includes Session → Tab → Agent rows, nested folds, configurable titles/styles, status summaries, persistent tree state, asynchronous activation and host-local acknowledgement after confirmed visits. **H3 OpenCode is implemented and ready for review; H4 Agy/Magy remains pending.** After [adapter setup](../integrations/opencode/README.md) and an OpenCode restart, normal interactive OpenCode/attach processes register automatically against verified native inventory. H2's harness continues to use real receiver processes with explicitly synthetic semantic reports.
+H2 includes Session → Tab → Agent rows, nested folds, configurable titles/styles, status summaries, persistent tree state, asynchronous activation and host-local acknowledgement after confirmed visits. **H3 OpenCode is implemented; H4 Agy/Magy and Codex adapters are integrated.** After adapter setup ([OpenCode](../integrations/opencode/README.md), [Agy](../integrations/agy/README.md), or [Codex](../integrations/codex/README.md)), interactive agent processes register automatically against verified native inventory. H2's harness continues to use real receiver processes with explicitly synthetic semantic reports.
 
 Read these files when resuming:
 
@@ -201,6 +201,8 @@ target/release/verij start --session-name monitoring-dev
 ```
 
 The normal host is separate from the synthetic test fixture. To enable H3 OpenCode monitoring, install the current WASM at the URL normal Zellij config loads (`make install-plugin` for the standard XDG share path), then run `target/release/verij agent setup opencode`, quit/restart OpenCode, and inspect `target/release/verij agent doctor --session INNER_SESSION`. Existing inner sessions need an exporter reload at the same configured URL after a WASM upgrade. [The adapter guide](../integrations/opencode/README.md#install-and-inspect) has the exact commands. The installed reporter path must remain available. Agy/Magy adapters follow at H4.
+
+To enable Codex CLI monitoring, run `target/release/verij agent setup codex`, approve hooks via `/hooks` in an interactive Codex session, launch with `codex --no-daemon`, and inspect `target/release/verij agent doctor codex`. See [the Codex adapter guide](../integrations/codex/README.md) and [implementation record](CODEX_MONITORING_IMPLEMENTATION.md) for full configuration, qualification matrix, and constraints (interactive `--no-daemon` requirement; hook trust requires manual approval; native provider errors leave prior state stale; version 0.162.1 qualified).
 
 These customization files can be copied if you want the same appearance:
 

@@ -12,12 +12,13 @@ const ID: &str = "verij.monitoring.v1";
 pub enum Adapter {
     Opencode,
     Agy,
+    Codex,
 }
 
 #[derive(Debug, Args)]
 pub struct SetupArgs {
     pub adapter: Adapter,
-    /// Adapter configuration directory (OpenCode TUI config or Agy .gemini).
+    /// Adapter configuration directory (OpenCode TUI config, Agy .gemini, or Codex home).
     #[arg(long)]
     pub config_dir: Option<PathBuf>,
     /// OpenCode binary used for version detection.
@@ -25,6 +26,8 @@ pub struct SetupArgs {
     pub opencode_bin: PathBuf,
     #[arg(long, default_value = "agy")]
     pub agy_bin: PathBuf,
+    #[arg(long, default_value = "codex")]
+    pub codex_bin: PathBuf,
     #[arg(long, default_value = "python3")]
     pub python_bin: PathBuf,
 }
@@ -39,6 +42,8 @@ pub struct DoctorArgs {
     pub opencode_bin: PathBuf,
     #[arg(long, default_value = "agy")]
     pub agy_bin: PathBuf,
+    #[arg(long, default_value = "codex")]
+    pub codex_bin: PathBuf,
     /// Diagnose the exporter prerequisite for one inner Zellij session.
     #[arg(long)]
     pub session: Option<String>,
@@ -422,7 +427,12 @@ fn atomic_text(path: &Path, text: &str) -> Result<()> {
 }
 
 pub fn setup(args: SetupArgs) -> Result<()> {
-    if matches!(args.adapter, Adapter::Agy) { return crate::agy_setup::setup(args); }
+    if matches!(args.adapter, Adapter::Agy) {
+        return crate::agy_setup::setup(args);
+    }
+    if matches!(args.adapter, Adapter::Codex) {
+        return crate::codex_setup::setup(args);
+    }
     let version = version(&args.opencode_bin)?;
     if !crate::opencode::supports_version(&version) {
         bail!(
@@ -474,7 +484,12 @@ pub fn setup(args: SetupArgs) -> Result<()> {
 }
 
 pub fn uninstall(args: SetupArgs) -> Result<()> {
-    if matches!(args.adapter, Adapter::Agy) { return crate::agy_setup::uninstall(args); }
+    if matches!(args.adapter, Adapter::Agy) {
+        return crate::agy_setup::uninstall(args);
+    }
+    if matches!(args.adapter, Adapter::Codex) {
+        return crate::codex_setup::uninstall(args);
+    }
     let path = target(args.config_dir)?;
     let dir = path.parent().context("TUI config has no parent")?;
     if !dir.exists() {
@@ -528,7 +543,7 @@ pub(crate) fn inventory_diagnostics(snapshots: &[verij_types::SessionSnapshot]) 
                 if terminals == 0 {
                     ("pane_identity_unavailable", "Exporter is present but has no verified live terminal process identity.", 0)
                 } else {
-                    ("ready", "Verified native pane inventory is available. A foreground OpenCode TUI can register against it.", terminals)
+                    ("ready", "Verified native pane inventory is available. A foreground agent TUI can register against it.", terminals)
                 }
             }
         };
@@ -537,7 +552,12 @@ pub(crate) fn inventory_diagnostics(snapshots: &[verij_types::SessionSnapshot]) 
 }
 
 pub fn doctor(args: DoctorArgs) -> Result<()> {
-    if matches!(args.adapter, Adapter::Agy) { return crate::agy_setup::doctor(args); }
+    if matches!(args.adapter, Adapter::Agy) {
+        return crate::agy_setup::doctor(args);
+    }
+    if matches!(args.adapter, Adapter::Codex) {
+        return crate::codex_setup::doctor(args);
+    }
     let path = target(args.config_dir)?;
     let dir = path.parent().context("TUI config has no parent")?;
     let assets = dir.join("verij-monitoring");

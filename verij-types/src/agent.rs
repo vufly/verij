@@ -18,6 +18,7 @@ pub const AGENT_SCHEMA_VERSION: u32 = 1;
 pub enum AgentKind {
     Opencode,
     Agy,
+    Codex,
     #[serde(other)]
     Unknown,
 }
@@ -27,6 +28,7 @@ impl std::fmt::Display for AgentKind {
         match self {
             Self::Opencode => write!(f, "opencode"),
             Self::Agy => write!(f, "agy"),
+            Self::Codex => write!(f, "codex"),
             Self::Unknown => write!(f, "unknown"),
         }
     }
@@ -528,6 +530,7 @@ pub fn is_source_accepted(source_id: &str, kind: AgentKind, is_synthetic: bool) 
     match source_id {
         "opencode" => kind == AgentKind::Opencode || is_synthetic,
         "agy-ui" | "agy-lifecycle" => kind == AgentKind::Agy || is_synthetic,
+        "codex" => kind == AgentKind::Codex || is_synthetic,
         "magy-watch" => true,
         s if is_synthetic && s.starts_with("fixture-") => true,
         _ => false,
@@ -541,7 +544,7 @@ pub fn can_declare_terminal(source_id: &str, kind: AgentKind, is_synthetic: bool
     }
     match source_id {
         "agy-ui" => false, // UI source cannot declare terminal outcomes
-        "agy-lifecycle" | "opencode" | "magy-watch" => true,
+        "agy-lifecycle" | "opencode" | "codex" | "magy-watch" => true,
         s if is_synthetic && s.starts_with("fixture-") => true,
         _ => false,
     }
@@ -554,7 +557,7 @@ pub fn can_declare_pending_requests(source_id: &str, kind: AgentKind, is_synthet
     }
     match source_id {
         "agy-lifecycle" => false, // Lifecycle source cannot declare pending input requests
-        "agy-ui" | "opencode" => true,
+        "agy-ui" | "opencode" | "codex" => true,
         s if is_synthetic && s.starts_with("fixture-") => true,
         _ => false,
     }
@@ -570,6 +573,11 @@ fn source_family_priority(source_id: &str, kind: AgentKind) -> u8 {
         },
         AgentKind::Opencode => match source_id {
             "opencode" => 10,
+            "magy-watch" => 5,
+            _ => 1,
+        },
+        AgentKind::Codex => match source_id {
+            "codex" => 10,
             "magy-watch" => 5,
             _ => 1,
         },
@@ -1783,5 +1791,218 @@ mod tests {
             compute_display_status(&reduced, host2_ack.as_ref()),
             AgentStatus::Idle
         );
+    }
+
+    #[test]
+    fn test_codex_display_and_serde() {
+        assert_eq!(AgentKind::Codex.to_string(), "codex");
+        let serialized = serde_json::to_string(&AgentKind::Codex).unwrap();
+        assert_eq!(serialized, "\"codex\"");
+        let deserialized: AgentKind = serde_json::from_str("\"codex\"").unwrap();
+        assert_eq!(deserialized, AgentKind::Codex);
+    }
+
+    #[test]
+    fn test_codex_source_authority_and_priority() {
+        assert!(is_source_accepted("codex", AgentKind::Codex, false));
+        assert!(!is_source_accepted("opencode", AgentKind::Codex, false));
+        assert!(!is_source_accepted("agy-ui", AgentKind::Codex, false));
+        assert!(is_source_accepted("magy-watch", AgentKind::Codex, false));
+        assert!(is_source_accepted("fixture-codex", AgentKind::Codex, true));
+
+        assert!(can_declare_terminal("codex", AgentKind::Codex, false));
+        assert!(can_declare_pending_requests(
+            "codex",
+            AgentKind::Codex,
+            false
+        ));
+
+        assert_eq!(source_family_priority("codex", AgentKind::Codex), 10);
+        assert_eq!(source_family_priority("magy-watch", AgentKind::Codex), 5);
+        assert_eq!(source_family_priority("other", AgentKind::Codex), 1);
+    }
+
+    #[test]
+    fn test_codex_reducer_transitions() {
+        let instance = dummy_instance_id();
+        let turn = TurnId("turn-10".to_string());
+
+        // 1. Idle transition via SessionStart
+        let mut sources = BTreeMap::new();
+        let idle_src = NormalizedSourceRecord {
+            schema_version: 1,
+            agent_instance_id: instance.clone(),
+            source_id: "codex".to_string(),
+            source_epoch: 1,
+            source_revision: 1,
+            observed_at_ms: 1000,
+            conversation_id: Some(ConversationId("session-1".to_string())),
+            conversation_title: None,
+            turn_id: None,
+            turn_epoch: 0,
+            turn_revision: 0,
+            activity: Some(ActivityKind::Idle),
+            pending_requests: Vec::new(),
+            background_task_count: 0,
+            successful_completion: None,
+            execution_error: None,
+            capabilities: vec![],
+        };
+        sources.insert("codex".to_string(), idle_src);
+        let (reduced, comp_rev, _, _, _) =
+            reduce_sources(&sources, AgentKind::Codex, false, 0, None, 0, 0);
+        assert_eq!(reduced.status, AgentStatus::Idle);
+        assert_eq!(comp_rev, 0);
+
+        // 2. Working transition via UserPromptSubmit / PreToolUse
+        let working_src = NormalizedSourceRecord {
+            schema_version: 1,
+            agent_instance_id: instance.clone(),
+            source_id: "codex".to_string(),
+            source_epoch: 1,
+            source_revision: 2,
+            observed_at_ms: 2000,
+            conversation_id: Some(ConversationId("session-1".to_string())),
+            conversation_title: None,
+            turn_id: Some(turn.clone()),
+            turn_epoch: 1,
+            turn_revision: 1,
+            activity: Some(ActivityKind::Working),
+            pending_requests: Vec::new(),
+            background_task_count: 0,
+            successful_completion: None,
+            execution_error: None,
+            capabilities: vec![],
+        };
+        sources.insert("codex".to_string(), working_src);
+        let (reduced, comp_rev, _, _, _) =
+            reduce_sources(&sources, AgentKind::Codex, false, 0, None, 0, 0);
+        assert_eq!(reduced.status, AgentStatus::Working);
+        assert_eq!(comp_rev, 0);
+
+        // 3. NeedsInput transition via PermissionRequest
+        let needs_input_src = NormalizedSourceRecord {
+            schema_version: 1,
+            agent_instance_id: instance.clone(),
+            source_id: "codex".to_string(),
+            source_epoch: 1,
+            source_revision: 3,
+            observed_at_ms: 3000,
+            conversation_id: Some(ConversationId("session-1".to_string())),
+            conversation_title: None,
+            turn_id: Some(turn.clone()),
+            turn_epoch: 1,
+            turn_revision: 1,
+            activity: Some(ActivityKind::Working),
+            pending_requests: vec![PendingRequest {
+                id: "req-perm-1".to_string(),
+                kind: RequestKind::Permission,
+                detail: Some("bash".to_string()),
+            }],
+            background_task_count: 0,
+            successful_completion: None,
+            execution_error: None,
+            capabilities: vec![],
+        };
+        sources.insert("codex".to_string(), needs_input_src);
+        let (reduced, comp_rev, _, _, _) =
+            reduce_sources(&sources, AgentKind::Codex, false, 0, None, 0, 0);
+        assert_eq!(reduced.status, AgentStatus::NeedsInput);
+        assert_eq!(reduced.detail, Some("permission required".to_string()));
+        assert_eq!(comp_rev, 0);
+
+        // 4. Done transition via successful Stop
+        let done_src = NormalizedSourceRecord {
+            schema_version: 1,
+            agent_instance_id: instance.clone(),
+            source_id: "codex".to_string(),
+            source_epoch: 1,
+            source_revision: 4,
+            observed_at_ms: 4000,
+            conversation_id: Some(ConversationId("session-1".to_string())),
+            conversation_title: None,
+            turn_id: Some(turn.clone()),
+            turn_epoch: 1,
+            turn_revision: 1,
+            activity: Some(ActivityKind::Idle),
+            pending_requests: Vec::new(),
+            background_task_count: 0,
+            successful_completion: Some(SuccessfulCompletion {
+                turn_id: Some(turn.clone()),
+                turn_epoch: 1,
+                turn_revision: 1,
+                completed_at_ms: 4000,
+                summary: Some("done".to_string()),
+            }),
+            execution_error: None,
+            capabilities: vec![],
+        };
+        sources.insert("codex".to_string(), done_src);
+        let (reduced, comp_rev, completed_turn, _, _) =
+            reduce_sources(&sources, AgentKind::Codex, false, 0, None, 0, 0);
+        assert_eq!(reduced.status, AgentStatus::Done);
+        assert_eq!(comp_rev, 1);
+        assert_eq!(completed_turn, Some(turn.clone()));
+
+        // 5. Error transition via failed Stop (ExecutionError is_terminal)
+        // NOTE: ExecutionError is normalized/source capability test, not a real native failed Stop;
+        // native Codex CLI Stop hook has no failure fields or error status.
+        let error_src = NormalizedSourceRecord {
+            schema_version: 1,
+            agent_instance_id: instance.clone(),
+            source_id: "codex".to_string(),
+            source_epoch: 1,
+            source_revision: 5,
+            observed_at_ms: 5000,
+            conversation_id: Some(ConversationId("session-1".to_string())),
+            conversation_title: None,
+            turn_id: Some(turn.clone()),
+            turn_epoch: 1,
+            turn_revision: 1,
+            activity: Some(ActivityKind::Idle),
+            pending_requests: Vec::new(),
+            background_task_count: 0,
+            successful_completion: None,
+            execution_error: Some(ExecutionError {
+                turn_id: Some(turn.clone()),
+                turn_epoch: 1,
+                turn_revision: 1,
+                message: "command failed".to_string(),
+                is_terminal: true,
+            }),
+            capabilities: vec![],
+        };
+        sources.insert("codex".to_string(), error_src);
+        let (reduced, comp_rev, _, _, _) =
+            reduce_sources(&sources, AgentKind::Codex, false, 1, Some(&turn), 1, 1);
+        assert_eq!(reduced.status, AgentStatus::Error);
+        assert_eq!(reduced.detail, Some("command failed".to_string()));
+        assert_eq!(comp_rev, 1);
+
+        // 6. Idle transition via Interrupt / SessionEnd
+        let interrupt_src = NormalizedSourceRecord {
+            schema_version: 1,
+            agent_instance_id: instance,
+            source_id: "codex".to_string(),
+            source_epoch: 1,
+            source_revision: 6,
+            observed_at_ms: 6000,
+            conversation_id: Some(ConversationId("session-1".to_string())),
+            conversation_title: None,
+            turn_id: Some(TurnId("turn-11".to_string())),
+            turn_epoch: 1,
+            turn_revision: 2,
+            activity: Some(ActivityKind::Idle),
+            pending_requests: Vec::new(),
+            background_task_count: 0,
+            successful_completion: None,
+            execution_error: None,
+            capabilities: vec![],
+        };
+        sources.insert("codex".to_string(), interrupt_src);
+        let (reduced, comp_rev, _, _, _) =
+            reduce_sources(&sources, AgentKind::Codex, false, 1, Some(&turn), 1, 1);
+        assert_eq!(reduced.status, AgentStatus::Idle);
+        assert_eq!(comp_rev, 1);
     }
 }

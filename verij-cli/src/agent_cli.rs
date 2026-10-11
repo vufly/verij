@@ -23,21 +23,37 @@ pub enum AgentCommand {
     /// Internal bounded, ordered OpenCode TUI reporter stream.
     #[command(hide = true)]
     Opencode {
-        #[arg(long)] session: String,
-        #[arg(long)] pane: u32,
-        #[arg(long)] pid: u32,
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        pane: u32,
+        #[arg(long)]
+        pid: u32,
     },
     /// Internal metadata-only Agy callback reporter.
     #[command(hide = true)]
     Agy {
-        #[arg(long)] pane: u32,
-        #[arg(long)] pid: u32,
-        #[arg(long)] birth: u64,
+        #[arg(long)]
+        pane: u32,
+        #[arg(long)]
+        pid: u32,
+        #[arg(long)]
+        birth: u64,
+    },
+    #[command(hide = true)]
+    Codex {
+        #[arg(long)]
+        pane: u32,
+        #[arg(long)]
+        pid: u32,
+        #[arg(long)]
+        birth: u64,
     },
     /// Observe pane-backed Magy watches (also runs with each sidebar).
     Magy {
         /// Reconcile once, rather than observing until interrupted.
-        #[arg(long)] once: bool,
+        #[arg(long)]
+        once: bool,
     },
     /// Validate actual foreground pane/process ownership without registration.
     Verify {
@@ -81,7 +97,7 @@ pub struct RegisterArgs {
     #[arg(long)]
     pub pid: u32,
 
-    /// Agent kind ("opencode" or "agy").
+    /// Agent kind ("opencode", "agy", or "codex").
     #[arg(long)]
     pub kind: String,
 
@@ -140,7 +156,7 @@ pub struct FixtureArgs {
     #[arg(long, default_value_t = 1)]
     pub pane: u32,
 
-    /// Agent kind ("opencode" or "agy").
+    /// Agent kind ("opencode", "agy", or "codex").
     #[arg(long, default_value = "opencode")]
     pub kind: String,
 }
@@ -153,6 +169,7 @@ pub fn execute(command: AgentCommand) -> Result<()> {
         AgentCommand::Doctor(args) => crate::agent_setup::doctor(args),
         AgentCommand::Opencode { session, pane, pid } => crate::opencode::run(session, pane, pid),
         AgentCommand::Agy { pane, pid, birth } => crate::agy::run(pane, pid, birth),
+        AgentCommand::Codex { pane, pid, birth } => crate::codex::run(pane, pid, birth),
         AgentCommand::Magy { once } => crate::magy::run(once),
         AgentCommand::Verify { session, pane, pid } => {
             let snapshots = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir());
@@ -191,9 +208,12 @@ pub fn execute(command: AgentCommand) -> Result<()> {
 fn execute_register(args: RegisterArgs) -> Result<()> {
     let synthetic = args.synthetic;
     let instance_id = register(args)?;
-    println!("{}", serde_json::json!({
-        "status": "registered", "agent_instance_id": instance_id.0, "is_synthetic": synthetic
-    }));
+    println!(
+        "{}",
+        serde_json::json!({
+            "status": "registered", "agent_instance_id": instance_id.0, "is_synthetic": synthetic
+        })
+    );
     Ok(())
 }
 
@@ -204,8 +224,9 @@ pub fn register(args: RegisterArgs) -> Result<AgentInstanceId> {
     let kind = match args.kind.to_lowercase().as_str() {
         "opencode" => AgentKind::Opencode,
         "agy" => AgentKind::Agy,
+        "codex" => AgentKind::Codex,
         other => bail!(
-            "unsupported agent kind {:?}, must be 'opencode' or 'agy'",
+            "unsupported agent kind {:?}, must be 'opencode', 'agy', or 'codex'",
             other
         ),
     };
@@ -276,12 +297,12 @@ pub fn register(args: RegisterArgs) -> Result<AgentInstanceId> {
         } else {
             crate::process::verify_foreground(server_process, pane_process, &agent_process)
         })
-            .with_context(|| {
-                format!(
-                    "foreground verification failed for pid {} in pane {}",
-                    args.pid, args.pane
-                )
-            })?;
+        .with_context(|| {
+            format!(
+                "foreground verification failed for pid {} in pane {}",
+                args.pid, args.pane
+            )
+        })?;
 
         let pane_key = PaneKey {
             session: session_instance_id,
@@ -436,6 +457,7 @@ fn execute_fixture(args: FixtureArgs) -> Result<()> {
     let kind = match args.kind.to_lowercase().as_str() {
         "opencode" => AgentKind::Opencode,
         "agy" => AgentKind::Agy,
+        "codex" => AgentKind::Codex,
         _ => AgentKind::Opencode,
     };
     let pane_key = PaneKey {
