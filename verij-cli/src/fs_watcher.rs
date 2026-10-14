@@ -53,70 +53,221 @@ pub fn resolve_states_dir() -> PathBuf {
     fallback
 }
 
-/// Concurrently drains bounded stdout and stderr buffers using background threads to avoid
-/// OS pipe deadlocks on large outputs. Kills child process on timeout or prompt stop.
+/// Concurrently drains bounded stdout and stderr buffers using nonblocking polling.
+/// Terminates owned process group on timeout, failed subprocess, or prompt stop,
+/// guaranteeing bounded execution even if child descendants retain open pipes.
 fn run_command_bounded(
     mut cmd: std::process::Command,
     timeout: Duration,
     max_bytes: u64,
     stop: Option<&AtomicBool>,
 ) -> Option<(Vec<u8>, Vec<u8>)> {
+    #[cfg(unix)]
+    use std::os::unix::io::AsRawFd;
+    #[cfg(unix)]
+    use std::os::unix::process::CommandExt;
+
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
+    #[cfg(unix)]
+    cmd.process_group(0);
 
     crate::resource_metrics::command(&cmd);
     let mut child = cmd.spawn().ok()?;
+    let child_pid = child.id();
     let stdout_pipe = child.stdout.take()?;
     let stderr_pipe = child.stderr.take()?;
 
-    let stdout_handle = std::thread::spawn(move || -> std::io::Result<Vec<u8>> {
-        use std::io::Read;
-        let mut reader = stdout_pipe.take(max_bytes);
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf)?;
-        Ok(buf)
-    });
+    #[cfg(unix)]
+    let stdout_fd = stdout_pipe.as_raw_fd();
+    #[cfg(unix)]
+    let stderr_fd = stderr_pipe.as_raw_fd();
 
-    let stderr_handle = std::thread::spawn(move || -> std::io::Result<Vec<u8>> {
-        use std::io::Read;
-        let mut reader = stderr_pipe.take(max_bytes);
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf)?;
-        Ok(buf)
-    });
-
-    let start = Instant::now();
-    let mut success = false;
-    while start.elapsed() < timeout {
-        if stop.is_some_and(|s| s.load(Ordering::Relaxed)) {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = stdout_handle.join();
-            let _ = stderr_handle.join();
-            return None;
+    #[cfg(unix)]
+    unsafe {
+        let flags = libc::fcntl(stdout_fd, libc::F_GETFL, 0);
+        if flags >= 0 {
+            libc::fcntl(stdout_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
         }
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                success = status.success();
-                break;
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(5)),
-            Err(_) => break,
+        let flags = libc::fcntl(stderr_fd, libc::F_GETFL, 0);
+        if flags >= 0 {
+            libc::fcntl(stderr_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
         }
     }
 
-    if !success {
+    let kill_group = |child: &mut std::process::Child| {
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(-(child_pid as i32), libc::SIGKILL);
+        }
         let _ = child.kill();
         let _ = child.wait();
-        let _ = stdout_handle.join();
-        let _ = stderr_handle.join();
+    };
+
+    let start = Instant::now();
+    let deadline = start + timeout;
+    let mut stdout_buf = Vec::new();
+    let mut stderr_buf = Vec::new();
+    let mut stdout_closed = false;
+    let mut stderr_closed = false;
+    let mut stdout_overflow = false;
+    let mut stderr_overflow = false;
+    let mut child_exited = false;
+    let mut child_status = false;
+
+    #[cfg(unix)]
+    let read_pipe = |fd: i32, buf: &mut Vec<u8>, closed: &mut bool, overflow: &mut bool| {
+        if *closed || *overflow {
+            return;
+        }
+        let mut temp = [0u8; 4096];
+        loop {
+            let max_read = max_bytes + 1;
+            if buf.len() as u64 >= max_read {
+                *overflow = true;
+                *closed = true;
+                break;
+            }
+            let remaining = (max_read - buf.len() as u64).min(temp.len() as u64) as usize;
+            let n = unsafe { libc::read(fd, temp.as_mut_ptr().cast(), remaining) };
+            if n > 0 {
+                buf.extend_from_slice(&temp[..n as usize]);
+                if buf.len() as u64 > max_bytes {
+                    *overflow = true;
+                    *closed = true;
+                    break;
+                }
+            } else if n == 0 {
+                *closed = true;
+                break;
+            } else {
+                let err = std::io::Error::last_os_error();
+                if err.kind() == std::io::ErrorKind::WouldBlock {
+                    break;
+                } else {
+                    *closed = true;
+                    break;
+                }
+            }
+        }
+    };
+
+    while Instant::now() < deadline {
+        if stop.is_some_and(|s| s.load(Ordering::Relaxed)) {
+            kill_group(&mut child);
+            return None;
+        }
+
+        #[cfg(unix)]
+        {
+            read_pipe(
+                stdout_fd,
+                &mut stdout_buf,
+                &mut stdout_closed,
+                &mut stdout_overflow,
+            );
+            read_pipe(
+                stderr_fd,
+                &mut stderr_buf,
+                &mut stderr_closed,
+                &mut stderr_overflow,
+            );
+        }
+
+        if stdout_overflow || stderr_overflow {
+            kill_group(&mut child);
+            return None;
+        }
+
+        if !child_exited {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    child_exited = true;
+                    child_status = status.success();
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    kill_group(&mut child);
+                    return None;
+                }
+            }
+        }
+
+        if child_exited && stdout_closed && stderr_closed {
+            break;
+        }
+
+        #[cfg(unix)]
+        {
+            let poll_stdout = if stdout_closed { -1 } else { stdout_fd };
+            let poll_stderr = if stderr_closed { -1 } else { stderr_fd };
+            let remaining_ms = deadline
+                .saturating_duration_since(Instant::now())
+                .as_millis()
+                .min(20) as i32;
+            let mut fds = [
+                libc::pollfd {
+                    fd: poll_stdout,
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: poll_stderr,
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+            ];
+            unsafe {
+                libc::poll(fds.as_mut_ptr(), 2, remaining_ms.max(1));
+            }
+        }
+        #[cfg(not(unix))]
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    if stop.is_some_and(|s| s.load(Ordering::Relaxed)) {
+        kill_group(&mut child);
         return None;
     }
 
-    let stdout_bytes = stdout_handle.join().ok()?.ok()?;
-    let stderr_bytes = stderr_handle.join().ok()?.ok()?;
-    Some((stdout_bytes, stderr_bytes))
+    #[cfg(unix)]
+    {
+        read_pipe(
+            stdout_fd,
+            &mut stdout_buf,
+            &mut stdout_closed,
+            &mut stdout_overflow,
+        );
+        read_pipe(
+            stderr_fd,
+            &mut stderr_buf,
+            &mut stderr_closed,
+            &mut stderr_overflow,
+        );
+    }
+
+    if stdout_overflow || stderr_overflow {
+        kill_group(&mut child);
+        return None;
+    }
+
+    if !child_exited {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                child_exited = true;
+                child_status = status.success();
+            }
+            _ => {}
+        }
+    }
+
+    if !child_exited || !child_status || !stdout_closed || !stderr_closed {
+        kill_group(&mut child);
+        return None;
+    }
+
+    Some((stdout_buf, stderr_buf))
 }
 
 /// Queries Zellij session statuses bounded by strict timeout using concurrent pipe draining.
@@ -143,7 +294,10 @@ pub fn query_session_statuses_bounded_cancelable(
 
     const MAX_STATUS_BYTES: u64 = 1024 * 1024; // 1MB bounded output buffer
     let (stdout_bytes, stderr_bytes) = run_command_bounded(
-        cmd, deadline.saturating_duration_since(Instant::now()), MAX_STATUS_BYTES, stop,
+        cmd,
+        deadline.saturating_duration_since(Instant::now()),
+        MAX_STATUS_BYTES,
+        stop,
     )?;
 
     let stdout_str = String::from_utf8_lossy(&stdout_bytes);
@@ -290,6 +444,94 @@ pub fn read_all_states_with_statuses(
     )
 }
 
+/// Reads a bounded slice of session states from directory, advancing cursor.
+/// Counts all entries against slice_limit. Returns true if EOF reached.
+pub fn read_states_slice_cancelable(
+    dir: &Path,
+    cursor: &mut Option<std::fs::ReadDir>,
+    slice_limit: usize,
+    sessions: &mut Vec<SessionSnapshot>,
+    hosts: &HashSet<String>,
+    host_cache: &mut HashMap<String, HostClassification>,
+    session_statuses: Option<&BTreeMap<String, SessionStatus>>,
+    can_prune: bool,
+    stop: Option<&AtomicBool>,
+) -> bool {
+    if cursor.is_none() {
+        *cursor = std::fs::read_dir(dir).ok();
+    }
+    let Some(read_dir) = cursor.as_mut() else {
+        return true;
+    };
+
+    let mut inspected = 0;
+    while inspected < slice_limit {
+        if stop.is_some_and(|s| s.load(Ordering::Relaxed)) {
+            return false;
+        }
+
+        let entry = match read_dir.next() {
+            Some(Ok(e)) => {
+                inspected += 1;
+                e
+            }
+            Some(Err(_)) => {
+                inspected += 1;
+                continue;
+            }
+            None => {
+                *cursor = None;
+                return true;
+            }
+        };
+
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("json") {
+            let Ok(bytes) = crate::agent_store::read_bounded_bytes(&path, 4 * 1024 * 1024) else {
+                continue;
+            };
+            if let Ok(mut snapshot) = serde_json::from_slice::<SessionSnapshot>(&bytes) {
+                // Filter and remove any registered host session states.
+                // Keep registered host filtered and never delete host file.
+                if check_is_host_cancelable(&snapshot.name, hosts, host_cache, stop) {
+                    continue;
+                }
+
+                // Keep EXITED sessions so the sidebar can resurrect them, but remove
+                // snapshots for sessions Zellij no longer knows about.
+                if let Some(statuses) = session_statuses {
+                    if let Some(status) = statuses.get(&snapshot.name) {
+                        let live_publication = !can_prune
+                            && snapshot.inventory.as_ref().is_some_and(|inventory| {
+                                inventory.schema_version == 1
+                                    && crate::process::identity(inventory.producer.server_pid)
+                                        .ok()
+                                        .is_some_and(|server| {
+                                            crate::process::is_alive(&server)
+                                                && crate::process::started_at_ms(&server).is_ok_and(
+                                                    |birth| inventory.exported_at_ms >= birth,
+                                                )
+                                        })
+                            });
+                        snapshot.needs_resurrection =
+                            matches!(status, crate::session::SessionStatus::Exited)
+                                && !live_publication;
+                    } else if can_prune {
+                        let _ = std::fs::remove_file(&path);
+                        continue;
+                    } else {
+                        snapshot.needs_resurrection = false;
+                    }
+                }
+                crate::inventory::hydrate(&mut snapshot);
+                sessions.push(snapshot);
+            }
+        }
+    }
+    false
+}
+
+#[allow(dead_code)]
 pub fn read_all_states_with_statuses_cancelable(
     dir: &Path,
     hosts: &HashSet<String>,
@@ -298,55 +540,22 @@ pub fn read_all_states_with_statuses_cancelable(
     can_prune: bool,
     stop: Option<&AtomicBool>,
 ) -> Vec<SessionSnapshot> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-
     let mut sessions = Vec::new();
-    for entry in entries.flatten() {
-        if stop.is_some_and(|s| s.load(Ordering::Relaxed)) {
-            return sessions;
-        }
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) == Some("json") {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(mut snapshot) = serde_json::from_str::<SessionSnapshot>(&content) {
-                    // Filter and remove any registered host session states.
-                    // Keep registered host filtered and never delete host file.
-                    if check_is_host_cancelable(&snapshot.name, hosts, host_cache, stop) {
-                        // Exporters own publication. Deleting a live host file
-                        // here creates a remove/re-export feedback loop and
-                        // can starve input, pipe control and watcher shutdown.
-                        continue;
-                    }
-
-                    // Keep EXITED sessions so the sidebar can resurrect them, but remove
-                    // snapshots for sessions Zellij no longer knows about.
-                    if let Some(statuses) = session_statuses {
-                        if let Some(status) = statuses.get(&snapshot.name) {
-                            // A fresh filesystem publication from a live producer
-                            // must not wait for the slower list-sessions fallback
-                            // to overturn cached Exited discovery data.
-                            let live_publication = !can_prune && snapshot.inventory.as_ref().is_some_and(|inventory| {
-                                inventory.schema_version == 1
-                                    && crate::process::identity(inventory.producer.server_pid).ok().is_some_and(|server|
-                                        crate::process::is_alive(&server)
-                                            && crate::process::started_at_ms(&server).is_ok_and(|birth| inventory.exported_at_ms >= birth))
-                            });
-                            snapshot.needs_resurrection = matches!(status, crate::session::SessionStatus::Exited)
-                                && !live_publication;
-                        } else if can_prune {
-                            let _ = std::fs::remove_file(&path);
-                            continue;
-                        } else {
-                            // File events or unconfirmed topology: unknown new session must not be deleted.
-                            snapshot.needs_resurrection = false;
-                        }
-                    }
-                    crate::inventory::hydrate(&mut snapshot);
-                    sessions.push(snapshot);
-                }
-            }
+    let mut cursor = None;
+    loop {
+        let eof = read_states_slice_cancelable(
+            dir,
+            &mut cursor,
+            32,
+            &mut sessions,
+            hosts,
+            host_cache,
+            session_statuses,
+            can_prune,
+            stop,
+        );
+        if stop.is_some_and(|s| s.load(Ordering::Relaxed)) || eof {
+            break;
         }
     }
 
@@ -412,17 +621,63 @@ fn add_missing_sessions_cancelable(
     }
 }
 
+struct FsNotificationSignal {
+    tx: std::sync::mpsc::SyncSender<()>,
+    rx: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl FsNotificationSignal {
+    fn new() -> Self {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        Self {
+            tx,
+            rx: std::sync::Mutex::new(rx),
+        }
+    }
+
+    fn notify(&self) {
+        match self.tx.try_send(()) {
+            Ok(()) => {}
+            Err(std::sync::mpsc::TrySendError::Full(())) => {
+                crate::resource_metrics::fs_coalesced(false);
+            }
+            Err(std::sync::mpsc::TrySendError::Disconnected(())) => {}
+        }
+    }
+
+    fn notify_all(&self) {
+        let _ = self.tx.try_send(());
+    }
+
+    fn wait_timeout(&self, timeout: Duration) -> bool {
+        let Ok(rx) = self.rx.lock() else {
+            return false;
+        };
+        if timeout.is_zero() {
+            rx.try_recv().is_ok()
+        } else {
+            match rx.recv_timeout(timeout) {
+                Ok(()) => true,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => false,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => false,
+            }
+        }
+    }
+}
+
 /// Owned handle to a running filesystem watcher thread.
 #[allow(dead_code)]
 pub struct WatcherHandle {
     thread: Option<std::thread::JoinHandle<()>>,
     stop: Arc<AtomicBool>,
+    signal: Arc<FsNotificationSignal>,
 }
 
 #[allow(dead_code)]
 impl WatcherHandle {
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Release);
+        self.signal.notify_all();
     }
 
     pub fn is_finished(&self) -> bool {
@@ -467,6 +722,10 @@ pub fn spawn_fs_watcher_inner(
 
     let stop = Arc::new(AtomicBool::new(false));
     let stop_thread = stop.clone();
+    let signal = Arc::new(FsNotificationSignal::new());
+    let signal_stop = signal.clone();
+    let signal_cb = signal.clone();
+    let signal_worker = signal.clone();
 
     // Receiver closure must interrupt discovery even while the worker is in
     // a bounded subprocess query. A weak sender does not keep a failed worker's
@@ -481,6 +740,7 @@ pub fn spawn_fs_watcher_inner(
                     Some(sender) if !sender.is_closed() => {}
                     _ => {
                         stop_watchdog.store(true, Ordering::Release);
+                        signal_stop.notify_all();
                         break;
                     }
                 }
@@ -491,14 +751,31 @@ pub fn spawn_fs_watcher_inner(
     let thread = std::thread::Builder::new()
         .name("verij-fs-watcher".to_string())
         .spawn(move || {
-            let (fs_tx, fs_rx) = std::sync::mpsc::channel();
-
             let watcher_result = RecommendedWatcher::new(
                 move |res: Result<Event, notify::Error>| {
-                    if let Ok(event) = res {
-                        crate::resource_metrics::fs_incoming(false);
-                        let _ = fs_tx.send(event);
+                    let Ok(event) = res else {
+                        signal_cb.notify();
+                        return;
+                    };
+                    match event.kind {
+                        EventKind::Create(_)
+                        | EventKind::Modify(_)
+                        | EventKind::Remove(_)
+                        | EventKind::Any => {}
+                        _ => return,
                     }
+                    if !event.paths.is_empty()
+                        && !event.paths.iter().any(|path| {
+                            path.extension().and_then(|suffix| suffix.to_str()) == Some("json")
+                                && !path
+                                    .file_name()
+                                    .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+                        })
+                    {
+                        return;
+                    }
+                    crate::resource_metrics::fs_incoming(false);
+                    signal_cb.notify();
                 },
                 Config::default(),
             );
@@ -548,33 +825,17 @@ pub fn spawn_fs_watcher_inner(
                 return;
             }
 
-            let initial_can_prune = cached_statuses.is_some();
-            let initial_states = read_all_states_with_statuses_cancelable(
-                &states_dir,
-                &registry_names,
-                &mut host_cache,
-                cached_statuses.as_ref().map(|(s, _)| s),
-                initial_can_prune,
-                Some(&stop_thread),
-            );
-
-            if tx.is_closed() || stop_thread.load(Ordering::Relaxed) {
-                return;
-            }
-
             let mut pending_send: Option<Vec<SessionSnapshot>> = None;
-            match tx.try_send(initial_states) {
-                Ok(()) => {}
-                Err(mpsc::error::TrySendError::Closed(_)) => return,
-                Err(mpsc::error::TrySendError::Full(s)) => {
-                    pending_send = Some(s);
-                }
-            }
+            let mut scan_cursor: Option<std::fs::ReadDir> = None;
+            let mut accumulated_snapshots: Vec<SessionSnapshot> = Vec::new();
+            let mut scan_in_progress = true;
+            let mut followup_pass = false;
+            let mut can_prune = cached_statuses.is_some();
+            let mut status_sample_time: Option<Instant> = cached_statuses.as_ref().map(|(_, t)| *t);
 
             let mut next_topology_refresh = Instant::now() + TOPOLOGY_INTERVAL;
 
             while !tx.is_closed() && !stop_thread.load(Ordering::Relaxed) {
-                // If previous send was full, retry sending now (solves #7)
                 if let Some(pending) = pending_send.take() {
                     match tx.try_send(pending) {
                         Ok(()) => {}
@@ -585,126 +846,158 @@ pub fn spawn_fs_watcher_inner(
                     }
                 }
 
-                // Check monotonic deadline for periodic topology refresh (solves #2)
                 let now = Instant::now();
                 if now >= next_topology_refresh {
                     next_topology_refresh = now + TOPOLOGY_INTERVAL;
                     if let Some(ref mut reg) = registry {
                         let _ = reg.refresh();
                     }
-                    let names = registry
-                        .as_ref()
-                        .map(|r| &r.names)
-                        .unwrap_or(&registry_names);
 
                     let fresh_query = query_session_statuses_bounded_cancelable(
                         Duration::from_millis(500),
                         Some(&stop_thread),
                     );
-                    let can_prune = fresh_query.is_some();
                     if let Some(fresh) = fresh_query {
                         cached_statuses = Some((fresh, Instant::now()));
+                        can_prune = true;
+                        status_sample_time = Some(Instant::now());
                     } else {
-                        // Periodic query failed: invalidate cached statuses (solves #1)
                         cached_statuses = None;
+                        can_prune = false;
+                        status_sample_time = None;
                     }
 
-                    let snapshots = read_all_states_with_statuses_cancelable(
-                        &states_dir,
-                        names,
-                        &mut host_cache,
-                        cached_statuses.as_ref().map(|(s, _)| s),
-                        can_prune,
-                        Some(&stop_thread),
-                    );
-                    match tx.try_send(snapshots) {
-                        Ok(()) => {
-                            pending_send = None;
-                        }
-                        Err(mpsc::error::TrySendError::Closed(_)) => break,
-                        Err(mpsc::error::TrySendError::Full(s)) => {
-                            pending_send = Some(s);
-                        }
-                    }
-
-                    if tx.is_closed() || stop_thread.load(Ordering::Relaxed) {
-                        break;
+                    if scan_in_progress {
+                        followup_pass = true;
+                    } else {
+                        scan_in_progress = true;
+                        scan_cursor = None;
+                        accumulated_snapshots.clear();
                     }
                 }
 
                 let time_until_refresh =
                     next_topology_refresh.saturating_duration_since(Instant::now());
-                let slice_timeout = Duration::from_millis(50)
-                    .min(time_until_refresh)
-                    .max(Duration::from_millis(1));
+                let slice_timeout = if scan_in_progress {
+                    Duration::from_millis(1)
+                } else {
+                    Duration::from_millis(50)
+                        .min(time_until_refresh)
+                        .max(Duration::from_millis(1))
+                };
 
-                match fs_rx.recv_timeout(slice_timeout) {
-                    Ok(event) => {
-                        if !event.paths.iter().any(|path| {
-                            path.extension().and_then(|suffix| suffix.to_str()) == Some("json")
-                                && !path
-                                    .file_name()
-                                    .is_some_and(|name| name.to_string_lossy().starts_with('.'))
-                        }) {
-                            continue;
-                        }
-                        match event.kind {
-                            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
-                                // Debounce consecutive events within 60ms
-                                let debounce_deadline = Instant::now() + Duration::from_millis(60);
-                                while !tx.is_closed()
-                                    && !stop_thread.load(Ordering::Relaxed)
-                                    && Instant::now() < debounce_deadline
-                                {
-                                    if fs_rx.recv_timeout(Duration::from_millis(10)).is_err() {
-                                        break;
-                                    }
-                                    crate::resource_metrics::fs_coalesced(false);
-                                }
-                                if tx.is_closed() || stop_thread.load(Ordering::Relaxed) {
-                                    break;
-                                }
+                let signaled = signal_worker.wait_timeout(slice_timeout);
+                if tx.is_closed() || stop_thread.load(Ordering::Relaxed) {
+                    break;
+                }
 
-                                if let Some(ref mut reg) = registry {
-                                    let _ = reg.refresh();
-                                }
-                                let names = registry
-                                    .as_ref()
-                                    .map(|r| &r.names)
-                                    .unwrap_or(&registry_names);
-
-                                let valid_statuses = cached_statuses
-                                    .as_ref()
-                                    .filter(|(_, fetched)| fetched.elapsed() < STATUSES_TTL)
-                                    .map(|(s, _)| s);
-
-                                // On file event, can_prune is ALWAYS false (solves #1)
-                                let snapshots = read_all_states_with_statuses_cancelable(
-                                    &states_dir,
-                                    names,
-                                    &mut host_cache,
-                                    valid_statuses,
-                                    false,
-                                    Some(&stop_thread),
-                                );
-                                match tx.try_send(snapshots) {
-                                    Ok(()) => {
-                                        pending_send = None;
-                                    }
-                                    Err(mpsc::error::TrySendError::Closed(_)) => break,
-                                    Err(mpsc::error::TrySendError::Full(s)) => {
-                                        pending_send = Some(s);
-                                    }
-                                }
-                            }
-                            _ => {}
+                if signaled {
+                    // Debounce consecutive events within 60ms
+                    let debounce_deadline = Instant::now() + Duration::from_millis(60);
+                    while !tx.is_closed()
+                        && !stop_thread.load(Ordering::Relaxed)
+                        && Instant::now() < debounce_deadline
+                    {
+                        if signal_worker.wait_timeout(Duration::from_millis(10)) {
+                            crate::resource_metrics::fs_coalesced(false);
+                        } else {
+                            break;
                         }
                     }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        // Loop repeats, checks pending_send, stop_thread, and next_topology_refresh
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    if tx.is_closed() || stop_thread.load(Ordering::Relaxed) {
                         break;
+                    }
+
+                    if let Some(ref mut reg) = registry {
+                        let _ = reg.refresh();
+                    }
+
+                    if scan_in_progress {
+                        followup_pass = true;
+                    } else {
+                        scan_in_progress = true;
+                        scan_cursor = None;
+                        accumulated_snapshots.clear();
+                        can_prune = false;
+                        status_sample_time = None;
+                    }
+                }
+
+                if scan_in_progress {
+                    let names = registry
+                        .as_ref()
+                        .map(|r| &r.names)
+                        .unwrap_or(&registry_names);
+
+                    // Pruning eligibility must not stay true after original status sample TTL
+                    let current_can_prune =
+                        can_prune && status_sample_time.is_some_and(|t| t.elapsed() < STATUSES_TTL);
+
+                    let valid_statuses = cached_statuses
+                        .as_ref()
+                        .filter(|(_, fetched)| fetched.elapsed() < STATUSES_TTL)
+                        .map(|(s, _)| s);
+
+                    let eof = read_states_slice_cancelable(
+                        &states_dir,
+                        &mut scan_cursor,
+                        32,
+                        &mut accumulated_snapshots,
+                        names,
+                        &mut host_cache,
+                        valid_statuses,
+                        current_can_prune,
+                        Some(&stop_thread),
+                    );
+
+                    if eof {
+                        // Completed pass! Build missing-status placeholders and publish atomically
+                        if let Some(statuses) = valid_statuses {
+                            add_missing_sessions_cancelable(
+                                &mut accumulated_snapshots,
+                                statuses,
+                                |name| {
+                                    check_is_host_cancelable(
+                                        name,
+                                        names,
+                                        &mut host_cache,
+                                        Some(&stop_thread),
+                                    )
+                                },
+                                Some(&stop_thread),
+                            );
+                        }
+                        accumulated_snapshots.sort_by(|a, b| {
+                            a.name.cmp(&b.name).then_with(|| {
+                                let stamp = |s: &SessionSnapshot| {
+                                    s.inventory.as_ref().map(|i| i.exported_at_ms).unwrap_or(0)
+                                };
+                                stamp(b).cmp(&stamp(a))
+                            })
+                        });
+                        accumulated_snapshots.dedup_by(|a, b| a.name == b.name);
+
+                        let completed = std::mem::take(&mut accumulated_snapshots);
+                        match tx.try_send(completed) {
+                            Ok(()) => {
+                                pending_send = None;
+                            }
+                            Err(mpsc::error::TrySendError::Closed(_)) => break,
+                            Err(mpsc::error::TrySendError::Full(s)) => {
+                                pending_send = Some(s);
+                                crate::resource_metrics::fs_coalesced(false);
+                            }
+                        }
+
+                        if followup_pass {
+                            followup_pass = false;
+                            scan_in_progress = true;
+                            scan_cursor = None;
+                            can_prune = false;
+                            status_sample_time = None;
+                        } else {
+                            scan_in_progress = false;
+                        }
                     }
                 }
             }
@@ -713,6 +1006,7 @@ pub fn spawn_fs_watcher_inner(
     Ok(WatcherHandle {
         thread: Some(thread),
         stop,
+        signal,
     })
 }
 
@@ -899,15 +1193,37 @@ mod tests {
         std::fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
         let statuses = BTreeMap::from([("resurrected".into(), SessionStatus::Exited)]);
         let mut cache = HashMap::from([("resurrected".into(), HostClassification::NotHost)]);
-        let states = read_all_states_with_statuses(dir.path(), &HashSet::new(), &mut cache, Some(&statuses), false);
+        let states = read_all_states_with_statuses(
+            dir.path(),
+            &HashSet::new(),
+            &mut cache,
+            Some(&statuses),
+            false,
+        );
         assert!(!states[0].needs_resurrection);
-        assert!(states[0].inventory.as_ref().unwrap().server_process.is_some());
+        assert!(states[0]
+            .inventory
+            .as_ref()
+            .unwrap()
+            .server_process
+            .is_some());
         // An old/reused PID's publication cannot acquire the new lifetime.
         snapshot.inventory.as_mut().unwrap().exported_at_ms = 0;
         std::fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
-        let states = read_all_states_with_statuses(dir.path(), &HashSet::new(), &mut cache, Some(&statuses), false);
+        let states = read_all_states_with_statuses(
+            dir.path(),
+            &HashSet::new(),
+            &mut cache,
+            Some(&statuses),
+            false,
+        );
         assert!(states[0].needs_resurrection);
-        assert!(states[0].inventory.as_ref().unwrap().server_process.is_none());
+        assert!(states[0]
+            .inventory
+            .as_ref()
+            .unwrap()
+            .server_process
+            .is_none());
     }
 
     #[test]
@@ -1053,5 +1369,67 @@ mod tests {
         );
 
         handle.join().unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_subprocess_shutdown_bounded_with_pipe_retention() {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", "sleep 30 & exit 0"]);
+        let start = Instant::now();
+        let res = run_command_bounded(cmd, Duration::from_millis(200), 1024, None);
+        let elapsed = start.elapsed();
+        assert!(
+            res.is_none(),
+            "Parent success with descendant holding pipes until deadline must fail and return None"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "Subprocess shutdown blocked on descendant pipe for {elapsed:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_subprocess_oversized_response_rejected() {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", "head -c 500 /dev/zero | tr '\\0' 'x'"]);
+        let res = run_command_bounded(cmd, Duration::from_millis(500), 100, None);
+        assert!(
+            res.is_none(),
+            "Oversized output must be rejected as failure (None)"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_subprocess_stop_while_failed_command() {
+        let stop = AtomicBool::new(false);
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", "sleep 5; exit 1"]);
+        stop.store(true, Ordering::Release);
+        let start = Instant::now();
+        let res = run_command_bounded(cmd, Duration::from_secs(5), 1024, Some(&stop));
+        assert!(res.is_none(), "Stopped command must return None");
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "Stop took too long: {:?}",
+            start.elapsed()
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_subprocess_timeout_terminates_process_group() {
+        let mut cmd = std::process::Command::new("sleep");
+        cmd.arg("60");
+        let start = Instant::now();
+        let res = run_command_bounded(cmd, Duration::from_millis(100), 1024, None);
+        let elapsed = start.elapsed();
+        assert!(res.is_none(), "Timed out command should return None");
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "Command timeout took too long: {elapsed:?}"
+        );
     }
 }

@@ -1,12 +1,15 @@
 //! Agent updates are independent of slower Zellij topology discovery.
 use anyhow::Result;
-use notify::{RecursiveMode, Watcher};
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use verij_types::agent::{AgentIdentity, AgentState, AGENT_SCHEMA_VERSION};
+use verij_types::agent::{
+    AgentIdentity, AgentInstanceId, AgentState, AgentStatus, AGENT_SCHEMA_VERSION,
+};
 use verij_types::identity::valid_record_key;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,53 +18,159 @@ pub struct AgentRecord {
     pub state: AgentState,
 }
 
+pub use crate::agent_store::FileStamp;
+
+#[derive(Debug, Clone)]
+pub struct IdentityCacheEntry {
+    pub stamp: FileStamp,
+    pub identity: AgentIdentity,
+    pub process: verij_types::identity::ProcessIdentity,
+    pub last_liveness_check_ms: u64,
+    pub is_alive: bool,
+}
+
+pub fn read_single_agent(
+    root: &Path,
+    id: &AgentInstanceId,
+    identity_cache: &mut HashMap<AgentInstanceId, IdentityCacheEntry>,
+) -> Option<AgentRecord> {
+    let dir = root.join(&id.0);
+    if !dir.is_dir() || dir.join(".tombstone").exists() {
+        identity_cache.remove(id);
+        return None;
+    }
+
+    let id_path = dir.join("identity.json");
+
+    // 1. Resolve identity, using cache qualified by process lifetime and file stamp
+    let identity = if let Some(cached) = identity_cache.get_mut(id) {
+        let meta_opt = std::fs::metadata(&id_path).ok().filter(|m| m.is_file());
+        let current_stamp = meta_opt.as_ref().map(FileStamp::from_metadata);
+        if current_stamp.is_some() && current_stamp.as_ref() == Some(&cached.stamp) {
+            let now = crate::agent_store::now_ms();
+            if now.saturating_sub(cached.last_liveness_check_ms) >= 1000 {
+                cached.last_liveness_check_ms = now;
+                cached.is_alive = if cached.identity.is_synthetic {
+                    Path::new(&format!("/proc/{}", cached.process.pid)).exists()
+                } else {
+                    crate::process::is_alive(&cached.process)
+                };
+            }
+            if cached.is_alive {
+                cached.identity.clone()
+            } else {
+                identity_cache.remove(id);
+                return None;
+            }
+        } else {
+            // File identity stamp changed on disk or stat failed (atomic replacement or reuse)
+            identity_cache.remove(id);
+            let (identity, file_meta) = match crate::agent_store::read_bounded_json_with_meta::<
+                AgentIdentity,
+            >(
+                &id_path, crate::agent_store::IDENTITY_MAX_BYTES
+            ) {
+                Ok(res) => res,
+                Err(_) => return None,
+            };
+            if identity.schema_version != AGENT_SCHEMA_VERSION
+                || identity.agent_instance_id.0 != id.0
+            {
+                return None;
+            }
+            let is_alive = if identity.is_synthetic {
+                Path::new(&format!("/proc/{}", identity.process.pid)).exists()
+            } else {
+                crate::process::is_alive(&identity.process)
+            };
+            if !is_alive {
+                return None;
+            }
+            let stamp = FileStamp::from_metadata(&file_meta);
+            identity_cache.insert(
+                id.clone(),
+                IdentityCacheEntry {
+                    stamp,
+                    identity: identity.clone(),
+                    process: identity.process.clone(),
+                    last_liveness_check_ms: crate::agent_store::now_ms(),
+                    is_alive: true,
+                },
+            );
+            identity
+        }
+    } else {
+        let (identity, file_meta) = match crate::agent_store::read_bounded_json_with_meta::<
+            AgentIdentity,
+        >(&id_path, crate::agent_store::IDENTITY_MAX_BYTES)
+        {
+            Ok(res) => res,
+            Err(_) => return None,
+        };
+        if identity.schema_version != AGENT_SCHEMA_VERSION || identity.agent_instance_id.0 != id.0 {
+            return None;
+        }
+        let is_alive = if identity.is_synthetic {
+            Path::new(&format!("/proc/{}", identity.process.pid)).exists()
+        } else {
+            crate::process::is_alive(&identity.process)
+        };
+        if !is_alive {
+            return None;
+        }
+        let stamp = FileStamp::from_metadata(&file_meta);
+        identity_cache.insert(
+            id.clone(),
+            IdentityCacheEntry {
+                stamp,
+                identity: identity.clone(),
+                process: identity.process.clone(),
+                last_liveness_check_ms: crate::agent_store::now_ms(),
+                is_alive: true,
+            },
+        );
+        identity
+    };
+
+    // 2. Read state.json bounded
+    let state_path = dir.join("state.json");
+    let Ok(mut state) = crate::agent_store::read_bounded_json::<AgentState>(
+        &state_path,
+        crate::agent_store::STATE_MAX_BYTES,
+    ) else {
+        return None;
+    };
+    if state.schema_version != AGENT_SCHEMA_VERSION
+        || state.agent_instance_id != identity.agent_instance_id
+    {
+        return None;
+    }
+    if crate::opencode::lease_expired(&state, crate::agent_store::now_ms()) {
+        state.reduced.status = verij_types::agent::AgentStatus::Unknown;
+        state.reduced.pending_requests.clear();
+        state.reduced.latest_completion = None;
+        state.reduced.latest_error = None;
+        state.reduced.detail = Some("OpenCode reporter unavailable".into());
+    }
+
+    Some(AgentRecord { identity, state })
+}
+
 pub fn read_records(root: &Path) -> Vec<AgentRecord> {
     let mut records = Vec::new();
     let Ok(entries) = std::fs::read_dir(root) else {
         return records;
     };
+    let mut identity_cache = HashMap::new();
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let Some(name) = name.to_str().filter(|id| valid_record_key(id)) else {
+        let Some(name_str) = name.to_str().filter(|id| valid_record_key(id)) else {
             continue;
         };
-        let directory = entry.path();
-        if !directory.is_dir() {
-            continue;
+        let id = AgentInstanceId(name_str.to_string());
+        if let Some(record) = read_single_agent(root, &id, &mut identity_cache) {
+            records.push(record);
         }
-        let Ok(identity) = std::fs::read(directory.join("identity.json")) else {
-            continue;
-        };
-        let Ok(state) = std::fs::read(directory.join("state.json")) else {
-            continue;
-        };
-        if identity.len() > 64 * 1024 || state.len() > 256 * 1024 {
-            continue;
-        }
-        let Ok(identity) = serde_json::from_slice::<AgentIdentity>(&identity) else {
-            continue;
-        };
-        let Ok(mut state) = serde_json::from_slice::<AgentState>(&state) else {
-            continue;
-        };
-        if identity.schema_version != AGENT_SCHEMA_VERSION
-            || state.schema_version != AGENT_SCHEMA_VERSION
-            || identity.agent_instance_id.0 != name
-            || identity.agent_instance_id != state.agent_instance_id
-        {
-            continue;
-        }
-        if !identity.is_synthetic && !crate::process::is_alive(&identity.process) {
-            continue;
-        }
-        if crate::opencode::lease_expired(&state, crate::agent_store::now_ms()) {
-            state.reduced.status = verij_types::agent::AgentStatus::Unknown;
-            state.reduced.pending_requests.clear();
-            state.reduced.latest_completion = None;
-            state.reduced.latest_error = None;
-            state.reduced.detail = Some("OpenCode reporter unavailable".into());
-        }
-        records.push(AgentRecord { identity, state });
     }
     records.sort_by(|a, b| {
         a.identity
@@ -71,17 +180,102 @@ pub fn read_records(root: &Path) -> Vec<AgentRecord> {
     records
 }
 
+pub const MAX_DIRTY_INGRESS: usize = 128;
+
+pub struct AgentNotificationSignal {
+    pub dirty_ids: std::sync::Mutex<HashSet<AgentInstanceId>>,
+    pub full_rescan: AtomicBool,
+    pub wake_tx: std::sync::mpsc::SyncSender<()>,
+    pub wake_rx: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl AgentNotificationSignal {
+    pub fn new() -> Self {
+        let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel(1);
+        Self {
+            dirty_ids: std::sync::Mutex::new(HashSet::new()),
+            full_rescan: AtomicBool::new(false),
+            wake_tx,
+            wake_rx: std::sync::Mutex::new(wake_rx),
+        }
+    }
+
+    pub fn notify_full_rescan(&self) {
+        crate::resource_metrics::fs_incoming(true);
+        self.full_rescan.store(true, Ordering::Release);
+        let _ = self.wake_tx.try_send(());
+    }
+
+    pub fn notify_ids(&self, ids: &[AgentInstanceId]) {
+        crate::resource_metrics::fs_incoming(true);
+        match self.dirty_ids.try_lock() {
+            Ok(mut guard) => {
+                for id in ids {
+                    if guard.len() >= MAX_DIRTY_INGRESS && !guard.contains(id) {
+                        self.full_rescan.store(true, Ordering::Release);
+                        crate::resource_metrics::fs_coalesced(true);
+                    } else {
+                        guard.insert(id.clone());
+                    }
+                }
+            }
+            Err(_) => {
+                self.full_rescan.store(true, Ordering::Release);
+                crate::resource_metrics::fs_coalesced(true);
+            }
+        }
+        let _ = self.wake_tx.try_send(());
+    }
+
+    #[allow(dead_code)]
+    pub fn notify(&self, dirty_id: Option<AgentInstanceId>) {
+        match dirty_id {
+            Some(id) => self.notify_ids(&[id]),
+            None => self.notify_full_rescan(),
+        }
+    }
+
+    pub fn notify_all(&self) {
+        let _ = self.wake_tx.try_send(());
+    }
+
+    pub fn drain(&self) -> (HashSet<AgentInstanceId>, bool) {
+        let full_rescan = self.full_rescan.swap(false, Ordering::AcqRel);
+        let ids = match self.dirty_ids.try_lock() {
+            Ok(mut guard) => std::mem::take(&mut *guard),
+            Err(_) => {
+                self.full_rescan.store(true, Ordering::Release);
+                HashSet::new()
+            }
+        };
+        (ids, full_rescan)
+    }
+
+    pub fn wait_timeout(&self, timeout: Duration) -> bool {
+        let Ok(rx) = self.wake_rx.lock() else {
+            return false;
+        };
+        if timeout.is_zero() {
+            rx.try_recv().is_ok()
+        } else {
+            rx.recv_timeout(timeout).is_ok()
+        }
+    }
+}
+
 /// Owned handle to a running agent watcher thread.
 #[allow(dead_code)]
 pub struct WatcherHandle {
     thread: Option<std::thread::JoinHandle<()>>,
     stop: Arc<AtomicBool>,
+    signal: Arc<AgentNotificationSignal>,
 }
 
 #[allow(dead_code)]
 impl WatcherHandle {
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Release);
+        self.signal.notify_all();
     }
 
     pub fn is_finished(&self) -> bool {
@@ -109,56 +303,172 @@ pub fn spawn(tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<WatcherHandle> {
     spawn_inner(root, tx)
 }
 
+/// Ingests a filesystem event directly into the notification signal.
+/// Filters access events and temporary dotfiles, enqueues both source and destination IDs
+/// on atomic renames, and triggers full rescan on root events or need_rescan().
+pub fn ingest_event(root: &Path, signal: &AgentNotificationSignal, event: &notify::Event) {
+    if event.need_rescan() {
+        signal.notify_full_rescan();
+        return;
+    }
+
+    match event.kind {
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) | EventKind::Any => {}
+        _ => return,
+    }
+
+    let mut is_root = false;
+    let mut discovered: [Option<AgentInstanceId>; 4] = [None, None, None, None];
+    let mut discovered_len = 0;
+
+    for path in &event.paths {
+        if path == root {
+            is_root = true;
+            break;
+        }
+        if let Ok(rel) = path.strip_prefix(root) {
+            let mut comps = rel.components();
+            if let Some(first) = comps.next() {
+                let first_str = first.as_os_str().to_string_lossy();
+                if valid_record_key(&first_str) {
+                    if let Some(second) = comps.next() {
+                        let second_str = second.as_os_str().to_string_lossy();
+                        if second_str == ".tombstone"
+                            || second_str == "state.json"
+                            || second_str == "identity.json"
+                        {
+                            let id = AgentInstanceId(first_str.to_string());
+                            if discovered_len < discovered.len()
+                                && !discovered[..discovered_len]
+                                    .iter()
+                                    .any(|d| d.as_ref() == Some(&id))
+                            {
+                                discovered[discovered_len] = Some(id);
+                                discovered_len += 1;
+                            }
+                        }
+                    } else {
+                        let id = AgentInstanceId(first_str.to_string());
+                        if discovered_len < discovered.len()
+                            && !discovered[..discovered_len]
+                                .iter()
+                                .any(|d| d.as_ref() == Some(&id))
+                        {
+                            discovered[discovered_len] = Some(id);
+                            discovered_len += 1;
+                        }
+                    }
+                }
+            } else {
+                is_root = true;
+                break;
+            }
+        }
+    }
+
+    if is_root {
+        signal.notify_full_rescan();
+    } else if discovered_len > 0 {
+        match signal.dirty_ids.try_lock() {
+            Ok(mut guard) => {
+                let mut added = false;
+                for opt in &discovered[..discovered_len] {
+                    if let Some(id) = opt {
+                        if guard.len() >= MAX_DIRTY_INGRESS && !guard.contains(id) {
+                            signal.full_rescan.store(true, Ordering::Release);
+                            crate::resource_metrics::fs_coalesced(true);
+                        } else {
+                            guard.insert(id.clone());
+                            added = true;
+                        }
+                    }
+                }
+                if added || signal.full_rescan.load(Ordering::Acquire) {
+                    let _ = signal.wake_tx.try_send(());
+                }
+            }
+            Err(_) => {
+                signal.full_rescan.store(true, Ordering::Release);
+                crate::resource_metrics::fs_coalesced(true);
+                let _ = signal.wake_tx.try_send(());
+            }
+        }
+    }
+}
+
 pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<WatcherHandle> {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_thread = stop.clone();
+    let signal = Arc::new(AgentNotificationSignal::new());
+    let signal_stop = signal.clone();
+    let signal_cb = signal.clone();
+    let signal_worker = signal.clone();
 
+    let stop_watchdog = stop.clone();
+    let sender = tx.downgrade();
+    std::thread::Builder::new()
+        .name("verij-agent-stop".into())
+        .spawn(move || {
+            while !stop_watchdog.load(Ordering::Acquire) {
+                match sender.upgrade() {
+                    Some(sender) if !sender.is_closed() => {}
+                    _ => {
+                        stop_watchdog.store(true, Ordering::Release);
+                        signal_stop.notify_all();
+                        break;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        })?;
+
+    let root_cb = root.clone();
     let thread = std::thread::Builder::new()
         .name("verij-agent-watcher".to_string())
         .spawn(move || {
-            let (events, receiver) = std::sync::mpsc::channel();
-            let mut watcher =
-                notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                    if event.is_ok() {
-                        crate::resource_metrics::fs_incoming(true);
-                    }
-                    if event.is_ok_and(|event| {
-                        matches!(
-                            event.kind,
-                            notify::EventKind::Create(_)
-                                | notify::EventKind::Modify(_)
-                                | notify::EventKind::Remove(_)
-                        )
-                    }) {
-                        let _ = events.send(());
-                    }
-                })
-                .ok();
+            let mut watcher = RecommendedWatcher::new(
+                move |event: notify::Result<Event>| match event {
+                    Ok(event) => ingest_event(&root_cb, &signal_cb, &event),
+                    Err(_) => signal_cb.notify_full_rescan(),
+                },
+                Config::default(),
+            )
+            .ok();
+
             if let Some(watcher) = watcher.as_mut() {
                 let _ = watcher.watch(&root, RecursiveMode::Recursive);
             }
 
-            const FALLBACK_INTERVAL: Duration = Duration::from_millis(1000);
+            const MAGY_INTERVAL: Duration = Duration::from_millis(1000);
+            const PRUNE_INTERVAL: Duration = Duration::from_secs(5);
+            const FULL_RESCAN_INTERVAL: Duration = Duration::from_secs(10);
+            const LEASE_LIVENESS_INTERVAL: Duration = Duration::from_millis(1000);
+
+            let mut identity_cache = HashMap::new();
+            let mut current_records: BTreeMap<AgentInstanceId, AgentRecord> = BTreeMap::new();
+            let mut magy_reconciler = crate::magy::Reconciler::new().ok();
+            let mut prune_cursor: Option<std::fs::ReadDir> = None;
+            let mut scan_cursor: Option<std::fs::ReadDir> = None;
+            let mut scan_in_progress = true; // Initial scan
+            let mut followup_rescan = false;
+            let mut seen_ids_in_sweep = HashSet::new();
+            let mut updated_during_sweep = HashSet::new();
             let mut previous: Option<Vec<AgentRecord>> = None;
             let mut pending_send: Option<Vec<AgentRecord>> = None;
-            let mut next_poll = Instant::now() + FALLBACK_INTERVAL;
-            let mut next_magy = Instant::now() + FALLBACK_INTERVAL;
+            let mut lease_cursor_key: Option<AgentInstanceId> = None;
 
-            // Initial read
-            let _ = crate::magy::reconcile();
-            let records = read_records(&root);
-            match tx.try_send(records.clone()) {
-                Ok(()) => {
-                    previous = Some(records);
-                }
-                Err(mpsc::error::TrySendError::Closed(_)) => return,
-                Err(mpsc::error::TrySendError::Full(r)) => {
-                    pending_send = Some(r);
-                }
+            let mut next_magy = Instant::now() + MAGY_INTERVAL;
+            let mut next_prune = Instant::now() + PRUNE_INTERVAL;
+            let mut next_full_rescan = Instant::now() + FULL_RESCAN_INTERVAL;
+            let mut next_lease_liveness = Instant::now() + LEASE_LIVENESS_INTERVAL;
+
+            // Initial magy slice
+            if let Some(r) = magy_reconciler.as_mut() {
+                let _ = r.step(Some(&stop_thread));
             }
 
             while !tx.is_closed() && !stop_thread.load(Ordering::Relaxed) {
-                // Retry pending send if channel was previously full (solves #7)
+                // If previous send was full, retry sending pending now
                 if let Some(pending) = pending_send.take() {
                     match tx.try_send(pending.clone()) {
                         Ok(()) => {
@@ -172,36 +482,279 @@ pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
                 }
 
                 let now = Instant::now();
-                let poll_due = now >= next_poll;
+                let time_until = next_magy
+                    .min(next_prune)
+                    .min(next_full_rescan)
+                    .min(next_lease_liveness)
+                    .saturating_duration_since(now);
+                let slice_timeout = if scan_in_progress {
+                    Duration::from_millis(1)
+                } else if pending_send.is_some() {
+                    Duration::from_millis(10)
+                } else {
+                    Duration::from_millis(50)
+                        .min(time_until)
+                        .max(Duration::from_millis(1))
+                };
 
-                let time_until_poll = next_poll.saturating_duration_since(now);
-                let slice_timeout = Duration::from_millis(50)
-                    .min(time_until_poll)
-                    .max(Duration::from_millis(1));
+                let signaled = signal_worker.wait_timeout(slice_timeout);
 
-                let mut should_read = poll_due;
-                match receiver.recv_timeout(slice_timeout) {
-                    Ok(()) => {
-                        // Coalesce rapid consecutive notifications with bounded window (up to 50ms)
-                        let coalesce_deadline = Instant::now() + Duration::from_millis(50);
-                        while Instant::now() < coalesce_deadline
-                            && !tx.is_closed()
-                            && !stop_thread.load(Ordering::Relaxed)
-                        {
-                            if receiver.recv_timeout(Duration::from_millis(10)).is_err() {
+                if tx.is_closed() || stop_thread.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                let mut changed = false;
+                if signaled {
+                    // Bounded debounce: sleep in small intervals checking stop, no busy spin
+                    let debounce_end = Instant::now() + Duration::from_millis(50);
+                    while Instant::now() < debounce_end
+                        && !tx.is_closed()
+                        && !stop_thread.load(Ordering::Relaxed)
+                    {
+                        std::thread::sleep(
+                            Duration::from_millis(10)
+                                .min(debounce_end.saturating_duration_since(Instant::now())),
+                        );
+                    }
+                    if tx.is_closed() || stop_thread.load(Ordering::Relaxed) {
+                        break;
+                    }
+
+                    let (dirty_ids, full_rescan) = signal_worker.drain();
+                    if full_rescan {
+                        if scan_in_progress {
+                            followup_rescan = true;
+                        } else {
+                            scan_in_progress = true;
+                            scan_cursor = None;
+                            seen_ids_in_sweep.clear();
+                            updated_during_sweep.clear();
+                        }
+                    } else if !dirty_ids.is_empty() {
+                        for id in &dirty_ids {
+                            if tx.is_closed() || stop_thread.load(Ordering::Relaxed) {
                                 break;
                             }
-                            crate::resource_metrics::fs_coalesced(true);
+                            if scan_in_progress {
+                                updated_during_sweep.insert(id.clone());
+                            }
+                            if let Some(record) = read_single_agent(&root, id, &mut identity_cache)
+                            {
+                                current_records.insert(id.clone(), record);
+                            } else {
+                                current_records.remove(id);
+                                identity_cache.remove(id);
+                            }
                         }
-                        should_read = true;
+                        changed = true;
                     }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        if Instant::now() >= next_poll {
-                            should_read = true;
+                }
+
+                // Resumable sliced directory scanning
+                if scan_in_progress {
+                    if scan_cursor.is_none() {
+                        scan_cursor = std::fs::read_dir(&root).ok();
+                    }
+                    if let Some(read_dir) = scan_cursor.as_mut() {
+                        let mut slice_count = 0;
+                        while slice_count < 32 {
+                            if stop_thread.load(Ordering::Relaxed) || tx.is_closed() {
+                                break;
+                            }
+                            match read_dir.next() {
+                                Some(Ok(entry)) => {
+                                    slice_count += 1;
+                                    let name = entry.file_name();
+                                    if let Some(name_str) =
+                                        name.to_str().filter(|id| valid_record_key(id))
+                                    {
+                                        let id = AgentInstanceId(name_str.to_string());
+                                        seen_ids_in_sweep.insert(id.clone());
+                                        if let Some(record) =
+                                            read_single_agent(&root, &id, &mut identity_cache)
+                                        {
+                                            if current_records.get(&id) != Some(&record) {
+                                                current_records.insert(id, record);
+                                                changed = true;
+                                            }
+                                        } else if current_records.remove(&id).is_some() {
+                                            identity_cache.remove(&id);
+                                            changed = true;
+                                        }
+                                    }
+                                }
+                                Some(Err(_)) => {
+                                    slice_count += 1;
+                                }
+                                None => {
+                                    // Scan completed EOF: remove disappeared IDs not seen or updated in this sweep
+                                    let mut to_remove = Vec::new();
+                                    for key in current_records.keys() {
+                                        if stop_thread.load(Ordering::Relaxed) || tx.is_closed() {
+                                            break;
+                                        }
+                                        if !seen_ids_in_sweep.contains(key)
+                                            && !updated_during_sweep.contains(key)
+                                        {
+                                            to_remove.push(key.clone());
+                                        }
+                                    }
+                                    if !to_remove.is_empty() {
+                                        for id in to_remove {
+                                            if stop_thread.load(Ordering::Relaxed) || tx.is_closed()
+                                            {
+                                                break;
+                                            }
+                                            current_records.remove(&id);
+                                            identity_cache.remove(&id);
+                                        }
+                                        changed = true;
+                                    }
+                                    // Clear orphan identity_cache entries not just current_records upon successful sweep;
+                                    // read failures currently leave orphan cache entries.
+                                    identity_cache.retain(|id, _| {
+                                        seen_ids_in_sweep.contains(id)
+                                            || updated_during_sweep.contains(id)
+                                    });
+                                    seen_ids_in_sweep.clear();
+                                    updated_during_sweep.clear();
+
+                                    if followup_rescan {
+                                        followup_rescan = false;
+                                        scan_in_progress = true;
+                                        scan_cursor = None;
+                                    } else {
+                                        scan_in_progress = false;
+                                        scan_cursor = None;
+                                        if previous.is_none() {
+                                            changed = true;
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    } else {
+                        // Directory open error: preserve current_records (do not falsely publish deletion)
+                        scan_in_progress = false;
+                        if previous.is_none() {
+                            changed = true;
                         }
                     }
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                        break;
+                }
+
+                let now = Instant::now();
+                if let Some(r) = magy_reconciler.as_mut() {
+                    if now >= next_magy || r.has_pending() {
+                        let _ = r.step(Some(&stop_thread));
+                        if r.has_pending() {
+                            next_magy = now;
+                        } else {
+                            next_magy = now + MAGY_INTERVAL;
+                        }
+                    }
+                }
+                if now >= next_prune {
+                    next_prune = now + PRUNE_INTERVAL;
+                    let _ = crate::agent_store::prune_slice_in_root(
+                        &root,
+                        &mut prune_cursor,
+                        16,
+                        false,
+                        Some(&stop_thread),
+                    );
+                }
+                if now >= next_full_rescan {
+                    next_full_rescan = now + FULL_RESCAN_INTERVAL;
+                    if scan_in_progress {
+                        followup_rescan = true;
+                    } else {
+                        scan_in_progress = true;
+                        // Do not reset active cursor on periodic fallback
+                        if scan_cursor.is_none() {
+                            seen_ids_in_sweep.clear();
+                            updated_during_sweep.clear();
+                        }
+                    }
+                }
+
+                // In-memory OpenCode lease projection & cheap liveness check bounded to 32 records per slice
+                if now >= next_lease_liveness {
+                    let now_ms = crate::agent_store::now_ms();
+                    let mut dead_ids = Vec::new();
+                    let mut checked_count = 0;
+                    let mut reached_end = true;
+
+                    let range: Box<dyn Iterator<Item = (&AgentInstanceId, &mut AgentRecord)>> =
+                        match &lease_cursor_key {
+                            Some(key) => Box::new(current_records.range_mut((
+                                std::ops::Bound::Excluded(key),
+                                std::ops::Bound::Unbounded,
+                            ))),
+                            None => Box::new(current_records.iter_mut()),
+                        };
+
+                    for (id, record) in range {
+                        if stop_thread.load(Ordering::Relaxed) || tx.is_closed() {
+                            reached_end = false;
+                            break;
+                        }
+                        checked_count += 1;
+                        lease_cursor_key = Some(id.clone());
+
+                        if record.state.reduced.status != AgentStatus::Unknown
+                            && crate::opencode::lease_expired(&record.state, now_ms)
+                        {
+                            record.state.reduced.status = AgentStatus::Unknown;
+                            record.state.reduced.pending_requests.clear();
+                            record.state.reduced.latest_completion = None;
+                            record.state.reduced.latest_error = None;
+                            record.state.reduced.detail =
+                                Some("OpenCode reporter lease expired".into());
+                            changed = true;
+                        }
+
+                        // Cached liveness recheck
+                        let is_dead = if let Some(cached) = identity_cache.get_mut(id) {
+                            if now_ms.saturating_sub(cached.last_liveness_check_ms) >= 1000 {
+                                cached.last_liveness_check_ms = now_ms;
+                                cached.is_alive = if cached.identity.is_synthetic {
+                                    Path::new(&format!("/proc/{}", cached.process.pid)).exists()
+                                } else {
+                                    !crate::process::is_definitely_dead(&cached.process)
+                                };
+                            }
+                            !cached.is_alive
+                        } else if record.identity.is_synthetic {
+                            !Path::new(&format!("/proc/{}", record.identity.process.pid)).exists()
+                        } else {
+                            crate::process::is_definitely_dead(&record.identity.process)
+                        };
+
+                        if is_dead {
+                            dead_ids.push(id.clone());
+                        }
+
+                        if checked_count >= 32 {
+                            reached_end = false;
+                            break;
+                        }
+                    }
+
+                    for id in dead_ids {
+                        if stop_thread.load(Ordering::Relaxed) || tx.is_closed() {
+                            break;
+                        }
+                        current_records.remove(&id);
+                        identity_cache.remove(&id);
+                        changed = true;
+                    }
+
+                    if reached_end {
+                        lease_cursor_key = None;
+                        next_lease_liveness = now + LEASE_LIVENESS_INTERVAL;
+                    } else {
+                        next_lease_liveness = now;
                     }
                 }
 
@@ -209,13 +762,8 @@ pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
                     break;
                 }
 
-                if should_read {
-                    if Instant::now() >= next_magy {
-                        let _ = crate::magy::reconcile();
-                        next_magy = Instant::now() + FALLBACK_INTERVAL;
-                    }
-                    next_poll = Instant::now() + FALLBACK_INTERVAL;
-                    let records = read_records(&root);
+                if changed || pending_send.is_some() {
+                    let records: Vec<AgentRecord> = current_records.values().cloned().collect();
                     if previous.as_ref() != Some(&records) || pending_send.is_some() {
                         match tx.try_send(records.clone()) {
                             Ok(()) => {
@@ -223,8 +771,10 @@ pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
                                 pending_send = None;
                             }
                             Err(mpsc::error::TrySendError::Closed(_)) => break,
-                            Err(mpsc::error::TrySendError::Full(r)) => {
-                                pending_send = Some(r);
+                            Err(mpsc::error::TrySendError::Full(rejected)) => {
+                                // Channel saturated: replace pending_send with the NEWEST state
+                                pending_send = Some(rejected);
+                                crate::resource_metrics::fs_coalesced(true);
                             }
                         }
                     }
@@ -235,6 +785,7 @@ pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
     Ok(WatcherHandle {
         thread: Some(thread),
         stop,
+        signal,
     })
 }
 
@@ -353,6 +904,531 @@ mod tests {
             delivered,
             "Agent watcher failed to deliver pending records once channel freed up during quiet"
         );
+
+        handle.join().unwrap();
+    }
+
+    fn write_test_agent(
+        root: &Path,
+        id_str: &str,
+        runner_id: Option<&str>,
+        rev: u64,
+        status: AgentStatus,
+    ) {
+        let dir = root.join(id_str);
+        std::fs::create_dir_all(&dir).unwrap();
+        let identity = AgentIdentity {
+            schema_version: AGENT_SCHEMA_VERSION,
+            agent_instance_id: AgentInstanceId(id_str.to_string()),
+            pane_key: verij_types::agent::PaneKey {
+                session: verij_types::identity::SessionInstanceId("sess-1".into()),
+                terminal: verij_types::identity::TerminalPaneId(1),
+            },
+            kind: verij_types::agent::AgentKind::Opencode,
+            process: verij_types::identity::ProcessIdentity {
+                pid: std::process::id(),
+                start_jiffies: 100,
+                boot_id: "boot".into(),
+                uid: unsafe { libc::getuid() },
+            },
+            registered_at_ms: 1000,
+            is_synthetic: true,
+            runner_id: runner_id.map(String::from),
+        };
+        crate::agent_store::atomic_write_json(&dir.join("identity.json"), &identity).unwrap();
+
+        let state = AgentState {
+            schema_version: AGENT_SCHEMA_VERSION,
+            agent_instance_id: AgentInstanceId(id_str.to_string()),
+            record_revision: rev,
+            updated_at_ms: 1000 + rev,
+            sources: BTreeMap::new(),
+            reduced: verij_types::agent::ReducedExecutionState {
+                status,
+                current_turn_id: None,
+                current_turn_epoch: 0,
+                current_turn_revision: 0,
+                conversation_id: None,
+                conversation_title: None,
+                pending_requests: Vec::new(),
+                background_task_count: 0,
+                latest_error: None,
+                latest_completion: None,
+                completion_revision: if status == AgentStatus::Done { rev } else { 0 },
+                detail: None,
+            },
+            completion_revision: if status == AgentStatus::Done { rev } else { 0 },
+            completed_turn: None,
+            completed_turn_epoch: 0,
+            completed_turn_revision: if status == AgentStatus::Done { rev } else { 0 },
+            opencode_completions: BTreeMap::new(),
+            adapter_state: BTreeMap::new(),
+        };
+        crate::agent_store::atomic_write_json(&dir.join("state.json"), &state).unwrap();
+    }
+
+    #[test]
+    fn test_dirty_ingress_bounds_and_overflow_coalescing() {
+        let signal = AgentNotificationSignal::new();
+        let ids: Vec<AgentInstanceId> = (0..200)
+            .map(|i| AgentInstanceId(format!("agent-test-{i}")))
+            .collect();
+
+        signal.notify_ids(&ids);
+        let (drained, rescan) = signal.drain();
+        // Fixed bound: at most MAX_DIRTY_INGRESS (128)
+        assert!(drained.len() <= MAX_DIRTY_INGRESS);
+        // Overflow flag must be set
+        assert!(rescan, "Expected overflow to trigger full_rescan");
+    }
+
+    #[test]
+    fn test_incremental_reads_and_immutable_identity_caching() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let agent_id = AgentInstanceId("agent-cached-1".to_string());
+        write_test_agent(
+            root,
+            &agent_id.0,
+            Some("runner-orig"),
+            1,
+            AgentStatus::Working,
+        );
+
+        let mut cache = HashMap::new();
+        let rec1 = read_single_agent(root, &agent_id, &mut cache).expect("first read succeeds");
+        assert_eq!(rec1.identity.runner_id.as_deref(), Some("runner-orig"));
+        assert_eq!(rec1.state.record_revision, 1);
+        assert_eq!(rec1.state.reduced.status, AgentStatus::Working);
+        assert!(cache.contains_key(&agent_id));
+
+        // Update state.json only (identity.json untouched)
+        write_test_agent(root, &agent_id.0, Some("runner-orig"), 2, AgentStatus::Done);
+        let rec2 = read_single_agent(root, &agent_id, &mut cache).expect("second read succeeds");
+        // State is updated to revision 2
+        assert_eq!(rec2.state.record_revision, 2);
+        assert_eq!(rec2.state.reduced.status, AgentStatus::Done);
+        // Cached identity entry was reused
+        assert_eq!(rec2.identity.runner_id.as_deref(), Some("runner-orig"));
+    }
+
+    #[test]
+    fn test_id_reuse_and_atomic_replacement_invalidates_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let agent_id = AgentInstanceId("agent-reused-1".to_string());
+        write_test_agent(
+            root,
+            &agent_id.0,
+            Some("runner-v1"),
+            1,
+            AgentStatus::Working,
+        );
+
+        let mut cache = HashMap::new();
+        let rec1 = read_single_agent(root, &agent_id, &mut cache).expect("first read succeeds");
+        assert_eq!(rec1.identity.runner_id.as_deref(), Some("runner-v1"));
+
+        // Sleep briefly to ensure mtime/ctime changes
+        std::thread::sleep(Duration::from_millis(15));
+
+        // Replace identity.json atomically with a different runner
+        write_test_agent(
+            root,
+            &agent_id.0,
+            Some("runner-v2"),
+            1,
+            AgentStatus::Working,
+        );
+        let rec2 = read_single_agent(root, &agent_id, &mut cache).expect("second read succeeds");
+        // Identity cache must invalidate on stamp change and load new runner
+        assert_eq!(rec2.identity.runner_id.as_deref(), Some("runner-v2"));
+    }
+
+    #[test]
+    fn test_saturated_channel_delivers_latest_snapshot_with_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (tx, mut rx) = mpsc::channel(1);
+
+        // Pre-saturate channel so watcher's next update cannot immediately send
+        tx.try_send(vec![]).unwrap();
+
+        let handle = spawn_inner(root.to_path_buf(), tx).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+
+        let agent_id = "agent-saturated-1";
+        // Revision 1: Working
+        write_test_agent(root, agent_id, None, 1, AgentStatus::Working);
+        std::thread::sleep(Duration::from_millis(20));
+
+        // Revision 2: Done (completion revision 2)
+        write_test_agent(root, agent_id, None, 2, AgentStatus::Done);
+        std::thread::sleep(Duration::from_millis(60));
+
+        // Drain initial pre-fill
+        let first = rx.try_recv().expect("drain pre-fill");
+        assert!(first.is_empty());
+
+        // Wait for next snapshot delivery
+        let start = Instant::now();
+        let mut latest_records = None;
+        while start.elapsed() < Duration::from_millis(2000) {
+            if let Ok(records) = rx.try_recv() {
+                if !records.is_empty() {
+                    latest_records = Some(records);
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        let records =
+            latest_records.expect("Watcher must deliver latest snapshot after channel drain");
+        assert_eq!(records.len(), 1);
+        let record = &records[0];
+        assert_eq!(record.identity.agent_instance_id.0, agent_id);
+        // CRITICAL CHECK: latest state revision 2 and Done status survived saturation!
+        assert_eq!(record.state.record_revision, 2);
+        assert_eq!(record.state.reduced.status, AgentStatus::Done);
+
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_ingest_event_filters_access_and_temp_and_handles_renames() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let signal = AgentNotificationSignal::new();
+
+        // 1. Access event must be ignored completely
+        let access_event = notify::Event {
+            kind: notify::EventKind::Access(notify::event::AccessKind::Read),
+            paths: vec![root.join("agent-1/state.json")],
+            attrs: Default::default(),
+        };
+        ingest_event(root, &signal, &access_event);
+        let (drained, rescan) = signal.drain();
+        assert!(drained.is_empty());
+        assert!(!rescan);
+
+        // 2. Temp and lock files must be ignored without triggering full rescan
+        let lock_event = notify::Event {
+            kind: notify::EventKind::Modify(notify::event::ModifyKind::Data(
+                notify::event::DataChange::Any,
+            )),
+            paths: vec![root.join("agent-1/.lock")],
+            attrs: Default::default(),
+        };
+        ingest_event(root, &signal, &lock_event);
+        let (drained, rescan) = signal.drain();
+        assert!(drained.is_empty());
+        assert!(!rescan);
+
+        let tmp_event = notify::Event {
+            kind: notify::EventKind::Create(notify::event::CreateKind::File),
+            paths: vec![root.join("agent-1/.state.json.tmp.12345")],
+            attrs: Default::default(),
+        };
+        ingest_event(root, &signal, &tmp_event);
+        let (drained, rescan) = signal.drain();
+        assert!(drained.is_empty());
+        assert!(!rescan);
+
+        // 3. State atomic rename within instance: enqueues agent-1
+        let rename_event = notify::Event {
+            kind: notify::EventKind::Modify(notify::event::ModifyKind::Name(
+                notify::event::RenameMode::Both,
+            )),
+            paths: vec![
+                root.join("agent-1/.state.json.tmp.12345"),
+                root.join("agent-1/state.json"),
+            ],
+            attrs: Default::default(),
+        };
+        ingest_event(root, &signal, &rename_event);
+        let (drained, rescan) = signal.drain();
+        assert_eq!(drained.len(), 1);
+        assert!(drained.contains(&AgentInstanceId("agent-1".into())));
+        assert!(!rescan);
+
+        // 4. Cross-instance rename: enqueues BOTH agent-1 and agent-2
+        let cross_rename = notify::Event {
+            kind: notify::EventKind::Modify(notify::event::ModifyKind::Name(
+                notify::event::RenameMode::Both,
+            )),
+            paths: vec![
+                root.join("agent-1/state.json"),
+                root.join("agent-2/state.json"),
+            ],
+            attrs: Default::default(),
+        };
+        ingest_event(root, &signal, &cross_rename);
+        let (drained, rescan) = signal.drain();
+        assert_eq!(drained.len(), 2);
+        assert!(drained.contains(&AgentInstanceId("agent-1".into())));
+        assert!(drained.contains(&AgentInstanceId("agent-2".into())));
+        assert!(!rescan);
+
+        // 5. need_rescan triggers full rescan
+        let rescan_event =
+            notify::Event::new(notify::EventKind::Any).set_flag(notify::event::Flag::Rescan);
+        assert!(rescan_event.need_rescan());
+        ingest_event(root, &signal, &rescan_event);
+        let (_, rescan) = signal.drain();
+        assert!(rescan, "need_rescan must trigger full_rescan");
+    }
+
+    #[test]
+    fn test_lease_expiration_projects_done_and_needs_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let id_done = AgentInstanceId("agent-exp-done".to_string());
+        write_test_agent(root, &id_done.0, None, 1, AgentStatus::Done);
+
+        // Invalidate lease by inserting expired lease in opencode source record
+        let state_path = root.join(&id_done.0).join("state.json");
+        let mut state: AgentState =
+            crate::agent_store::read_bounded_json(&state_path, 256 * 1024).unwrap();
+        state.sources.insert(
+            "opencode".into(),
+            verij_types::agent::NormalizedSourceRecord {
+                schema_version: 1,
+                agent_instance_id: id_done.clone(),
+                source_id: "opencode".into(),
+                source_epoch: 1,
+                source_revision: 1,
+                observed_at_ms: 100,
+                conversation_id: None,
+                conversation_title: None,
+                turn_id: None,
+                turn_epoch: 1,
+                turn_revision: 1,
+                activity: None,
+                pending_requests: Vec::new(),
+                background_task_count: 0,
+                successful_completion: None,
+                execution_error: None,
+                capabilities: vec!["lease".into()],
+            },
+        );
+        crate::agent_store::atomic_write_json(&state_path, &state).unwrap();
+
+        let mut cache = HashMap::new();
+        let rec = read_single_agent(root, &id_done, &mut cache).expect("read succeeds");
+        assert_eq!(rec.state.reduced.status, AgentStatus::Unknown);
+        assert_eq!(
+            rec.state.reduced.detail.as_deref(),
+            Some("OpenCode reporter unavailable")
+        );
+
+        // Also verify NeedsInput projects to Unknown on lease expiration
+        let id_input = AgentInstanceId("agent-exp-input".to_string());
+        write_test_agent(root, &id_input.0, None, 1, AgentStatus::NeedsInput);
+        let input_path = root.join(&id_input.0).join("state.json");
+        let mut input_state: AgentState =
+            crate::agent_store::read_bounded_json(&input_path, 256 * 1024).unwrap();
+        input_state.sources.insert(
+            "opencode".into(),
+            verij_types::agent::NormalizedSourceRecord {
+                schema_version: 1,
+                agent_instance_id: id_input.clone(),
+                source_id: "opencode".into(),
+                source_epoch: 1,
+                source_revision: 1,
+                observed_at_ms: 100,
+                conversation_id: None,
+                conversation_title: None,
+                turn_id: None,
+                turn_epoch: 1,
+                turn_revision: 1,
+                activity: None,
+                pending_requests: Vec::new(),
+                background_task_count: 0,
+                successful_completion: None,
+                execution_error: None,
+                capabilities: vec!["lease".into()],
+            },
+        );
+        crate::agent_store::atomic_write_json(&input_path, &input_state).unwrap();
+        let rec_input = read_single_agent(root, &id_input, &mut cache).expect("read succeeds");
+        assert_eq!(rec_input.state.reduced.status, AgentStatus::Unknown);
+        assert_eq!(
+            rec_input.state.reduced.detail.as_deref(),
+            Some("OpenCode reporter unavailable")
+        );
+    }
+
+    #[test]
+    fn test_full_scan_eof_removes_missed_deletion() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (tx, mut rx) = mpsc::channel(16);
+
+        write_test_agent(root, "agent-live-1", None, 1, AgentStatus::Working);
+        write_test_agent(root, "agent-to-delete", None, 1, AgentStatus::Working);
+
+        let handle = spawn_inner(root.to_path_buf(), tx).unwrap();
+
+        // Wait until initial snapshot arrives
+        let start = Instant::now();
+        let mut got_both = false;
+        while start.elapsed() < Duration::from_millis(1000) {
+            if let Ok(records) = rx.try_recv() {
+                if records.len() == 2 {
+                    got_both = true;
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(got_both, "Expected initial delivery with both agents");
+
+        // Delete agent-to-delete directory directly from disk without notify event
+        let del_dir = root.join("agent-to-delete");
+        let _ = std::fs::remove_file(del_dir.join("state.json"));
+        let _ = std::fs::remove_file(del_dir.join("identity.json"));
+        let _ = std::fs::remove_dir(&del_dir);
+
+        // Trigger full rescan via signal
+        handle.signal.notify_full_rescan();
+
+        // Check that next snapshot removes agent-to-delete at scan EOF
+        let start = Instant::now();
+        let mut removed = false;
+        while start.elapsed() < Duration::from_millis(2000) {
+            if let Ok(records) = rx.try_recv() {
+                if records.len() == 1 && records[0].identity.agent_instance_id.0 == "agent-live-1" {
+                    removed = true;
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            removed,
+            "Full scan EOF must remove deleted agent from snapshot"
+        );
+
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_overflow_recovers_latest_done_end_to_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (tx, mut rx) = mpsc::channel(1);
+
+        // Pre-fill channel to saturate output
+        tx.try_send(vec![]).unwrap();
+
+        // Write 150 agent records on disk
+        for i in 0..150 {
+            let status = if i == 100 {
+                AgentStatus::Done
+            } else {
+                AgentStatus::Working
+            };
+            let rev = if i == 100 { 2 } else { 1 };
+            write_test_agent(root, &format!("agent-batch-{i:03}"), None, rev, status);
+        }
+
+        let handle = spawn_inner(root.to_path_buf(), tx).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+
+        // Inject >128 IDs into notification signal
+        let flood_ids: Vec<AgentInstanceId> = (0..150)
+            .map(|i| AgentInstanceId(format!("agent-batch-{i:03}")))
+            .collect();
+        handle.signal.notify_ids(&flood_ids);
+
+        // Verify fixed set bound in signal: <= 128
+        let (drained, rescan) = handle.signal.drain();
+        assert!(drained.len() <= MAX_DIRTY_INGRESS);
+        assert!(rescan, "Overflow must set full_rescan flag");
+
+        // Put full_rescan back so worker runs full scan
+        handle.signal.notify_full_rescan();
+
+        // Free up the output channel
+        let prefill = rx.try_recv().expect("drain saturated prefill");
+        assert!(prefill.is_empty());
+
+        // Wait for worker to complete sliced scan and deliver full snapshot
+        let start = Instant::now();
+        let mut delivered = None;
+        while start.elapsed() < Duration::from_millis(4000) {
+            if let Ok(records) = rx.try_recv() {
+                if records.len() >= 150 {
+                    delivered = Some(records);
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+
+        let records =
+            delivered.expect("Worker failed to deliver recovered snapshot after overflow");
+        assert_eq!(records.len(), 150);
+        let done_record = records
+            .iter()
+            .find(|r| r.identity.agent_instance_id.0 == "agent-batch-100")
+            .expect("target agent-batch-100 must be present in snapshot");
+        assert_eq!(done_record.state.record_revision, 2);
+        assert_eq!(done_record.state.reduced.status, AgentStatus::Done);
+
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_full_scan_clears_orphan_identity_cache_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let (tx, mut rx) = mpsc::channel(16);
+
+        write_test_agent(root, "agent-orphan-live", None, 1, AgentStatus::Working);
+        write_test_agent(root, "agent-orphan-dead", None, 1, AgentStatus::Working);
+
+        let handle = spawn_inner(root.to_path_buf(), tx).unwrap();
+
+        // Wait until initial snapshot arrives
+        let start = Instant::now();
+        let mut initial_ok = false;
+        while start.elapsed() < Duration::from_millis(1000) {
+            if let Ok(records) = rx.try_recv() {
+                if records.len() == 2 {
+                    initial_ok = true;
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(initial_ok, "Initial snapshot delivery failed");
+
+        // Remove dead agent directly from disk
+        let del_dir = root.join("agent-orphan-dead");
+        let _ = std::fs::remove_file(del_dir.join("state.json"));
+        let _ = std::fs::remove_file(del_dir.join("identity.json"));
+        let _ = std::fs::remove_dir(&del_dir);
+
+        // Trigger full rescan
+        handle.signal.notify_full_rescan();
+
+        // Wait for snapshot with only live agent
+        let start = Instant::now();
+        let mut live_only = false;
+        while start.elapsed() < Duration::from_millis(2000) {
+            if let Ok(records) = rx.try_recv() {
+                if records.len() == 1
+                    && records[0].identity.agent_instance_id.0 == "agent-orphan-live"
+                {
+                    live_only = true;
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(live_only, "Snapshot did not reflect orphan removal");
 
         handle.join().unwrap();
     }

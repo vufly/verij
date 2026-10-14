@@ -78,6 +78,45 @@ pub fn is_alive(expected: &ProcessIdentity) -> bool {
         .is_ok_and(|actual| actual == expected)
 }
 
+/// A process is definitely dead ONLY if procfs confirms its termination (stat 404,
+/// zombie state) or confirms PID recycling (identity mismatch).
+/// Permission errors, IO errors, or transient issues return false (uncertain),
+/// preventing accidental pruning of live processes.
+#[cfg(target_os = "linux")]
+pub fn is_definitely_dead(expected: &ProcessIdentity) -> bool {
+    if expected.pid == 0 {
+        return true;
+    }
+    match stat(expected.pid) {
+        Ok(s) => {
+            if matches!(s.state.as_str(), "Z" | "X" | "x") {
+                return true;
+            }
+            match identity(expected.pid) {
+                Ok(actual) => actual != *expected,
+                Err(err) => {
+                    let msg = err.to_string();
+                    msg.contains("has exited") || msg.contains("process changed")
+                }
+            }
+        }
+        Err(err) => {
+            if let Some(io_err) = err.downcast_ref::<std::io::Error>() {
+                if io_err.kind() == std::io::ErrorKind::NotFound {
+                    return true;
+                }
+            }
+            let msg = err.to_string();
+            msg.contains("has exited")
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn is_definitely_dead(_: &ProcessIdentity) -> bool {
+    false
+}
+
 /// Wall-clock lower bound for a Linux process birth, used only to reject stale
 /// exporter files from an earlier process that reused the same numeric PID.
 /// It is not an event ordering clock.
@@ -155,36 +194,67 @@ pub fn foreground_process(
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn foreground_process(
-    _: &ProcessIdentity,
-    _: &ProcessIdentity,
-) -> Result<ProcessIdentity> {
+pub fn foreground_process(_: &ProcessIdentity, _: &ProcessIdentity) -> Result<ProcessIdentity> {
     bail!("Workspace foreground discovery unavailable on this platform")
 }
 
 /// Agy redirects stdio to logs after retaining writable renderer descriptors.
 /// This exception is restricted to its actual executable and interactive mode.
 #[cfg(target_os = "linux")]
-pub fn verify_agy_foreground(server: &ProcessIdentity, pane: &ProcessIdentity, agent: &ProcessIdentity) -> Result<()> {
+pub fn verify_agy_foreground(
+    server: &ProcessIdentity,
+    pane: &ProcessIdentity,
+    agent: &ProcessIdentity,
+) -> Result<()> {
     let executable = std::fs::read_link(format!("/proc/{}/exe", agent.pid))?;
-    if !executable.file_name().and_then(|s| s.to_str()).is_some_and(|s| s == "agy" || s.starts_with("agy.")) {
+    if !executable
+        .file_name()
+        .and_then(|s| s.to_str())
+        .is_some_and(|s| s == "agy" || s.starts_with("agy."))
+    {
         bail!("process is not Agy");
     }
-    let command = std::fs::read(format!("/proc/{}/cmdline", agent.pid))?;
-    if command.len() > 65536 || command.split(|b| *b == 0).any(|arg| {
-        [b"--print".as_slice(), b"-p", b"--prompt", b"--output-format", b"--input-format"].iter()
-            .any(|flag| arg == *flag || (arg.starts_with(flag) && arg.get(flag.len()) == Some(&b'=')))
-    }) { bail!("headless Agy is not a pane-local interactive renderer"); }
+    let cmdline_path = format!("/proc/{}/cmdline", agent.pid);
+    let file = std::fs::File::open(&cmdline_path)?;
+    let mut command = Vec::new();
+    use std::io::Read;
+    file.take(65536 + 1).read_to_end(&mut command)?;
+    if command.len() > 65536
+        || command.split(|b| *b == 0).any(|arg| {
+            [
+                b"--print".as_slice(),
+                b"-p",
+                b"--prompt",
+                b"--output-format",
+                b"--input-format",
+            ]
+            .iter()
+            .any(|flag| {
+                arg == *flag || (arg.starts_with(flag) && arg.get(flag.len()) == Some(&b'='))
+            })
+        })
+    {
+        bail!("headless Agy is not a pane-local interactive renderer");
+    }
     verify_terminal_job(server, pane, agent, true)
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn verify_agy_foreground(_: &ProcessIdentity, _: &ProcessIdentity, _: &ProcessIdentity) -> Result<()> {
+pub fn verify_agy_foreground(
+    _: &ProcessIdentity,
+    _: &ProcessIdentity,
+    _: &ProcessIdentity,
+) -> Result<()> {
     bail!("Agy terminal ownership unavailable on this platform")
 }
 
 #[cfg(target_os = "linux")]
-fn verify_terminal_job(server: &ProcessIdentity, pane: &ProcessIdentity, agent: &ProcessIdentity, agy_renderer: bool) -> Result<()> {
+fn verify_terminal_job(
+    server: &ProcessIdentity,
+    pane: &ProcessIdentity,
+    agent: &ProcessIdentity,
+    agy_renderer: bool,
+) -> Result<()> {
     let uid = std::fs::metadata("/proc/self")?;
     use std::os::unix::fs::MetadataExt;
     if [server, pane, agent]
@@ -211,16 +281,33 @@ fn verify_terminal_job(server: &ProcessIdentity, pane: &ProcessIdentity, agent: 
         bail!("agent input/output is redirected away from this pane");
     }
     let output = tty_descriptor(agent.pid, 1).is_ok_and(|device| device == pane_tty);
-    let renderer = agy_renderer && std::fs::read_dir(format!("/proc/{}/fd", agent.pid))?
-        .flatten().take(1024).any(|entry| {
-            let Some(fd) = entry.file_name().to_str().and_then(|s| s.parse::<u32>().ok()).filter(|fd| *fd > 2) else { return false; };
-            let writable = std::fs::read_to_string(format!("/proc/{}/fdinfo/{fd}", agent.pid)).ok()
-                .and_then(|text| text.lines().find_map(|line| line.strip_prefix("flags:").map(str::trim)).map(str::to_string))
-                .and_then(|flags| u32::from_str_radix(&flags, 8).ok())
-                .is_some_and(|flags| flags & libc::O_ACCMODE as u32 != libc::O_RDONLY as u32);
-            writable && tty_descriptor(agent.pid, fd).is_ok_and(|device| device == pane_tty)
-        });
-    if !output && !renderer { bail!("agent has no writable renderer on this pane's terminal"); }
+    let renderer = agy_renderer
+        && std::fs::read_dir(format!("/proc/{}/fd", agent.pid))?
+            .flatten()
+            .take(1024)
+            .any(|entry| {
+                let Some(fd) = entry
+                    .file_name()
+                    .to_str()
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .filter(|fd| *fd > 2)
+                else {
+                    return false;
+                };
+                let writable = std::fs::read_to_string(format!("/proc/{}/fdinfo/{fd}", agent.pid))
+                    .ok()
+                    .and_then(|text| {
+                        text.lines()
+                            .find_map(|line| line.strip_prefix("flags:").map(str::trim))
+                            .map(str::to_string)
+                    })
+                    .and_then(|flags| u32::from_str_radix(&flags, 8).ok())
+                    .is_some_and(|flags| flags & libc::O_ACCMODE as u32 != libc::O_RDONLY as u32);
+                writable && tty_descriptor(agent.pid, fd).is_ok_and(|device| device == pane_tty)
+            });
+    if !output && !renderer {
+        bail!("agent has no writable renderer on this pane's terminal");
+    }
     if [server, pane, agent]
         .iter()
         .any(|process| !is_alive(process))
@@ -262,62 +349,120 @@ pub fn verify_server_connection(client: &ProcessIdentity, server: &ProcessIdenti
     use std::collections::BTreeSet;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     fn sockets(pid: u32) -> Result<BTreeSet<u32>> {
-        Ok(std::fs::read_dir(format!("/proc/{pid}/fd"))?.flatten().filter_map(|entry| {
-            let link = std::fs::read_link(entry.path()).ok()?;
-            link.to_str()?.strip_prefix("socket:[")?.strip_suffix(']')?.parse().ok()
-        }).collect())
+        Ok(std::fs::read_dir(format!("/proc/{pid}/fd"))?
+            .flatten()
+            .filter_map(|entry| {
+                let link = std::fs::read_link(entry.path()).ok()?;
+                link.to_str()?
+                    .strip_prefix("socket:[")?
+                    .strip_suffix(']')?
+                    .parse()
+                    .ok()
+            })
+            .collect())
     }
-    if !is_alive(client) || !is_alive(server) { bail!("registration connection owner exited"); }
+    if !is_alive(client) || !is_alive(server) {
+        bail!("registration connection owner exited");
+    }
     let client_sockets = sockets(client.pid)?;
     let server_sockets = sockets(server.pid)?;
     let fd = unsafe { libc::socket(libc::AF_NETLINK, libc::SOCK_RAW | libc::SOCK_CLOEXEC, 4) };
-    if fd < 0 { return Err(std::io::Error::last_os_error().into()); }
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
     let fd = unsafe { OwnedFd::from_raw_fd(fd) };
     let mut address: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
     address.nl_family = libc::AF_NETLINK as u16;
-    let connected = unsafe { libc::connect(fd.as_raw_fd(), (&address as *const libc::sockaddr_nl).cast(), std::mem::size_of_val(&address) as libc::socklen_t) };
-    if connected < 0 { return Err(std::io::Error::last_os_error().into()); }
-    let timeout = libc::timeval { tv_sec: 1, tv_usec: 0 };
-    if unsafe { libc::setsockopt(fd.as_raw_fd(), libc::SOL_SOCKET, libc::SO_RCVTIMEO,
-        (&timeout as *const libc::timeval).cast(), std::mem::size_of_val(&timeout) as libc::socklen_t) } < 0 {
+    let connected = unsafe {
+        libc::connect(
+            fd.as_raw_fd(),
+            (&address as *const libc::sockaddr_nl).cast(),
+            std::mem::size_of_val(&address) as libc::socklen_t,
+        )
+    };
+    if connected < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let timeout = libc::timeval {
+        tv_sec: 1,
+        tv_usec: 0,
+    };
+    if unsafe {
+        libc::setsockopt(
+            fd.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_RCVTIMEO,
+            (&timeout as *const libc::timeval).cast(),
+            std::mem::size_of_val(&timeout) as libc::socklen_t,
+        )
+    } < 0
+    {
         return Err(std::io::Error::last_os_error().into());
     }
     // Linux UAPI nlmsghdr + unix_diag_req: SOCK_DIAG_BY_FAMILY,
     // NLM_F_REQUEST|NLM_F_DUMP, UDIAG_SHOW_PEER. No message/prompt payloads.
     let mut request = Vec::new();
-    request.extend(40u32.to_ne_bytes()); request.extend(20u16.to_ne_bytes());
-    request.extend(0x301u16.to_ne_bytes()); request.extend(1u32.to_ne_bytes()); request.extend(0u32.to_ne_bytes());
-    request.extend([libc::AF_UNIX as u8, 0, 0, 0]); request.extend(u32::MAX.to_ne_bytes());
-    request.extend(0u32.to_ne_bytes()); request.extend(4u32.to_ne_bytes());
-    request.extend(u32::MAX.to_ne_bytes()); request.extend(u32::MAX.to_ne_bytes());
-    if unsafe { libc::send(fd.as_raw_fd(), request.as_ptr().cast(), request.len(), 0) } != request.len() as isize {
+    request.extend(40u32.to_ne_bytes());
+    request.extend(20u16.to_ne_bytes());
+    request.extend(0x301u16.to_ne_bytes());
+    request.extend(1u32.to_ne_bytes());
+    request.extend(0u32.to_ne_bytes());
+    request.extend([libc::AF_UNIX as u8, 0, 0, 0]);
+    request.extend(u32::MAX.to_ne_bytes());
+    request.extend(0u32.to_ne_bytes());
+    request.extend(4u32.to_ne_bytes());
+    request.extend(u32::MAX.to_ne_bytes());
+    request.extend(u32::MAX.to_ne_bytes());
+    if unsafe { libc::send(fd.as_raw_fd(), request.as_ptr().cast(), request.len(), 0) }
+        != request.len() as isize
+    {
         return Err(std::io::Error::last_os_error().into());
     }
     let mut buffer = vec![0u8; 65536];
     let started = std::time::Instant::now();
     while started.elapsed() < std::time::Duration::from_secs(2) {
-        let size = unsafe { libc::recv(fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len(), 0) };
-        if size <= 0 { return Err(std::io::Error::last_os_error().into()); }
+        let size =
+            unsafe { libc::recv(fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len(), 0) };
+        if size <= 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
         let bytes = &buffer[..size as usize];
         let mut offset = 0;
         while offset + 16 <= bytes.len() {
             let length = u32::from_ne_bytes(bytes[offset..offset + 4].try_into()?) as usize;
-            if length < 16 || offset + length > bytes.len() { bail!("incomplete socket diagnostic"); }
+            if length < 16 || offset + length > bytes.len() {
+                bail!("incomplete socket diagnostic");
+            }
             let kind = u16::from_ne_bytes(bytes[offset + 4..offset + 6].try_into()?);
-            if kind == 3 { bail!("Workspace client is not connected to the hinted inner server; attachment hint is stale"); }
-            if kind == 2 { bail!("OS socket-peer diagnostic unavailable"); }
+            if kind == 3 {
+                bail!("Workspace client is not connected to the hinted inner server; attachment hint is stale");
+            }
+            if kind == 2 {
+                bail!("OS socket-peer diagnostic unavailable");
+            }
             if length >= 32 && bytes[offset + 16] == libc::AF_UNIX as u8 {
                 let inode = u32::from_ne_bytes(bytes[offset + 20..offset + 24].try_into()?);
                 let mut attribute = offset + 32;
                 while attribute + 4 <= offset + length {
-                    let len = u16::from_ne_bytes(bytes[attribute..attribute + 2].try_into()?) as usize;
-                    let kind = u16::from_ne_bytes(bytes[attribute + 2..attribute + 4].try_into()?) & 0x3fff;
-                    if len < 4 || attribute + len > offset + length { bail!("invalid socket-peer attribute"); }
+                    let len =
+                        u16::from_ne_bytes(bytes[attribute..attribute + 2].try_into()?) as usize;
+                    let kind = u16::from_ne_bytes(bytes[attribute + 2..attribute + 4].try_into()?)
+                        & 0x3fff;
+                    if len < 4 || attribute + len > offset + length {
+                        bail!("invalid socket-peer attribute");
+                    }
                     if kind == 2 && len >= 8 {
-                        let peer = u32::from_ne_bytes(bytes[attribute + 4..attribute + 8].try_into()?);
-                        if client_sockets.contains(&inode) && server_sockets.contains(&peer)
-                            && sockets(client.pid)?.contains(&inode) && sockets(server.pid)?.contains(&peer)
-                            && is_alive(client) && is_alive(server) { return Ok(()); }
+                        let peer =
+                            u32::from_ne_bytes(bytes[attribute + 4..attribute + 8].try_into()?);
+                        if client_sockets.contains(&inode)
+                            && server_sockets.contains(&peer)
+                            && sockets(client.pid)?.contains(&inode)
+                            && sockets(server.pid)?.contains(&peer)
+                            && is_alive(client)
+                            && is_alive(server)
+                        {
+                            return Ok(());
+                        }
                     }
                     attribute += (len + 3) & !3;
                 }
@@ -421,7 +566,8 @@ mod tests {
         let process = identity(std::process::id()).unwrap();
         verify_server_connection(&process, &process).unwrap();
         drop((left, right));
-        let mut stale = process.clone(); stale.start_jiffies += 1;
+        let mut stale = process.clone();
+        stale.start_jiffies += 1;
         assert!(verify_server_connection(&stale, &process).is_err());
     }
     #[test]

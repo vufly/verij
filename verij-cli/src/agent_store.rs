@@ -112,6 +112,31 @@ impl InstanceLock {
             _path: lock_path,
         })
     }
+
+    pub fn try_acquire(dir: &Path) -> Result<Option<Self>> {
+        let lock_path = dir.join(".lock");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .with_context(|| format!("failed to open instance lock at {:?}", lock_path))?;
+        match file.try_lock_exclusive() {
+            Ok(()) => Ok(Some(Self {
+                file,
+                _path: lock_path,
+            })),
+            Err(err)
+                if err.kind() == std::io::ErrorKind::WouldBlock
+                    || err.raw_os_error() == Some(libc::EWOULDBLOCK) =>
+            {
+                Ok(None)
+            }
+            Err(err) => Err(err)
+                .with_context(|| format!("failed to acquire exclusive lock on {:?}", lock_path)),
+        }
+    }
 }
 
 impl Drop for InstanceLock {
@@ -128,6 +153,7 @@ pub struct RegistrationLock {
 
 impl RegistrationLock {
     pub fn acquire(v1_dir: &Path) -> Result<Self> {
+        let _ = crate::process::ensure_private_directory(v1_dir);
         let lock_path = v1_dir.join(".registration.lock");
         let file = OpenOptions::new()
             .read(true)
@@ -142,6 +168,32 @@ impl RegistrationLock {
             file,
             _path: lock_path,
         })
+    }
+
+    pub fn try_acquire(v1_dir: &Path) -> Result<Option<Self>> {
+        let _ = crate::process::ensure_private_directory(v1_dir);
+        let lock_path = v1_dir.join(".registration.lock");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .with_context(|| format!("failed to open registration lock at {:?}", lock_path))?;
+        match file.try_lock_exclusive() {
+            Ok(()) => Ok(Some(Self {
+                file,
+                _path: lock_path,
+            })),
+            Err(err)
+                if err.kind() == std::io::ErrorKind::WouldBlock
+                    || err.raw_os_error() == Some(libc::EWOULDBLOCK) =>
+            {
+                Ok(None)
+            }
+            Err(err) => Err(err)
+                .with_context(|| format!("failed to acquire registration lock on {:?}", lock_path)),
+        }
     }
 }
 
@@ -180,6 +232,120 @@ impl Drop for HostLock {
     fn drop(&mut self) {
         let _ = self.file.unlock();
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileStamp {
+    pub dev: u64,
+    pub ino: u64,
+    pub mtime_sec: i64,
+    pub mtime_nsec: i64,
+    pub ctime_sec: i64,
+    pub ctime_nsec: i64,
+    pub len: u64,
+}
+
+impl FileStamp {
+    pub fn from_metadata(meta: &std::fs::Metadata) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            Self {
+                dev: meta.dev(),
+                ino: meta.ino(),
+                mtime_sec: meta.mtime(),
+                mtime_nsec: meta.mtime_nsec(),
+                ctime_sec: meta.ctime(),
+                ctime_nsec: meta.ctime_nsec(),
+                len: meta.len(),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            Self {
+                dev: 0,
+                ino: 0,
+                mtime_sec: meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_secs() as i64),
+                mtime_nsec: 0,
+                ctime_sec: 0,
+                ctime_nsec: 0,
+                len: meta.len(),
+            }
+        }
+    }
+}
+
+pub const IDENTITY_MAX_BYTES: usize = 64 * 1024;
+pub const STATE_MAX_BYTES: usize = 256 * 1024;
+pub const HOST_ACK_MAX_BYTES: usize = 256 * 1024;
+
+/// Read at most `max_bytes + 1` bytes before allocation / JSON parsing.
+/// Returns the read bytes alongside the exact file descriptor metadata from fstat.
+/// Uses O_NONBLOCK and checks is_file() so opening FIFOs or special files cannot block.
+pub fn read_bounded_bytes_with_meta(
+    path: &Path,
+    max_bytes: usize,
+) -> Result<(Vec<u8>, fs::Metadata)> {
+    use std::io::Read;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC);
+    }
+    let file = options
+        .open(path)
+        .with_context(|| format!("failed to open {:?}", path))?;
+
+    let metadata = file
+        .metadata()
+        .with_context(|| format!("failed to stat {:?}", path))?;
+    if !metadata.is_file() {
+        bail!("file {:?} is not a regular file", path);
+    }
+
+    let mut bytes = Vec::new();
+    file.take((max_bytes + 1) as u64)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("failed to read {:?}", path))?;
+    if bytes.len() > max_bytes {
+        bail!("file {:?} exceeds size limit of {} bytes", path, max_bytes);
+    }
+    Ok((bytes, metadata))
+}
+
+pub fn read_bounded_bytes(path: &Path, max_bytes: usize) -> Result<Vec<u8>> {
+    read_bounded_bytes_with_meta(path, max_bytes).map(|(bytes, _)| bytes)
+}
+
+#[allow(dead_code)]
+pub fn read_bounded_string(path: &Path, max_bytes: usize) -> Result<String> {
+    let bytes = read_bounded_bytes(path, max_bytes)?;
+    let text =
+        String::from_utf8(bytes).with_context(|| format!("file {:?} is not valid UTF-8", path))?;
+    Ok(text)
+}
+
+pub fn read_bounded_json_with_meta<T: serde::de::DeserializeOwned>(
+    path: &Path,
+    max_bytes: usize,
+) -> Result<(T, fs::Metadata)> {
+    let (bytes, meta) = read_bounded_bytes_with_meta(path, max_bytes)?;
+    let val = serde_json::from_slice(&bytes)
+        .with_context(|| format!("failed to parse JSON from {:?}", path))?;
+    Ok((val, meta))
+}
+
+pub fn read_bounded_json<T: serde::de::DeserializeOwned>(
+    path: &Path,
+    max_bytes: usize,
+) -> Result<T> {
+    read_bounded_json_with_meta(path, max_bytes).map(|(val, _)| val)
 }
 
 /// Unique same-directory temp atomic replace + fsync.
@@ -247,59 +413,179 @@ pub fn register(
     is_synthetic: bool,
     runner_id: Option<String>,
 ) -> Result<AgentInstanceId> {
-    if !is_synthetic && !crate::process::is_alive(&process) {
-        bail!("cannot register dead process {}", process.pid);
+    register_inner(pane_key, kind, process, is_synthetic, runner_id, false)
+        .map(|opt| opt.expect("blocking register"))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegistrationOutcome {
+    Pending,
+    Complete(AgentInstanceId),
+}
+
+/// Owned resumable cursor for bounded background agent registration.
+/// Scans <=32 entries per slice under try-acquired registration lock.
+/// Concurrent directory changes invalidate the cursor and trigger a conservative restart.
+/// At EOF under the same registration lock, allocates the new instance atomically.
+pub struct RegistrationCursor {
+    pane_key: PaneKey,
+    kind: AgentKind,
+    process: ProcessIdentity,
+    is_synthetic: bool,
+    runner_id: Option<String>,
+    v1_dir: PathBuf,
+    read_dir: Option<fs::ReadDir>,
+    dir_stamp: Option<FileStamp>,
+    outcome: Option<AgentInstanceId>,
+}
+
+impl RegistrationCursor {
+    pub fn new(
+        pane_key: PaneKey,
+        kind: AgentKind,
+        process: ProcessIdentity,
+        is_synthetic: bool,
+        runner_id: Option<String>,
+    ) -> Result<Self> {
+        if !is_synthetic && !crate::process::is_alive(&process) {
+            bail!("cannot register dead process {}", process.pid);
+        }
+        let v1_dir = resolve_v1_dir()?;
+        Ok(Self {
+            pane_key,
+            kind,
+            process,
+            is_synthetic,
+            runner_id,
+            v1_dir,
+            read_dir: None,
+            dir_stamp: None,
+            outcome: None,
+        })
     }
 
-    let v1_dir = resolve_v1_dir()?;
-    let _reg_lock = RegistrationLock::acquire(&v1_dir)?;
+    pub fn step(
+        &mut self,
+        stop: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<RegistrationOutcome> {
+        if let Some(id) = self.outcome.as_ref() {
+            return Ok(RegistrationOutcome::Complete(id.clone()));
+        }
+        if stop.is_some_and(|s| s.load(std::sync::atomic::Ordering::Relaxed)) {
+            return Ok(RegistrationOutcome::Pending);
+        }
+        if !self.is_synthetic && !crate::process::is_alive(&self.process) {
+            bail!("cannot register dead process {}", self.process.pid);
+        }
 
-    // Scan existing instances for matching pane_key and process lifetime
-    if let Ok(entries) = fs::read_dir(&v1_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
+        let _reg_lock = match RegistrationLock::try_acquire(&self.v1_dir)? {
+            Some(l) => l,
+            None => return Ok(RegistrationOutcome::Pending),
+        };
+
+        let current_meta = fs::metadata(&self.v1_dir)?;
+        let current_stamp = FileStamp::from_metadata(&current_meta);
+
+        if self.dir_stamp.as_ref() != Some(&current_stamp) || self.read_dir.is_none() {
+            self.read_dir = Some(fs::read_dir(&self.v1_dir)?);
+            self.dir_stamp = Some(current_stamp);
+        }
+
+        let read_dir = self.read_dir.as_mut().unwrap();
+        let mut count = 0;
+        while count < 32 {
+            if stop.is_some_and(|s| s.load(std::sync::atomic::Ordering::Relaxed)) {
+                return Ok(RegistrationOutcome::Pending);
             }
-            let _name = match path.file_name().and_then(|n| n.to_str()) {
-                Some(n) if valid_record_key(n) => n,
-                _ => continue,
-            };
-
-            let identity_file = path.join("identity.json");
-            let state_file = path.join("state.json");
-
-            // Readers ignore incomplete registration without state.json
-            if identity_file.exists() && state_file.exists() {
-                if let Ok(content) = fs::read_to_string(&identity_file) {
-                    if let Ok(existing) = serde_json::from_str::<AgentIdentity>(&content) {
-                        if existing.pane_key == pane_key && existing.process == process {
-                            // Enforce immutable attribute match: kind, synthetic, runner_id
-                            if existing.kind != kind
-                                || existing.is_synthetic != is_synthetic
-                                || existing.runner_id != runner_id
-                            {
-                                bail!(
-                                    "registration conflict for pane {:?} and pid {}: existing (kind={:?}, synthetic={}, runner={:?}) != requested (kind={:?}, synthetic={}, runner={:?})",
-                                    pane_key,
-                                    process.pid,
-                                    existing.kind,
-                                    existing.is_synthetic,
-                                    existing.runner_id,
-                                    kind,
-                                    is_synthetic,
-                                    runner_id
-                                );
+            match read_dir.next() {
+                Some(Ok(entry)) => {
+                    count += 1;
+                    let path = entry.path();
+                    if !path.is_dir() {
+                        continue;
+                    }
+                    let name = match path.file_name().and_then(|n| n.to_str()) {
+                        Some(n) if valid_record_key(n) => n,
+                        _ => continue,
+                    };
+                    if path.join(".tombstone").exists() {
+                        continue;
+                    }
+                    let identity_file = path.join("identity.json");
+                    let state_file = path.join("state.json");
+                    if identity_file.exists() && state_file.exists() {
+                        if let Ok(existing) =
+                            read_bounded_json::<AgentIdentity>(&identity_file, IDENTITY_MAX_BYTES)
+                        {
+                            if existing.schema_version != AGENT_SCHEMA_VERSION {
+                                continue;
                             }
-                            return Ok(existing.agent_instance_id);
+                            if existing.agent_instance_id.0 != name {
+                                continue;
+                            }
+                            if existing.pane_key == self.pane_key
+                                && existing.process == self.process
+                            {
+                                if existing.kind != self.kind
+                                    || existing.is_synthetic != self.is_synthetic
+                                    || existing.runner_id != self.runner_id
+                                {
+                                    bail!(
+                                        "registration conflict for pane {:?} and pid {}: existing (kind={:?}, synthetic={}, runner={:?}) != requested (kind={:?}, synthetic={}, runner={:?})",
+                                        self.pane_key,
+                                        self.process.pid,
+                                        existing.kind,
+                                        existing.is_synthetic,
+                                        existing.runner_id,
+                                        self.kind,
+                                        self.is_synthetic,
+                                        self.runner_id
+                                    );
+                                }
+                                self.outcome = Some(existing.agent_instance_id.clone());
+                                return Ok(RegistrationOutcome::Complete(
+                                    existing.agent_instance_id,
+                                ));
+                            }
                         }
                     }
                 }
+                Some(Err(_)) => {
+                    count += 1;
+                    continue;
+                }
+                None => {
+                    let new_id = allocate_instance_under_lock(
+                        &self.v1_dir,
+                        self.pane_key.clone(),
+                        self.kind,
+                        self.process.clone(),
+                        self.is_synthetic,
+                        self.runner_id.clone(),
+                        true,
+                    )?;
+                    let Some(new_id) = new_id else {
+                        return Ok(RegistrationOutcome::Pending);
+                    };
+                    self.outcome = Some(new_id.clone());
+                    return Ok(RegistrationOutcome::Complete(new_id));
+                }
             }
         }
-    }
 
-    // Allocate new opaque instance ID
+        Ok(RegistrationOutcome::Pending)
+    }
+}
+
+fn allocate_instance_under_lock(
+    v1_dir: &Path,
+    pane_key: PaneKey,
+    kind: AgentKind,
+    process: ProcessIdentity,
+    is_synthetic: bool,
+    runner_id: Option<String>,
+    nonblocking: bool,
+) -> Result<Option<AgentInstanceId>> {
     let new_id = format!("agent-{}", uuid::Uuid::new_v4());
     if !valid_record_key(&new_id) {
         bail!("generated instance id {:?} failed validation", new_id);
@@ -308,7 +594,14 @@ pub fn register(
     let instance_dir = v1_dir.join(&instance_id.0);
     crate::process::ensure_private_directory(&instance_dir)?;
 
-    let _inst_lock = InstanceLock::acquire(&instance_dir)?;
+    let _inst_lock = if nonblocking {
+        match InstanceLock::try_acquire(&instance_dir)? {
+            Some(l) => l,
+            None => return Ok(None),
+        }
+    } else {
+        InstanceLock::acquire(&instance_dir)?
+    };
 
     let identity = AgentIdentity {
         schema_version: AGENT_SCHEMA_VERSION,
@@ -353,7 +646,94 @@ pub fn register(
     };
     atomic_write_json(&instance_dir.join("state.json"), &initial_state)?;
 
-    Ok(instance_id)
+    Ok(Some(instance_id))
+}
+
+fn register_inner(
+    pane_key: PaneKey,
+    kind: AgentKind,
+    process: ProcessIdentity,
+    is_synthetic: bool,
+    runner_id: Option<String>,
+    nonblocking: bool,
+) -> Result<Option<AgentInstanceId>> {
+    if !is_synthetic && !crate::process::is_alive(&process) {
+        bail!("cannot register dead process {}", process.pid);
+    }
+
+    let v1_dir = resolve_v1_dir()?;
+    let _reg_lock = if nonblocking {
+        match RegistrationLock::try_acquire(&v1_dir)? {
+            Some(l) => l,
+            None => return Ok(None),
+        }
+    } else {
+        RegistrationLock::acquire(&v1_dir)?
+    };
+
+    // Scan existing instances for matching pane_key and process lifetime
+    if let Ok(entries) = fs::read_dir(&v1_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) if valid_record_key(n) => n,
+                _ => continue,
+            };
+            if path.join(".tombstone").exists() {
+                continue;
+            }
+
+            let identity_file = path.join("identity.json");
+            let state_file = path.join("state.json");
+
+            // Readers ignore incomplete registration without state.json
+            if identity_file.exists() && state_file.exists() {
+                if let Ok(existing) =
+                    read_bounded_json::<AgentIdentity>(&identity_file, IDENTITY_MAX_BYTES)
+                {
+                    if existing.schema_version != AGENT_SCHEMA_VERSION {
+                        continue;
+                    }
+                    if existing.agent_instance_id.0 != name {
+                        continue;
+                    }
+                    if existing.pane_key == pane_key && existing.process == process {
+                        // Enforce immutable attribute match: kind, synthetic, runner_id
+                        if existing.kind != kind
+                            || existing.is_synthetic != is_synthetic
+                            || existing.runner_id != runner_id
+                        {
+                            bail!(
+                                "registration conflict for pane {:?} and pid {}: existing (kind={:?}, synthetic={}, runner={:?}) != requested (kind={:?}, synthetic={}, runner={:?})",
+                                pane_key,
+                                process.pid,
+                                existing.kind,
+                                existing.is_synthetic,
+                                existing.runner_id,
+                                kind,
+                                is_synthetic,
+                                runner_id
+                            );
+                        }
+                        return Ok(Some(existing.agent_instance_id));
+                    }
+                }
+            }
+        }
+    }
+
+    allocate_instance_under_lock(
+        &v1_dir,
+        pane_key,
+        kind,
+        process,
+        is_synthetic,
+        runner_id,
+        nonblocking,
+    )
 }
 
 /// Report source observation, atomically updating `state.json`.
@@ -367,13 +747,37 @@ pub fn update(
     project: impl FnOnce(&mut AgentState) -> Result<PartialSourceRecord>,
     finish: impl FnOnce(&mut AgentState) -> Result<()>,
 ) -> Result<AgentState> {
+    update_inner(instance_id, project, finish, false).map(|opt| opt.expect("blocking update"))
+}
+
+pub fn update_try(
+    instance_id: &AgentInstanceId,
+    project: impl FnOnce(&mut AgentState) -> Result<PartialSourceRecord>,
+    finish: impl FnOnce(&mut AgentState) -> Result<()>,
+) -> Result<Option<AgentState>> {
+    update_inner(instance_id, project, finish, true)
+}
+
+fn update_inner(
+    instance_id: &AgentInstanceId,
+    project: impl FnOnce(&mut AgentState) -> Result<PartialSourceRecord>,
+    finish: impl FnOnce(&mut AgentState) -> Result<()>,
+    nonblocking: bool,
+) -> Result<Option<AgentState>> {
     if !valid_record_key(&instance_id.0) {
         bail!("invalid agent instance id {:?}", instance_id.0);
     }
 
     let v1_dir = resolve_v1_dir()?;
     let instance_dir = v1_dir.join(&instance_id.0);
-    let _registration = RegistrationLock::acquire(&v1_dir)?;
+    let _registration = if nonblocking {
+        match RegistrationLock::try_acquire(&v1_dir)? {
+            Some(l) => l,
+            None => return Ok(None),
+        }
+    } else {
+        RegistrationLock::acquire(&v1_dir)?
+    };
     if !instance_dir.exists() {
         bail!(
             "agent instance {:?} directory does not exist",
@@ -381,7 +785,14 @@ pub fn update(
         );
     }
 
-    let _inst_lock = InstanceLock::acquire(&instance_dir)?;
+    let _inst_lock = if nonblocking {
+        match InstanceLock::try_acquire(&instance_dir)? {
+            Some(l) => l,
+            None => return Ok(None),
+        }
+    } else {
+        InstanceLock::acquire(&instance_dir)?
+    };
 
     // Recheck existence under lock to prevent ghost revival after prune
     if instance_dir.join(".tombstone").exists()
@@ -392,10 +803,7 @@ pub fn update(
     }
 
     let id_file = instance_dir.join("identity.json");
-    let id_content =
-        fs::read_to_string(&id_file).with_context(|| format!("failed to read {:?}", id_file))?;
-    let identity: AgentIdentity = serde_json::from_str(&id_content)
-        .with_context(|| format!("failed to parse {:?}", id_file))?;
+    let identity: AgentIdentity = read_bounded_json(&id_file, IDENTITY_MAX_BYTES)?;
 
     if identity.schema_version != AGENT_SCHEMA_VERSION {
         bail!(
@@ -414,7 +822,7 @@ pub fn update(
 
     // Validate live process birth (synthetic path explicit only)
     if identity.is_synthetic {
-        if !Path::new(&format!("/proc/{}", identity.process.pid)).exists() && !cfg!(test) {
+        if !Path::new(&format!("/proc/{}", identity.process.pid)).exists() {
             bail!(
                 "cannot report on dead synthetic process {}",
                 identity.process.pid
@@ -425,10 +833,7 @@ pub fn update(
     }
 
     let state_file = instance_dir.join("state.json");
-    let state_content = fs::read_to_string(&state_file)
-        .with_context(|| format!("failed to read {:?}", state_file))?;
-    let mut state: AgentState = serde_json::from_str(&state_content)
-        .with_context(|| format!("failed to parse {:?}", state_file))?;
+    let mut state: AgentState = read_bounded_json(&state_file, STATE_MAX_BYTES)?;
 
     if state.schema_version != AGENT_SCHEMA_VERSION {
         bail!(
@@ -511,7 +916,7 @@ pub fn update(
 
     atomic_write_json(&state_file, &state)?;
 
-    Ok(state)
+    Ok(Some(state))
 }
 
 /// Inspect agent identity and reduced state.
@@ -545,15 +950,8 @@ pub fn inspect(instance_id: &AgentInstanceId) -> Result<(AgentIdentity, AgentSta
         );
     }
 
-    let id_content = fs::read_to_string(&identity_file)
-        .with_context(|| format!("failed to read {:?}", identity_file))?;
-    let identity: AgentIdentity = serde_json::from_str(&id_content)
-        .with_context(|| format!("failed to parse {:?}", identity_file))?;
-
-    let state_content = fs::read_to_string(&state_file)
-        .with_context(|| format!("failed to read {:?}", state_file))?;
-    let state: AgentState = serde_json::from_str(&state_content)
-        .with_context(|| format!("failed to parse {:?}", state_file))?;
+    let identity: AgentIdentity = read_bounded_json(&identity_file, IDENTITY_MAX_BYTES)?;
+    let state: AgentState = read_bounded_json(&state_file, STATE_MAX_BYTES)?;
 
     Ok((identity, state))
 }
@@ -582,13 +980,16 @@ pub fn acknowledge_if_current(
 /// Passive work is qualified by the exact current identity and displayed completion,
 /// checked under the instance lock. Explicit navigation retains older-revision semantics.
 pub(crate) fn acknowledge_current_if_current(
-    proof: &VisitProof, identity: &verij_types::agent::AgentIdentity, is_current: impl Fn() -> bool,
+    proof: &VisitProof,
+    identity: &verij_types::agent::AgentIdentity,
+    is_current: impl Fn() -> bool,
 ) -> Result<InstanceAck> {
     acknowledge_checked(proof, Some(identity), is_current)
 }
 
 fn acknowledge_checked(
-    proof: &VisitProof, expected_identity: Option<&verij_types::agent::AgentIdentity>,
+    proof: &VisitProof,
+    expected_identity: Option<&verij_types::agent::AgentIdentity>,
     is_current: impl Fn() -> bool,
 ) -> Result<InstanceAck> {
     if !is_current() {
@@ -643,10 +1044,7 @@ fn acknowledge_checked(
     // Verify instance binding and observed revision under instance lock
     let _inst_lock = InstanceLock::acquire(&instance_dir)?;
     let id_file = instance_dir.join("identity.json");
-    let id_content =
-        fs::read_to_string(&id_file).with_context(|| format!("failed to read {:?}", id_file))?;
-    let identity: AgentIdentity = serde_json::from_str(&id_content)
-        .with_context(|| format!("failed to parse {:?}", id_file))?;
+    let identity: AgentIdentity = read_bounded_json(&id_file, IDENTITY_MAX_BYTES)?;
     if expected_identity.is_some_and(|expected| expected != &identity) {
         bail!("passive visit target identity changed");
     }
@@ -668,7 +1066,7 @@ fn acknowledge_checked(
 
     // Live process verification
     if identity.is_synthetic {
-        if !Path::new(&format!("/proc/{}", identity.process.pid)).exists() && !cfg!(test) {
+        if !Path::new(&format!("/proc/{}", identity.process.pid)).exists() {
             bail!(
                 "cannot acknowledge for dead synthetic process {}",
                 identity.process.pid
@@ -682,12 +1080,11 @@ fn acknowledge_checked(
     }
 
     let state_file = instance_dir.join("state.json");
-    let state_content = fs::read_to_string(&state_file)
-        .with_context(|| format!("failed to read {:?}", state_file))?;
-    let state: AgentState = serde_json::from_str(&state_content)
-        .with_context(|| format!("failed to parse {:?}", state_file))?;
-    if expected_identity.is_some() && (state.reduced.status != AgentStatus::Done
-        || state.reduced.completion_revision != proof.observed_completion_revision) {
+    let state: AgentState = read_bounded_json(&state_file, STATE_MAX_BYTES)?;
+    if expected_identity.is_some()
+        && (state.reduced.status != AgentStatus::Done
+            || state.reduced.completion_revision != proof.observed_completion_revision)
+    {
         bail!("passive visit completion changed");
     }
 
@@ -724,11 +1121,10 @@ fn acknowledge_checked(
 
     // Corrupt host ack store must FAIL CLOSED, never silently reset
     let mut host_store: HostAckStore = if host_file.exists() {
-        let content = fs::read_to_string(&host_file)
-            .with_context(|| format!("failed to read host ack store at {:?}", host_file))?;
-        let store: HostAckStore = serde_json::from_str(&content).with_context(|| {
-            format!("corrupt host ack store at {:?}, failing closed", host_file)
-        })?;
+        let store: HostAckStore =
+            read_bounded_json(&host_file, HOST_ACK_MAX_BYTES).with_context(|| {
+                format!("corrupt host ack store at {:?}, failing closed", host_file)
+            })?;
         if store.schema_version != AGENT_SCHEMA_VERSION {
             bail!(
                 "unsupported host ack store schema version {} at {:?}",
@@ -787,69 +1183,163 @@ fn acknowledge_checked(
 /// Writers acquiring an instance recheck existence and tombstone under lock.
 pub fn prune(dry_run: bool) -> Result<Vec<AgentInstanceId>> {
     let v1_dir = resolve_v1_dir()?;
-    let _reg_lock = RegistrationLock::acquire(&v1_dir)?;
-
+    let mut cursor = None;
     let mut pruned = Vec::new();
+    loop {
+        let chunk = prune_slice_in_root(&v1_dir, &mut cursor, 64, dry_run, None)?;
+        pruned.extend(chunk);
+        if cursor.is_none() {
+            break;
+        }
+    }
+    Ok(pruned)
+}
 
-    let entries = match fs::read_dir(&v1_dir) {
-        Ok(e) => e,
-        Err(_) => return Ok(pruned),
+/// Sliced, cancellable, resumable dead-record pruning using a persistent ReadDir cursor.
+/// Counts ALL entries including invalid/skipped ones.
+/// Checks stop between entries.
+/// Nonblocking locks: skips without blocking if locks are held.
+/// Uses is_definitely_dead to ensure uncertain records are never pruned.
+/// Safely removes only expected files in instance directory.
+pub fn prune_slice_in_root(
+    v1_dir: &Path,
+    cursor: &mut Option<fs::ReadDir>,
+    slice_limit: usize,
+    dry_run: bool,
+    stop: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<Vec<AgentInstanceId>> {
+    let _reg_lock = match RegistrationLock::try_acquire(v1_dir)? {
+        Some(l) => l,
+        None => return Ok(Vec::new()),
     };
 
-    for entry in entries.flatten() {
+    if cursor.is_none() {
+        *cursor = fs::read_dir(v1_dir).ok();
+    }
+    let Some(read_dir) = cursor.as_mut() else {
+        return Ok(Vec::new());
+    };
+
+    let mut pruned = Vec::new();
+    let mut inspected = 0;
+
+    while inspected < slice_limit {
+        if stop.is_some_and(|s| s.load(std::sync::atomic::Ordering::Relaxed)) {
+            break;
+        }
+
+        let entry = match read_dir.next() {
+            Some(Ok(e)) => {
+                inspected += 1;
+                e
+            }
+            Some(Err(_)) => {
+                inspected += 1;
+                continue;
+            }
+            None => {
+                *cursor = None;
+                break;
+            }
+        };
+
         let path = entry.path();
         if !path.is_dir() {
             continue;
         }
-        let id_str = match path.file_name().and_then(|n| n.to_str()) {
-            Some(n) if valid_record_key(n) => n,
-            _ => continue,
+
+        let Some(name_str) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
         };
 
+        if !valid_record_key(name_str) {
+            continue;
+        }
+
+        let id = AgentInstanceId(name_str.to_string());
         let identity_file = path.join("identity.json");
         if !identity_file.exists() {
             continue;
         }
 
-        let _inst_lock = match InstanceLock::acquire(&path) {
-            Ok(lock) => lock,
-            Err(_) => continue,
+        let _inst_lock = match InstanceLock::try_acquire(&path)? {
+            Some(lock) => lock,
+            None => continue,
         };
 
         if path.join(".tombstone").exists() {
             continue;
         }
 
-        let identity: AgentIdentity = match fs::read_to_string(&identity_file)
-            .ok()
-            .and_then(|c| serde_json::from_str(&c).ok())
-        {
-            Some(id) => id,
-            None => continue,
+        let identity: AgentIdentity = match read_bounded_json(&identity_file, IDENTITY_MAX_BYTES) {
+            Ok(id) => id,
+            Err(_) => continue,
         };
 
-        // Non-synthetic liveness checking requires verified birth
-        let is_alive = if identity.is_synthetic {
-            Path::new(&format!("/proc/{}", identity.process.pid)).exists()
-        } else {
-            crate::process::is_alive(&identity.process)
-        };
-
-        if !is_alive {
-            let id = AgentInstanceId(id_str.to_string());
-            if !dry_run {
-                // Write tombstone first under instance lock to alert waiting writers
-                let _ = fs::write(path.join(".tombstone"), b"pruned");
-                let _ = fs::remove_file(path.join("identity.json"));
-                let _ = fs::remove_file(path.join("state.json"));
-                drop(_inst_lock);
-                let _ = fs::remove_dir_all(&path);
-            }
-            pruned.push(id);
+        if identity.schema_version != AGENT_SCHEMA_VERSION || identity.agent_instance_id != id {
+            continue;
         }
+
+        // Non-synthetic liveness checking requires definitive death.
+        // Permission errors or uncertain process states are never treated as death.
+        let is_dead = if identity.is_synthetic {
+            !Path::new(&format!("/proc/{}", identity.process.pid)).exists()
+        } else {
+            crate::process::is_definitely_dead(&identity.process)
+        };
+
+        if !is_dead {
+            continue;
+        }
+
+        if !dry_run {
+            // Write tombstone first under instance lock to alert waiting writers
+            let _ = fs::write(path.join(".tombstone"), b"pruned");
+            let mut unexpected_files = false;
+            if let Ok(dir_entries) = fs::read_dir(&path) {
+                for item in dir_entries.flatten() {
+                    let file_name = item.file_name();
+                    let name = file_name.to_string_lossy();
+                    if name != "identity.json"
+                        && name != "state.json"
+                        && name != ".lock"
+                        && name != ".tombstone"
+                    {
+                        unexpected_files = true;
+                        break;
+                    }
+                }
+            }
+
+            // Always remove known state data
+            let _ = fs::remove_file(path.join("identity.json"));
+            let _ = fs::remove_file(path.join("state.json"));
+
+            if !unexpected_files {
+                let _ = fs::remove_file(path.join(".tombstone"));
+                drop(_inst_lock);
+                let _ = fs::remove_file(path.join(".lock"));
+                let _ = fs::remove_dir(&path);
+            } else {
+                // Keep .tombstone and .lock to prevent lock splitting when unexpected files remain
+                drop(_inst_lock);
+            }
+        }
+        pruned.push(id);
     }
 
     Ok(pruned)
+}
+
+#[allow(dead_code)]
+pub fn prune_slice(
+    cursor: &mut Option<fs::ReadDir>,
+    slice_limit: usize,
+    dry_run: bool,
+    stop: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<Vec<AgentInstanceId>> {
+    let v1_dir = resolve_v1_dir()?;
+    prune_slice_in_root(&v1_dir, cursor, slice_limit, dry_run, stop)
 }
 
 #[cfg(test)]
@@ -893,7 +1383,7 @@ mod tests {
     }
 
     fn temp_test_env() -> (TestEnvGuard, PathBuf, PathBuf) {
-        let lock = TEST_ENV_MUTEX.lock().unwrap();
+        let lock = TEST_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let orig_agent_state_dir = std::env::var_os("VERIJ_AGENT_STATE_DIR");
         let orig_xdg_state_home = std::env::var_os("XDG_STATE_HOME");
 
@@ -1126,9 +1616,16 @@ mod tests {
         let ack = acknowledge(&valid_proof).unwrap();
         assert_eq!(ack.acknowledged_revision, 1);
         let captured_identity = inspect(&inst).unwrap().0;
-        let passive = VisitProof { host_key: HostKey("host-passive".into()), ..valid_proof.clone() };
-        assert_eq!(acknowledge_current_if_current(&passive, &captured_identity, || true)
-            .unwrap().acknowledged_revision, 1);
+        let passive = VisitProof {
+            host_key: HostKey("host-passive".into()),
+            ..valid_proof.clone()
+        };
+        assert_eq!(
+            acknowledge_current_if_current(&passive, &captured_identity, || true)
+                .unwrap()
+                .acknowledged_revision,
+            1
+        );
 
         // An obsolete visit waiting for the host lock must not publish an ack
         // after the new intent wins, even though its native proof was valid.
@@ -1191,13 +1688,24 @@ mod tests {
         };
         let state2 = report(&inst, turn2_partial).unwrap();
         assert_eq!(state2.completion_revision, 2);
-        let raced = VisitProof { host_key: HostKey("host-raced".into()), ..valid_proof.clone() };
+        let raced = VisitProof {
+            host_key: HostKey("host-raced".into()),
+            ..valid_proof.clone()
+        };
         assert!(acknowledge_current_if_current(&raced, &captured_identity, || true).is_err());
-        assert!(!resolve_hosts_dir().unwrap().join("host-raced.json").exists());
-        let current_proof = VisitProof { observed_completion_revision: 2, ..raced.clone() };
+        assert!(!resolve_hosts_dir()
+            .unwrap()
+            .join("host-raced.json")
+            .exists());
+        let current_proof = VisitProof {
+            observed_completion_revision: 2,
+            ..raced.clone()
+        };
         let mut replaced_identity = captured_identity.clone();
         replaced_identity.process.start_jiffies += 1;
-        assert!(acknowledge_current_if_current(&current_proof, &replaced_identity, || true).is_err());
+        assert!(
+            acknowledge_current_if_current(&current_proof, &replaced_identity, || true).is_err()
+        );
 
         // Stale navigation completed with observed_revision 1
         let stale_nav_proof = VisitProof {
@@ -1239,14 +1747,28 @@ mod tests {
 
         // A new turn can supersede Done without increasing the completed-turn
         // high-water mark. Passive eligibility must check reduced state too.
-        let working = report(&inst, PartialSourceRecord {
-            source_id: "agy-lifecycle".into(), source_epoch: Some(1), source_revision: Some(3),
-            turn_epoch: Some(1), turn_revision: Some(3), turn_id: Some(TurnId("turn-3".into())),
-            activity: Some(ActivityKind::Working), ..Default::default()
-        }).unwrap();
+        let working = report(
+            &inst,
+            PartialSourceRecord {
+                source_id: "agy-lifecycle".into(),
+                source_epoch: Some(1),
+                source_revision: Some(3),
+                turn_epoch: Some(1),
+                turn_revision: Some(3),
+                turn_id: Some(TurnId("turn-3".into())),
+                activity: Some(ActivityKind::Working),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(working.reduced.status, AgentStatus::Working);
-        assert!(acknowledge_current_if_current(&current_proof, &captured_identity, || true).is_err());
-        assert!(!resolve_hosts_dir().unwrap().join("host-raced.json").exists());
+        assert!(
+            acknowledge_current_if_current(&current_proof, &captured_identity, || true).is_err()
+        );
+        assert!(!resolve_hosts_dir()
+            .unwrap()
+            .join("host-raced.json")
+            .exists());
     }
 
     #[test]
@@ -1350,5 +1872,329 @@ mod tests {
         assert_eq!(real_pruned, vec![dead_id.clone()]);
         assert!(inspect(&dead_id).is_err());
         assert!(inspect(&live_id).is_ok());
+    }
+
+    #[test]
+    fn test_read_bounded_bytes_rejects_oversized_and_fifo() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // 1. Oversized file rejected before parsing
+        let big_file = dir.path().join("big.json");
+        fs::write(&big_file, vec![b'a'; 1000]).unwrap();
+        let err = read_bounded_bytes(&big_file, 500).unwrap_err();
+        assert!(err.to_string().contains("exceeds size limit"));
+
+        // Normal file accepted
+        let normal_file = dir.path().join("normal.json");
+        fs::write(&normal_file, b"{\"hello\":\"world\"}").unwrap();
+        let bytes = read_bounded_bytes(&normal_file, 500).unwrap();
+        assert_eq!(bytes, b"{\"hello\":\"world\"}");
+
+        // 2. FIFO (named pipe) rejected without blocking/hanging
+        #[cfg(unix)]
+        {
+            let fifo_path = dir.path().join("test.fifo");
+            let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+            let err = read_bounded_bytes(&fifo_path, 1024).unwrap_err();
+            assert!(err.to_string().contains("not a regular file"));
+        }
+    }
+
+    #[test]
+    fn test_prune_slice_resumable_and_preserves_live() {
+        let (_guard, _runtime, _state) = temp_test_env();
+        let v1_dir = resolve_v1_dir().unwrap();
+
+        // 1. Register live agent
+        let live_proc = ProcessIdentity {
+            pid: std::process::id(),
+            start_jiffies: 12345,
+            boot_id: "boot-live".to_string(),
+            uid: unsafe { libc::getuid() },
+        };
+        let live_pane = PaneKey {
+            session: SessionInstanceId("session-live".to_string()),
+            terminal: TerminalPaneId(10),
+        };
+        let live_id = register(live_pane, AgentKind::Opencode, live_proc, true, None).unwrap();
+
+        // 2. Register two dead agents
+        let dead_proc1 = ProcessIdentity {
+            pid: 99_999_998,
+            start_jiffies: 11,
+            boot_id: "boot-dead1".to_string(),
+            uid: unsafe { libc::getuid() },
+        };
+        let dead_id1 = register(
+            PaneKey {
+                session: SessionInstanceId("session-dead1".to_string()),
+                terminal: TerminalPaneId(11),
+            },
+            AgentKind::Opencode,
+            dead_proc1,
+            true,
+            None,
+        )
+        .unwrap();
+
+        let dead_proc2 = ProcessIdentity {
+            pid: 99_999_999,
+            start_jiffies: 12,
+            boot_id: "boot-dead2".to_string(),
+            uid: unsafe { libc::getuid() },
+        };
+        let dead_id2 = register(
+            PaneKey {
+                session: SessionInstanceId("session-dead2".to_string()),
+                terminal: TerminalPaneId(12),
+            },
+            AgentKind::Opencode,
+            dead_proc2,
+            true,
+            None,
+        )
+        .unwrap();
+
+        // Use prune_slice_in_root with slice limit = 1 and persistent cursor
+        let mut cursor = None;
+        let mut total_pruned = Vec::new();
+        for _ in 0..10 {
+            let chunk = prune_slice_in_root(&v1_dir, &mut cursor, 1, false, None).unwrap();
+            total_pruned.extend(chunk);
+            if cursor.is_none() {
+                break;
+            }
+        }
+
+        assert!(total_pruned.contains(&dead_id1));
+        assert!(total_pruned.contains(&dead_id2));
+        assert!(!total_pruned.contains(&live_id));
+        assert!(inspect(&live_id).is_ok());
+        assert!(inspect(&dead_id1).is_err());
+        assert!(inspect(&dead_id2).is_err());
+    }
+
+    #[test]
+    fn test_prune_skips_contended_instance_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let agent_dir = root.join("agent-contended");
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        let dead_proc = ProcessIdentity {
+            pid: 99_999_998,
+            start_jiffies: 11,
+            boot_id: "boot-dead".to_string(),
+            uid: unsafe { libc::getuid() },
+        };
+        let identity = AgentIdentity {
+            schema_version: AGENT_SCHEMA_VERSION,
+            agent_instance_id: AgentInstanceId("agent-contended".to_string()),
+            pane_key: PaneKey {
+                session: SessionInstanceId("s1".into()),
+                terminal: TerminalPaneId(1),
+            },
+            kind: AgentKind::Opencode,
+            process: dead_proc,
+            registered_at_ms: 1000,
+            is_synthetic: true,
+            runner_id: None,
+        };
+        atomic_write_json(&agent_dir.join("identity.json"), &identity).unwrap();
+        atomic_write_json(
+            &agent_dir.join("state.json"),
+            &serde_json::json!({"revision": 1}),
+        )
+        .unwrap();
+
+        // Hold exclusive lock on instance
+        let lock = InstanceLock::acquire(&agent_dir).unwrap();
+
+        let mut cursor = None;
+        let pruned = prune_slice_in_root(root, &mut cursor, 10, false, None).unwrap();
+        assert!(
+            pruned.is_empty(),
+            "Contended instance lock must be skipped without blocking or error"
+        );
+        assert!(agent_dir.join("identity.json").exists());
+
+        // Release lock and prune again
+        drop(lock);
+        let mut cursor = None;
+        let pruned = prune_slice_in_root(root, &mut cursor, 10, false, None).unwrap();
+        assert_eq!(pruned, vec![AgentInstanceId("agent-contended".to_string())]);
+        assert!(!agent_dir.exists());
+    }
+
+    #[test]
+    fn test_prune_preserves_schema_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let agent_dir = root.join("agent-schema-mismatch");
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        let dead_proc = ProcessIdentity {
+            pid: 99_999_998,
+            start_jiffies: 11,
+            boot_id: "boot-dead".to_string(),
+            uid: unsafe { libc::getuid() },
+        };
+        let identity = AgentIdentity {
+            schema_version: 9999, // unsupported/mismatched schema version
+            agent_instance_id: AgentInstanceId("agent-schema-mismatch".to_string()),
+            pane_key: PaneKey {
+                session: SessionInstanceId("s1".into()),
+                terminal: TerminalPaneId(1),
+            },
+            kind: AgentKind::Opencode,
+            process: dead_proc,
+            registered_at_ms: 1000,
+            is_synthetic: true,
+            runner_id: None,
+        };
+        atomic_write_json(&agent_dir.join("identity.json"), &identity).unwrap();
+
+        let mut cursor = None;
+        let pruned = prune_slice_in_root(root, &mut cursor, 10, false, None).unwrap();
+        assert!(pruned.is_empty());
+        assert!(agent_dir.join("identity.json").exists());
+    }
+
+    #[test]
+    fn test_prune_safe_removal_preserves_lock_and_tombstone_on_unexpected_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let agent_dir = root.join("agent-unexpected-files");
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        let dead_proc = ProcessIdentity {
+            pid: 99_999_998,
+            start_jiffies: 11,
+            boot_id: "boot-dead".to_string(),
+            uid: unsafe { libc::getuid() },
+        };
+        let identity = AgentIdentity {
+            schema_version: AGENT_SCHEMA_VERSION,
+            agent_instance_id: AgentInstanceId("agent-unexpected-files".to_string()),
+            pane_key: PaneKey {
+                session: SessionInstanceId("s1".into()),
+                terminal: TerminalPaneId(1),
+            },
+            kind: AgentKind::Opencode,
+            process: dead_proc,
+            registered_at_ms: 1000,
+            is_synthetic: true,
+            runner_id: None,
+        };
+        atomic_write_json(&agent_dir.join("identity.json"), &identity).unwrap();
+        atomic_write_json(
+            &agent_dir.join("state.json"),
+            &serde_json::json!({"revision": 1}),
+        )
+        .unwrap();
+
+        // Write an unexpected file into agent_dir
+        fs::write(agent_dir.join("unexpected_log.txt"), b"log data").unwrap();
+
+        let mut cursor = None;
+        let pruned = prune_slice_in_root(root, &mut cursor, 10, false, None).unwrap();
+        assert_eq!(
+            pruned,
+            vec![AgentInstanceId("agent-unexpected-files".to_string())]
+        );
+
+        // State files removed
+        assert!(!agent_dir.join("identity.json").exists());
+        assert!(!agent_dir.join("state.json").exists());
+
+        // Unexpected file, .tombstone, and .lock preserved (to avoid lock splitting)
+        assert!(agent_dir.join("unexpected_log.txt").exists());
+        assert!(agent_dir.join(".tombstone").exists());
+        assert!(agent_dir.join(".lock").exists());
+        assert!(agent_dir.exists());
+    }
+
+    #[test]
+    fn test_registration_cursor_validations() {
+        let (_guard, runtime, _state) = temp_test_env();
+        let v1_dir = runtime.join("agents").join("v1");
+        crate::process::ensure_private_directory(&v1_dir).unwrap();
+
+        let pane_key = PaneKey {
+            session: SessionInstanceId("s-cursor".to_string()),
+            terminal: TerminalPaneId(5),
+        };
+        let proc = ProcessIdentity {
+            pid: std::process::id(),
+            start_jiffies: 555,
+            boot_id: "boot-c".to_string(),
+            uid: unsafe { libc::getuid() },
+        };
+
+        // 1. Existing dir with .tombstone is skipped
+        let tomb_dir = v1_dir.join("agent-tomb");
+        crate::process::ensure_private_directory(&tomb_dir).unwrap();
+        let tomb_ident = AgentIdentity {
+            schema_version: AGENT_SCHEMA_VERSION,
+            agent_instance_id: AgentInstanceId("agent-tomb".to_string()),
+            pane_key: pane_key.clone(),
+            kind: AgentKind::Agy,
+            process: proc.clone(),
+            registered_at_ms: 100,
+            is_synthetic: true,
+            runner_id: None,
+        };
+        atomic_write_json(&tomb_dir.join("identity.json"), &tomb_ident).unwrap();
+        atomic_write_json(&tomb_dir.join("state.json"), &serde_json::json!({"rev": 1})).unwrap();
+        fs::write(tomb_dir.join(".tombstone"), b"").unwrap();
+
+        // 2. Existing dir with mismatched schema_version is skipped
+        let schema_dir = v1_dir.join("agent-schema");
+        crate::process::ensure_private_directory(&schema_dir).unwrap();
+        let mut schema_ident = tomb_ident.clone();
+        schema_ident.agent_instance_id = AgentInstanceId("agent-schema".to_string());
+        schema_ident.schema_version = 9999;
+        atomic_write_json(&schema_dir.join("identity.json"), &schema_ident).unwrap();
+        atomic_write_json(
+            &schema_dir.join("state.json"),
+            &serde_json::json!({"rev": 1}),
+        )
+        .unwrap();
+
+        // 3. Existing dir where directory name != agent_instance_id.0 is skipped
+        let mismatch_dir = v1_dir.join("agent-dir-mismatch");
+        crate::process::ensure_private_directory(&mismatch_dir).unwrap();
+        let mut mismatch_ident = tomb_ident.clone();
+        mismatch_ident.agent_instance_id = AgentInstanceId("agent-different-id".to_string());
+        atomic_write_json(&mismatch_dir.join("identity.json"), &mismatch_ident).unwrap();
+        atomic_write_json(
+            &mismatch_dir.join("state.json"),
+            &serde_json::json!({"rev": 1}),
+        )
+        .unwrap();
+
+        // Stepping cursor should skip all 3 invalid records and allocate a new one at EOF
+        let mut cursor =
+            RegistrationCursor::new(pane_key.clone(), AgentKind::Agy, proc.clone(), true, None)
+                .unwrap();
+        let outcome = cursor.step(None).unwrap();
+        let allocated_id = match outcome {
+            RegistrationOutcome::Complete(id) => id,
+            RegistrationOutcome::Pending => panic!("Expected allocation on EOF"),
+        };
+        assert_ne!(allocated_id.0, "agent-tomb");
+        assert_ne!(allocated_id.0, "agent-schema");
+        assert_ne!(allocated_id.0, "agent-dir-mismatch");
+        assert_ne!(allocated_id.0, "agent-different-id");
+
+        // Now run a second cursor for the same pane and process: should find the newly allocated record
+        let mut cursor2 =
+            RegistrationCursor::new(pane_key, AgentKind::Agy, proc, true, None).unwrap();
+        let outcome2 = cursor2.step(None).unwrap();
+        match outcome2 {
+            RegistrationOutcome::Complete(id) => assert_eq!(id, allocated_id),
+            RegistrationOutcome::Pending => panic!("Expected finding existing valid ID"),
+        }
     }
 }

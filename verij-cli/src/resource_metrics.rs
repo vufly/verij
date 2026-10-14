@@ -3,6 +3,7 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Default, Serialize)]
@@ -20,6 +21,9 @@ struct Counters {
 static COUNTERS: Mutex<Option<Counters>> = Mutex::new(None);
 static DIRECTORY: OnceLock<Option<PathBuf>> = OnceLock::new();
 static PUBLISH: Mutex<()> = Mutex::new(());
+// Notify callbacks must remain nonblocking even while metrics are serialized.
+// Slots: topology incoming/coalesced, agent incoming/coalesced.
+static FS_COUNTERS: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
 
 impl Counters {
     fn cli(&mut self, target: &str, operation: &str) {
@@ -76,22 +80,14 @@ pub fn record_write() {
     update(|c| c.native_record_writes += 1);
 }
 pub fn fs_incoming(agent: bool) {
-    update(|c| {
-        if agent {
-            c.agent_fs_incoming += 1
-        } else {
-            c.topology_fs_incoming += 1
-        }
-    });
+    if DIRECTORY.get().is_some_and(Option::is_some) {
+        FS_COUNTERS[usize::from(agent) * 2].fetch_add(1, Ordering::Relaxed);
+    }
 }
 pub fn fs_coalesced(agent: bool) {
-    update(|c| {
-        if agent {
-            c.agent_fs_coalesced += 1
-        } else {
-            c.topology_fs_coalesced += 1
-        }
-    });
+    if DIRECTORY.get().is_some_and(Option::is_some) {
+        FS_COUNTERS[usize::from(agent) * 2 + 1].fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 fn publish() {
@@ -102,9 +98,15 @@ fn publish() {
         return;
     };
     let bytes = {
-        let Ok(counters) = COUNTERS.lock() else {
+        let Ok(mut counters) = COUNTERS.lock() else {
             return;
         };
+        if let Some(counters) = counters.as_mut() {
+            counters.topology_fs_incoming = FS_COUNTERS[0].load(Ordering::Relaxed);
+            counters.topology_fs_coalesced = FS_COUNTERS[1].load(Ordering::Relaxed);
+            counters.agent_fs_incoming = FS_COUNTERS[2].load(Ordering::Relaxed);
+            counters.agent_fs_coalesced = FS_COUNTERS[3].load(Ordering::Relaxed);
+        }
         let value = serde_json::json!({"pid": std::process::id(),
             "observed_at_ms": crate::agent_store::now_ms(), "counters": *counters});
         serde_json::to_vec(&value)
