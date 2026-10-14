@@ -1,6 +1,6 @@
 # Pi Monitoring Support Plan
 
-Status: **approved by the user; P0, P1, P2, and P3 complete. P4 implementation and acceptance remain pending**.
+Status: **approved by the user; P0–P3 complete. P4 local automated acceptance implemented and passed, with explicit remaining qualification limits**. No global installation or full release approval is inferred.
 
 P0 evidence: [runtime qualification and established contract](../prototypes/pi-runtime/README.md), [sanitized traces](../prototypes/pi-runtime/results.json), and [independent verification summary](../prototypes/pi-runtime/summary.json). Compiled and Node-based Pi 1.2.0 passed the two-extension-order matrix. This is lifecycle qualification, not production monitoring readiness.
 
@@ -244,6 +244,17 @@ Run real Pi inside stock Zellij with real exporter inventory and sidebars. Use t
 
 **Gate:** all acceptance cases below pass or are recorded as explicit capability limitations. Preserve versions, asset hashes, workload details, sanitized results, and private-process cleanup evidence. Do not change global Pi/Verij installation during planning or automated qualification.
 
+**Completed local automated scope:** [P4 harness and reproduction](../prototypes/pi-acceptance/README.md), [sanitized results](../prototypes/pi-acceptance/results.json), and [independent summary](../prototypes/pi-acceptance/summary.json).
+
+- Compiled and npm/Node Pi 1.2.0 inside stock Zellij 0.45.1, actual exporter inventory, conventionally autoloaded owned assets, two real sidebars and two same-directory Pi panes: 37 checks per distribution, 74 total.
+- Qualified success/error/abort and conservative Unknown, multi/nested tools, retries, queued work, continuation, automatic/manual compaction, all blocking dialog kinds, outer nested UI, session metadata/replacement, idle reload and reporter recovery. Native completion never precedes independent final settlement and increments once per successful aggregate.
+- Verified host-local acknowledgements, request preservation during visits, native targeting after rename/move/floating/stacking/background-tab changes, detached real-TUI rejection, no reporter in print/JSON/RPC/help/version/export or disabled discovery, and fresh identity/acknowledgements after same-pane relaunch. Actual sidebars remove exited rows and project lease expiry as Unknown without manufacturing source transactions.
+- Four short resource phases per distribution retain CPU/RSS and opt-in native counters. A burst executes 160 real nested tools per pane; Working refreshes coalesce and each aggregate completes once. Idle lease writes remain bounded and no idle visit proofs occur. Added only Pi dispatch to existing optional resource instrumentation; a regression test verifies reporter instrumentation is actually enabled.
+- Independent evidence validation and 13 mutation/privacy/budget tests accompany the runtime matrix. Regression checks pass: 333 Rust tests, native/WASM release builds and `make check`, 35 Pi tests, 22 OpenCode tests, eight P0 trace tests, twelve P0 Python tests, strict P4 fixture TypeScript and `git diff --check`.
+- Both providers, all birth-qualified private processes and all private directories are cleaned up, with zero forced cleanup kills. Global installations/configuration remain unchanged.
+
+**Remaining qualification, not counted as passed:** forced numerical PID/server reuse, serialized session resurrection, sidebar keyboard selection stability, active-run/unresolved-dialog reload continuity, other-release runtime, remote agents/hosts and long-duration/many-tab/status-bar resource amplification. Same-pane process replacement and existing native identity/selection tests are separate supporting evidence, not substitutes for those runtime cases. The broader resource roadmap and full release matrix remain separate work.
+
 ## 8. Acceptance matrix
 
 | Scenario | Required result |
@@ -264,10 +275,10 @@ Run real Pi inside stock Zellij with real exporter inventory and sidebars. Use t
 | Print/JSON/RPC/export/help/version; unsupported API | No observer process or incorrect pane row; no stdout protocol contamination. |
 | Idle and event bursts across multiple panes/hosts | Bounded processes, timers, queue, record writes, memory, and existing visit-query budgets. |
 
-Planned checks: `cargo test --workspace`, native/WASM build checks, Pi setup/reporter tests, `node --test integrations/pi/core.test.mjs`, existing adapter regressions, then the private real-Pi/Zellij harness. Exact commands and measured budgets belong in the implementation evidence once those files exist.
+Executed checks and reproduction commands are recorded in the [P4 evidence README](../prototypes/pi-acceptance/README.md). The matrix above defines desired behavior; the P4 coverage table and explicit limits distinguish actual runtime qualification from deterministic supporting tests and unexercised cases.
 
 ## 9. Definition of done
 
 Pi monitoring is ready when normal interactive launches work after owned setup; activity, blocking extension UI, completion, abort, error, exit, and recovery obey the shared contracts; generic titles and host-local visits work unchanged; installation is reversible; and reproducible runtime/resource evidence accompanies the documented supported-version and capability matrix.
 
-P0, P1, P2, and P3 are complete. The next task is P4 End-to-end and resource acceptance in actual Zellij runtime, not global installation or premature production readiness claims.
+P0–P3 and the documented P4 local automated scope are complete. Remaining runtime qualification limits are listed above; this evidence does not claim full release readiness or authorize global installation. Review the retained evidence and close those gaps before broad rollout.

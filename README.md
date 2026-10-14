@@ -290,7 +290,8 @@ New inner sessions receive a fake-PTY attach while their initial layout is creat
 - [Agy/Magy monitoring setup](integrations/agy/README.md) — callback composition, neutral hooks, pane-backed watches and capability limits
 - [Codex monitoring setup](integrations/codex/README.md) — lifecycle hooks adapter, non-gating callback, doctor diagnostics and supported behavior
 - [Codex monitoring implementation & qualification](docs/CODEX_MONITORING_IMPLEMENTATION.md) — architecture, review history, verification matrix, and qualification scope
-- [Pi monitoring setup](integrations/pi/README.md) — pane-local extension adapter installation, diagnostics and supported behavior (P3 complete; P4 acceptance pending)
+- [Pi monitoring setup](integrations/pi/README.md) — pane-local extension adapter installation, diagnostics and supported behavior (P4 local automated acceptance complete; remaining coverage limits documented)
+- [Pi end-to-end acceptance](prototypes/pi-acceptance/README.md) — real Pi/stock-Zellij/two-host evidence, measured budgets and explicit qualification gaps
 - [Pi monitoring support plan](docs/PI_MONITORING_PLAN.md) — extension adapter design, lifecycle mapping, setup, and qualification gates
 - [Agent monitoring implementation guide](docs/AGENT_MONITORING_IMPLEMENTATION.md) — contracts, implementation sequence, and acceptance checks
 - [Continue agent monitoring on another computer](docs/AGENT_MONITORING_SETUP.md) — portable setup, local-only artifacts, verification and handoff

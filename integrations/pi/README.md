@@ -1,8 +1,8 @@
-# Pi pane-local monitoring (P3)
+# Pi pane-local monitoring
 
 This extension provides event-driven, metadata-only observation for **Pi 1.2.0 (`@earendil-works/pi-coding-agent`)** running in interactive TUI mode inside a verified Zellij terminal pane.
 
-Phase 3 (P3) integrates owned asset lifecycle management via the Verij CLI (`setup pi`, `doctor pi`, `uninstall pi`), typed ownership manifests, conservative preservation, ancestor and child symlink safety, and doctor diagnostics. **Phase 4 (P4) acceptance in actual Zellij runtime remains pending.**
+Owned lifecycle management (`setup pi`, `doctor pi`, `uninstall pi`) is implemented. **P4 local automated acceptance passes for compiled and Node Pi 1.2.0 in stock Zellij 0.45.1**: 74 checks with actual exporter inventory, two sidebars, host-local visits, fault recovery and resource measurements. See [retained evidence and qualification limits](../../prototypes/pi-acceptance/README.md). Forced PID/server reuse, serialized resurrection, sidebar keyboard selection stability and long-duration resource stress are not qualified by this matrix; no global deployment approval is inferred.
 
 ## Architecture and lifecycle
 
@@ -149,6 +149,12 @@ To prevent symlink attacks:
 - **Observer loss**: If the reporter process terminates or the pipe breaks, native lease expiry marks the process row as `Unknown` after 15 seconds, clearing pending requests while preserving row liveness and deduplication history.
 - **Same-runtime reconnect**: If the reporter restarts within the same Pi process and conversation, the handshake restores previous epoch state (`restored: true`) without re-minting completion revisions.
 - **Reload / Session replacement**: `/reload`, `/new`, `/resume`, or `/fork` trigger clean `session_shutdown`, tearing down the reporter and releasing `.pi.lock`. A new runtime ID ensures fresh state without historical badge replay.
+
+## P4 end-to-end evidence
+
+The [private runtime harness](../../prototypes/pi-acceptance/README.md) installs only into isolated agent directories and runs real Pi in verified stock-Zellij panes. It covers completion/error/abort, nested tools/dialogs, retries/compaction/queued continuation, same-process reconnect, idle reload, conversation replacement, two-host acknowledgements, pane targeting and process exits. Print/JSON/RPC/help/version/export and disabled discovery produce no reporter or extra row. Source traces and native state are retained only as sanitized summaries.
+
+Short two-pane/two-host resource phases observe positive native write counters, five-second lease renewal, no idle visit proofs and bounded burst writes. Queue, timer and per-frame interval guarantees remain deterministic-test evidence, not runtime introspection or a long-run soak result.
 
 ## Verification
 

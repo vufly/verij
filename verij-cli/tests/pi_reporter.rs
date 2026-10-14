@@ -333,6 +333,7 @@ fn test_pi_reporter_fails_when_pane_ownership_unavailable() {
     let root = tempfile::tempdir().unwrap();
     let runtime_dir = root.path().join("runtime");
     let states_dir = root.path().join("states");
+    let metrics_dir = root.path().join("metrics");
     fs::create_dir_all(&runtime_dir).unwrap();
     fs::create_dir_all(&states_dir).unwrap();
 
@@ -345,6 +346,7 @@ fn test_pi_reporter_fails_when_pane_ownership_unavailable() {
             "--pid",
             &std::process::id().to_string(),
         ])
+        .env("VERIJ_RESOURCE_METRICS_DIR", &metrics_dir)
         .env("HOME", root.path())
         .env("VERIJ_AGENT_STATE_DIR", &runtime_dir)
         .env("VERIJ_STATES_DIR", &states_dir)
@@ -360,6 +362,18 @@ fn test_pi_reporter_fails_when_pane_ownership_unavailable() {
         stderr.contains("ownership unavailable"),
         "stderr should mention ownership unavailable: {stderr}"
     );
+    // P4 measurements must observe Pi reporters, including failed registration.
+    // Previously only OpenCode and sidebar commands enabled opt-in counters.
+    let snapshots: Vec<_> = fs::read_dir(metrics_dir)
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    assert_eq!(snapshots.len(), 1);
+    let metrics: serde_json::Value =
+        serde_json::from_slice(&fs::read(snapshots[0].path()).unwrap()).unwrap();
+    assert_eq!(metrics["counters"]["native_record_writes"], 0);
+    assert_eq!(metrics["counters"]["proof_attempts"], 0);
 }
 
 #[test]

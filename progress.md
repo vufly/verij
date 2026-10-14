@@ -54,9 +54,9 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 - Creation waits for the first tab's configured status plugin and a terminal pane to stabilize, then verifies the plugin survived fake-client detach.
 - Plugin fallback launches the agent when automatic layout loading does not produce state.
 
-### Pi Monitoring — P0–P3 Complete; P4 Acceptance Pending
+### Pi Monitoring — P0–P4 Local Automated Scope Complete
 
-- The [Pi monitoring plan](docs/PI_MONITORING_PLAN.md) is approved; P0, P1, P2, and P3 are complete, while P4 acceptance remains pending.
+- The [Pi monitoring plan](docs/PI_MONITORING_PLAN.md) is approved; P0–P3 and the documented P4 local automated scope are complete. Full release qualification and global deployment remain separate.
 - P0 private runtime qualification: 112 real-TUI scenario runs, 1,608 sanitized lifecycle records across compiled/Bun and npm/Node Pi 1.2.0.
 - P1 native implementation:
   - Added `AgentKind::Pi` and explicit `pi` source authority (priority 10) in `verij-types/src/agent.rs`, preserving wire compatibility.
@@ -83,6 +83,13 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
   - Doctor diagnostics: distinguishes structural installation readiness from live loaded adapter; verifies live foreground terminal job ownership against hydrated inventory using exact session incarnation; checks active observer lease; mirrors supported subset of Pi 1.2.0 discovery overrides contract (`!`, `+`, `-`), reporting complex minimatch syntax as uncertainty.
   - Bounded version probe: nonblocking pipe with validated `fcntl` flags, 4 KiB cap, dedicated process group cleanup (`setpgid`), and 3-second deadline.
   - Verification: 16 isolated tests in `verij-cli/tests/pi_setup.rs`, 3 unit tests in `pi_setup::tests`, 234 CLI tests, workspace tests, and `make check` all pass.
+
+- P4 actual-runtime acceptance:
+  - [Private harness, sanitized results and independent summary](prototypes/pi-acceptance/README.md): 74 live checks across compiled and Node Pi 1.2.0 with stock Zellij 0.45.1, actual exporter inventory and two sidebars.
+  - Host-local visits, full aggregate/error/abort/UI lifecycle, reporter outage/reconnect, idle reload, session replacement, native pane targeting, detached-TUI rejection and process lifetime replacement pass. Non-TUI modes and disabled discovery spawn no reporter.
+  - Two simultaneous 160-nested-tool workloads complete once each. Positive native counters demonstrate bounded writes and zero idle visit proofs; optional Pi instrumentation was added to prevent false zero-write measurements.
+  - Both providers, all private processes and scratch directories are removed without forced cleanup. Thirteen evidence tests, 333 Rust tests, 35 Pi tests, 22 OpenCode tests and native/WASM checks pass.
+  - Forced PID/server reuse, serialized resurrection, sidebar keyboard selection stability, active reload continuity and long-duration/status-bar stress remain explicit qualification gaps. No global installation changes.
 
 ## Verification
 
