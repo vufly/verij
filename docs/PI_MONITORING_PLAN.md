@@ -1,6 +1,6 @@
 # Pi Monitoring Support Plan
 
-Status: **approved by the user; P0 and P1 complete. P2–P4 implementation and acceptance remain pending**.
+Status: **approved by the user; P0, P1, and P2 complete. P3–P4 implementation and acceptance remain pending**.
 
 P0 evidence: [runtime qualification and established contract](../prototypes/pi-runtime/README.md), [sanitized traces](../prototypes/pi-runtime/results.json), and [independent verification summary](../prototypes/pi-runtime/summary.json). Compiled and Node-based Pi 1.2.0 passed the two-extension-order matrix. This is lifecycle qualification, not production monitoring readiness.
 
@@ -207,6 +207,16 @@ Implement thin event bindings, pure projection, full snapshots, nonblocking queu
 
 **Gate:** deterministic event/transport tests and the P0 real-Pi traces produce expected states, with no premature Done or monitoring-caused agent failure.
 
+**Completed:**
+- `integrations/pi/index.ts`: thin Pi event bindings with strict typed `ExtensionAPI` and `ExtensionContext` handlers; runtime/version guards (`supportsVersion("1.2.0")`, `ctx.mode === "tui"`, numeric decimal `ZELLIJ_PANE_ID`, PID, non-empty session hint optional). Starts child processes and timers only in `session_start`; disposes them idempotently in `session_shutdown`. Sibling adapter configuration (`adapter.json`) read boundedly (<= 16 KiB, schema validated, no tilde guessing) on `session_start` in TUI mode only, with launch-time environment variables taking precedence; zero filesystem I/O in the extension factory or non-TUI modes.
+- `integrations/pi/core.mjs` & `integrations/pi/core.d.mts`: pure event-state projection (`StateProjector`), bounded nonblocking FIFO transport (`SnapshotQueue`, 128-item total capacity limit), five-second lease renewal heartbeat, exponential backoff (2s–30s), bounded timeouts (4s startup/receipt, 500ms teardown), rate-limiting (target <= 10 writes/sec across all writes without priority bypass), central child close lifecycle with timer clearing and in-flight requeuing across spontaneous crashes, and bounded nonblocking shutdown flush of already-observed semantic frames within total fixed grace (500ms) before EOF and SIGTERM/SIGKILL escalation.
+- Outcome qualification and edge settlement: candidate captured at `agent_before_settle`, invalidated on work resumption (continuation guard, resumed tools, agent start), and finalized only at `agent_settled` with explicit `event.aborted === false`. Conflicting aborted flags or missing final-boundary evidence degrade conservatively to `Unknown`, never false `Done`. Cancellation settles `aborted` without completion. Tool error alone leaves activity `working` without terminal error. Standalone idle tools restore prior execution state without latching `working` forever.
+- Metadata-only blocking UI: tracks outer dialogs (`confirm`, `select`, `input`, `editor`, `custom`) mapping to generic `confirmation`, `question`, `ui` requests with locally generated full UUIDs; clears on `ui_prompt_end`. Dialogue state progressed during prompt degrades safely to `Unknown` rather than fabricating completion or sticking in working activity.
+- Unexpected conversation changes: unexpected context conversation changes or invalid identifiers during an active run or after `Done` immediately retire run, outcome, and prompt state to `Unknown`, reseeding a fresh runtime ID to ensure no prior completions are published under new associations.
+- Documentation: `integrations/pi/README.md` documents P2 source-only scope (explicit `pi -e ./integrations/pi/index.ts`), architecture, capabilities, exclusions, recovery, and verification commands.
+- Verification evidence: 35 deterministic unit tests and full sequential trace replay across all 112 P0 scenario runs (28 cases × 2 distributions × 2 observer orders) pass in `core.test.mjs`; strict TypeScript check passes against private `@earendil-works/pi-coding-agent@1.2.0` declarations (exit 0); 29 `verij-types` tests, 17 unit tests in `verij-cli/src/pi.rs` (`pi::tests::*`), and 8 isolated `pi_reporter` CLI integration tests pass.
+- Reviewer smoke verification evidence (synthetic ownership inventory via private controlling PTY, not P4): Smoke 1 (`idle -> working -> needs_input -> working -> done -> unknown`, completion revision 1, child clean exit) and Smoke 2 (killed native reporter process after `Done`, reconnect source epochs 1 -> 2, completion revisions 0 -> 1 only, stable `completed_at` timestamp preserved, child clean exit) pass.
+
 ### P3 — Setup, uninstall, doctor, and documentation
 
 Embed owned assets, add Pi configuration directory resolution and version qualification, implement ownership-safe lifecycle commands, and document capabilities and recovery. Update README/progress links and remove the claim that `pi` is only a future integration once qualification passes.
@@ -245,4 +255,4 @@ Planned checks: `cargo test --workspace`, native/WASM build checks, Pi setup/rep
 
 Pi monitoring is ready when normal interactive launches work after owned setup; activity, blocking extension UI, completion, abort, error, exit, and recovery obey the shared contracts; generic titles and host-local visits work unchanged; installation is reversible; and reproducible runtime/resource evidence accompanies the documented supported-version and capability matrix.
 
-P0 and P1 are complete. The next implementation task is P2 Pi extension and bounded transport (`integrations/pi/*`), not global installation or a UI redesign.
+P0, P1, and P2 are complete. The next implementation task is P3 Setup, uninstall, doctor, and documentation, not global installation or a UI redesign.
