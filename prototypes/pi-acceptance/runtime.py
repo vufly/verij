@@ -204,7 +204,7 @@ class Runtime:
         path = self.root / f"state/verij/agent-monitoring/hosts/{host}.json"
         return json.loads(path.read_text())["acknowledgements"] if path.exists() else {}
 
-    def start(self):
+    def start(self, monitoring=True):
         self.provider = Provider()
         self.burst_provider = BurstProvider()
         root = self.root
@@ -226,7 +226,8 @@ class Runtime:
         models["providers"]["p4-workload"] = {**models["providers"]["p0-fixture"], "baseUrl": self.burst_provider.url,
             "models": [{**models["providers"]["p0-fixture"]["models"][0], "id": "burst", "name": "burst"}]}
         (root / "agent/models.json").write_text(json.dumps(models))
-        self.native("agent", "setup", "pi", "--config-dir", root / "agent", "--pi-bin", self.pi_probe)
+        if monitoring:
+            self.native("agent", "setup", "pi", "--config-dir", root / "agent", "--pi-bin", self.pi_probe)
         launch = {"command": self.command, "root": str(root), "repo": str(REPO)}
         (root / "launch.json").write_text(json.dumps(launch))
         url = "file:" + str(self.plugin)
@@ -250,7 +251,8 @@ class Runtime:
         import shlex
         self.send(shlex.join([sys.executable, str(HERE / "launch.py"), str(root / "launch.json")]))
         self.action(self.session, "new-tab", "--name", "parking")
-        self.wait(lambda: self.state())
+        if monitoring:
+            self.wait(lambda: self.state())
         self.wait(lambda: any(e["event"] == "fixture_ready" for e in self.events()))
         self.discover()
 

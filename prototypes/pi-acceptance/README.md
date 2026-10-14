@@ -93,6 +93,37 @@ rm -rf -- "$scratch"
 
 `--runtime compiled` is a smoke test, not the two-distribution gate. `--seconds` permits 5–60-second resource phases. `--debug` prints private diagnostics to the caller; never publish those logs. Ordinary retained failures contain only exception class, sanitized completed checks and cleanup metadata. Every successful gate requires both providers stopped, all discovered birth-qualified private processes exited, temporary directories removed, and zero forced cleanup kills.
 
+## Matched rebase resource comparison
+
+`compare.py` supplements the full two-distribution matrix with a short matched
+compiled-Pi workload. Supply separately built master and rebased release CLI/WASM
+pairs; do not substitute globally installed artifacts. It runs three fresh private
+cells sequentially: master without Pi monitoring, rebased without Pi monitoring,
+and rebased with the owned Pi adapter. All cells retain the same real Pi, loopback
+providers, exporter, two sidebars, active fixture and trace observer. The controls
+omit only the Pi adapter/reporter, not the shared monitoring infrastructure.
+
+Each cell measures ten-second idle and post-burst recovery phases around one real
+160-nested-tool aggregate. Process roles separate Pi runtime, native reporter,
+sidebars and Zellij. Pi's in-process JavaScript overhead is not independently
+instrumented; matched deltas are short observations, not precise attribution or a
+memory-stability guarantee. Hashes, counters, tool counts and private cleanup are
+retained, without terminal or provider content. The gate requires zero idle proofs,
+lease-write budgets, one successful aggregate, and no forced cleanup kills.
+
+```bash
+python3 prototypes/pi-acceptance/compare.py \
+  --master-cli /private/master/target/release/verij \
+  --master-plugin /private/master/target/wasm32-wasip1/release/verij-plugin.wasm \
+  --cli target/release/verij \
+  --plugin target/wasm32-wasip1/release/verij-plugin.wasm \
+  --seconds 10 --output /private/pi-resource-comparison.json
+```
+
+The controls use `Runtime.start(monitoring=False)`; normal acceptance still installs
+the private owned adapter by default. This comparison does not replace the Node
+distribution matrix, OpenCode P3 smoke, status-bar scaling checks or combined soak.
+
 ## Regression checks
 
 ```bash
