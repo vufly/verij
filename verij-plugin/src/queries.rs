@@ -6,7 +6,8 @@ use zellij_tile::shim::plugin_api::plugin_command::{
 };
 #[cfg(target_arch = "wasm32")]
 use zellij_tile::shim::plugin_api::plugin_command::{
-    get_session_list_response, ProtobufGetSessionListResponse, ProtobufPluginCommand,
+    get_session_list_response, ProtobufGetSessionListResponse, ProtobufGetTabInfoResponse,
+    ProtobufPluginCommand,
 };
 use zellij_tile::shim::prost::Message;
 
@@ -17,6 +18,13 @@ extern "C" {
 }
 
 fn query<R: Message + Default>(command: PluginCommand) -> Result<R, String> {
+    query_with_empty(command, false)
+}
+
+fn query_with_empty<R: Message + Default>(
+    command: PluginCommand,
+    allow_empty: bool,
+) -> Result<R, String> {
     #[cfg(target_arch = "wasm32")]
     {
         let command: ProtobufPluginCommand = command
@@ -26,11 +34,17 @@ fn query<R: Message + Default>(command: PluginCommand) -> Result<R, String> {
         unsafe { host_run_plugin_command() };
         let bytes = zellij_tile::shim::bytes_from_stdin()
             .map_err(|error| format!("Missing SDK reply: {error}"))?;
-        decode_reply(&bytes)
+        // Optional-object responses encode an absent object as zero bytes.
+        // Reading stdin still must succeed; absence is not a transport failure.
+        if allow_empty && bytes.is_empty() {
+            Ok(R::default())
+        } else {
+            decode_reply(&bytes)
+        }
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = command;
+        let _ = (command, allow_empty);
         Err("SDK query unavailable outside WASM".into())
     }
 }
@@ -60,8 +74,24 @@ pub fn focused_pane() -> Result<(usize, PaneId), String> {
 }
 
 pub fn pane_info(pane: PaneId) -> Option<PaneInfo> {
-    let response: ProtobufGetPaneInfoResponse = query(PluginCommand::GetPaneInfo(pane)).ok()?;
-    response.pane_info?.try_into().ok()
+    live_pane_info(pane).ok().flatten()
+}
+
+pub fn live_pane_info(pane: PaneId) -> Result<Option<PaneInfo>, String> {
+    let response: ProtobufGetPaneInfoResponse =
+        query_with_empty(PluginCommand::GetPaneInfo(pane), true)?;
+    response.pane_info
+        .map(|info| info.try_into().map_err(|error| format!("Malformed pane info: {error}")))
+        .transpose()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn tab_info(tab_id: usize) -> Result<Option<TabInfo>, String> {
+    let response: ProtobufGetTabInfoResponse =
+        query_with_empty(PluginCommand::GetTabInfo(tab_id), true)?;
+    response.tab_info
+        .map(|info| info.try_into().map_err(|error| format!("Malformed tab info: {error}")))
+        .transpose()
 }
 
 #[cfg(target_arch = "wasm32")]

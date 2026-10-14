@@ -1,0 +1,504 @@
+{
+  "artifacts_dir": "/tmp/opencode/verij-metadata-99d2mw9y",
+  "provider": "controlled local HTTP fixture (synthetic model output)",
+  "opencode_version": "1.19.0",
+  "checks": [
+    {
+      "setup_idempotence_and_diagnostics": true,
+      "setup": {
+        "bridge_version": 1,
+        "config": "/tmp/opencode/verij-metadata-99d2mw9y/config/opencode/tui.json",
+        "installed": true,
+        "opencode_version": "1.19.0",
+        "reporter": "/home/vudinhn/repos/verij/target/release/verij",
+        "restart_required": true,
+        "runtime": "/tmp/opencode/verij-metadata-99d2mw9y/agents"
+      },
+      "doctor": {
+        "adapter": "opencode",
+        "assets_match": true,
+        "binding_requires": "Linux foreground tty + current native Zellij inventory",
+        "blockers": [
+          "No verified pane inventory is available for the selected session scope. Check inventory_sessions; legacy snapshots require a Verij WASM exporter upgrade/reload, not another OpenCode restart."
+        ],
+        "bridge_version": 1,
+        "bundled_plugin": "/home/vudinhn/repos/verij/dist/verij_plugin.wasm",
+        "capabilities": [
+          "activity",
+          "permissions",
+          "questions",
+          "conversation_title",
+          "aggregate_completion",
+          "terminal_failure"
+        ],
+        "config": "/tmp/opencode/verij-metadata-99d2mw9y/config/opencode/tui.json",
+        "configured": true,
+        "default_installed_plugin": "/tmp/opencode/verij-metadata-99d2mw9y/data/verij/verij_plugin.wasm",
+        "disabled": false,
+        "effective_adapter_inventory_directory": "/tmp/opencode/verij-metadata-99d2mw9y/states",
+        "effective_adapter_runtime": "/tmp/opencode/verij-metadata-99d2mw9y/agents",
+        "exporter_upgrade": "From the checkout: make install-plugin (or set VERIJ_DATA_DIR to the directory of your configured Verij WASM). Reload the same configured plugin URL in the affected existing session using zellij -s SESSION action start-or-reload-plugin URL. New sessions load the installed artifact normally.",
+        "installation_ready": true,
+        "installed_inventory_directory": "/tmp/opencode/verij-metadata-99d2mw9y/states",
+        "installed_plugin_matches_bundle": null,
+        "installed_runtime": "/tmp/opencode/verij-metadata-99d2mw9y/agents",
+        "inventory_directory": "/tmp/opencode/verij-metadata-99d2mw9y/states",
+        "inventory_path_matches_adapter": true,
+        "inventory_ready": false,
+        "inventory_sessions": [],
+        "live_records": 0,
+        "monitoring_prerequisites_ready": false,
+        "note": "Installation, runtime and pane-inventory prerequisite checks. live_records confirms actual reporting; installation alone is insufficient. Restart OpenCode after adapter setup/uninstall; reload the Verij exporter after a WASM upgrade.",
+        "opencode_version": "1.19.0",
+        "records": [],
+        "reporter": "/home/vudinhn/repos/verij/target/release/verij",
+        "reporter_available": true,
+        "reporter_version": "verij 0.1.0",
+        "requested_session": null,
+        "runtime": "/tmp/opencode/verij-metadata-99d2mw9y/agents",
+        "runtime_matches_adapter": true,
+        "runtime_writable": true,
+        "supported_versions": [
+          "1.x.x"
+        ],
+        "version_supported": true
+      },
+      "database_path": "/tmp/opencode/verij-metadata-99d2mw9y/data/opencode/opencode.db"
+    },
+    {
+      "legacy_exporter_prerequisite_diagnosed": true,
+      "snapshot_fixture_synthetic": true,
+      "doctor": {
+        "adapter": "opencode",
+        "assets_match": true,
+        "binding_requires": "Linux foreground tty + current native Zellij inventory",
+        "blockers": [
+          "No verified pane inventory is available for the selected session scope. Check inventory_sessions; legacy snapshots require a Verij WASM exporter upgrade/reload, not another OpenCode restart."
+        ],
+        "bridge_version": 1,
+        "bundled_plugin": "/home/vudinhn/repos/verij/dist/verij_plugin.wasm",
+        "capabilities": [
+          "activity",
+          "permissions",
+          "questions",
+          "conversation_title",
+          "aggregate_completion",
+          "terminal_failure"
+        ],
+        "config": "/tmp/opencode/verij-metadata-99d2mw9y/config/opencode/tui.json",
+        "configured": true,
+        "default_installed_plugin": "/tmp/opencode/verij-metadata-99d2mw9y/data/verij/verij_plugin.wasm",
+        "disabled": false,
+        "effective_adapter_inventory_directory": "/tmp/opencode/verij-metadata-99d2mw9y/states",
+        "effective_adapter_runtime": "/tmp/opencode/verij-metadata-99d2mw9y/agents",
+        "exporter_upgrade": "From the checkout: make install-plugin (or set VERIJ_DATA_DIR to the directory of your configured Verij WASM). Reload the same configured plugin URL in the affected existing session using zellij -s SESSION action start-or-reload-plugin URL. New sessions load the installed artifact normally.",
+        "installation_ready": true,
+        "installed_inventory_directory": "/tmp/opencode/verij-metadata-99d2mw9y/states",
+        "installed_plugin_matches_bundle": null,
+        "installed_runtime": "/tmp/opencode/verij-metadata-99d2mw9y/agents",
+        "inventory_directory": "/tmp/opencode/verij-metadata-99d2mw9y/states",
+        "inventory_path_matches_adapter": true,
+        "inventory_ready": false,
+        "inventory_sessions": [
+          {
+            "detail": "This session exports only sessions/tabs. Upgrade the Verij WASM plugin at its configured load_plugins path, then reload that same URL in this session.",
+            "session": "legacy-exporter-fixture",
+            "status": "legacy_snapshot",
+            "verified_terminal_panes": 0
+          }
+        ],
+        "live_records": 0,
+        "monitoring_prerequisites_ready": false,
+        "note": "Installation, runtime and pane-inventory prerequisite checks. live_records confirms actual reporting; installation alone is insufficient. Restart OpenCode after adapter setup/uninstall; reload the Verij exporter after a WASM upgrade.",
+        "opencode_version": "1.19.0",
+        "records": [],
+        "reporter": "/home/vudinhn/repos/verij/target/release/verij",
+        "reporter_available": true,
+        "reporter_version": "verij 0.1.0",
+        "requested_session": "legacy-exporter-fixture",
+        "runtime": "/tmp/opencode/verij-metadata-99d2mw9y/agents",
+        "runtime_matches_adapter": true,
+        "runtime_writable": true,
+        "supported_versions": [
+          "1.x.x"
+        ],
+        "version_supported": true
+      }
+    },
+    {
+      "private_home_xdg_database_and_verified_listener": true,
+      "port": 45963,
+      "server_birth": {
+        "pid": 87708,
+        "start_jiffies": 1042481,
+        "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe"
+      },
+      "paths": {
+        "home": "/tmp/opencode/verij-metadata-99d2mw9y/home",
+        "state": "/tmp/opencode/verij-metadata-99d2mw9y/state/opencode",
+        "config": "/tmp/opencode/verij-metadata-99d2mw9y/config/opencode",
+        "worktree": "/",
+        "directory": "/tmp/opencode/verij-metadata-99d2mw9y"
+      }
+    },
+    {
+      "two_native_panes_foreground_tpgid_and_birth_verified": true,
+      "tuis": [
+        {
+          "ts": 1791980289960,
+          "pid": 88888,
+          "pane": "0",
+          "kind": "ready",
+          "birth": {
+            "pid": 88888,
+            "pgrp": 88888,
+            "tty_nr": 34840,
+            "tpgid": 88888,
+            "start_jiffies": 1043336,
+            "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe"
+          },
+          "route": "1666dd40f66202af721f"
+        },
+        {
+          "ts": 1791980296278,
+          "pid": 89104,
+          "pane": "1",
+          "kind": "ready",
+          "birth": {
+            "pid": 89104,
+            "pgrp": 89104,
+            "tty_nr": 34842,
+            "tpgid": 89104,
+            "start_jiffies": 1043856,
+            "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe"
+          },
+          "route": "2a549dcfaa2b228cff6a"
+        }
+      ],
+      "inventory": [
+        {
+          "pane_id": 0,
+          "command_is_opencode_attach": true,
+          "cwd_is_private": true
+        },
+        {
+          "pane_id": 1,
+          "command_is_opencode_attach": true,
+          "cwd_is_private": true
+        }
+      ]
+    },
+    {
+      "large_output_repeated_recovery": true,
+      "history_messages": 128,
+      "synthetic_tool_output_bytes": 8388608,
+      "transport_bytes": 312094,
+      "message_queries": 6,
+      "max_message_limit": 1,
+      "completion_revision": 1,
+      "metrics_before": {
+        "pid": 88888,
+        "events": 22,
+        "endpoints": {
+          "session.status": 9,
+          "session.get": 9,
+          "session.children": 8,
+          "session.messages": 6,
+          "permission.list": 4,
+          "question.list": 4
+        },
+        "ready": true,
+        "selected": "ses_ec5a6a646ffeXgBe1zv9MtOezK",
+        "version": "1.19.0",
+        "transport": {
+          "session.status": {
+            "bytes": 64,
+            "reads": 8,
+            "cancellations": 0
+          },
+          "session.get": {
+            "bytes": 3536,
+            "reads": 8,
+            "cancellations": 0
+          },
+          "session.children": {
+            "bytes": 16,
+            "reads": 8,
+            "cancellations": 0
+          },
+          "session.messages": {
+            "bytes": 3361,
+            "reads": 6,
+            "cancellations": 6
+          },
+          "permission.list": {
+            "bytes": 8,
+            "reads": 4,
+            "cancellations": 0
+          },
+          "question.list": {
+            "bytes": 8,
+            "reads": 4,
+            "cancellations": 0
+          }
+        },
+        "max_message_limit": 1,
+        "failures": {
+          "session.status": "The operation was aborted.",
+          "session.get": "The operation was aborted."
+        },
+        "producer_paths": {
+          "home": "/tmp/opencode/verij-metadata-99d2mw9y/home",
+          "state": "/tmp/opencode/verij-metadata-99d2mw9y/state/opencode",
+          "config": "/tmp/opencode/verij-metadata-99d2mw9y/config/opencode",
+          "worktree": "/",
+          "directory": "/tmp/opencode/verij-metadata-99d2mw9y"
+        },
+        "cwd": "/tmp/opencode/verij-metadata-99d2mw9y",
+        "runtime": "24.3.0",
+        "bun": "1.3.14"
+      },
+      "metrics_after": {
+        "pid": 88888,
+        "events": 23,
+        "endpoints": {
+          "session.status": 15,
+          "session.get": 13,
+          "session.children": 12,
+          "session.messages": 12,
+          "permission.list": 7,
+          "question.list": 7
+        },
+        "ready": true,
+        "selected": "ses_ec5a6a646ffeXgBe1zv9MtOezK",
+        "version": "1.19.0",
+        "transport": {
+          "session.status": {
+            "bytes": 76,
+            "reads": 14,
+            "cancellations": 0
+          },
+          "session.get": {
+            "bytes": 5624,
+            "reads": 12,
+            "cancellations": 0
+          },
+          "session.children": {
+            "bytes": 24,
+            "reads": 12,
+            "cancellations": 0
+          },
+          "session.messages": {
+            "bytes": 315455,
+            "reads": 12,
+            "cancellations": 12
+          },
+          "permission.list": {
+            "bytes": 14,
+            "reads": 7,
+            "cancellations": 0
+          },
+          "question.list": {
+            "bytes": 14,
+            "reads": 7,
+            "cancellations": 0
+          }
+        },
+        "max_message_limit": 1,
+        "failures": {
+          "session.status": "The operation was aborted.",
+          "session.get": "The operation was aborted."
+        },
+        "producer_paths": {
+          "home": "/tmp/opencode/verij-metadata-99d2mw9y/home",
+          "state": "/tmp/opencode/verij-metadata-99d2mw9y/state/opencode",
+          "config": "/tmp/opencode/verij-metadata-99d2mw9y/config/opencode",
+          "worktree": "/",
+          "directory": "/tmp/opencode/verij-metadata-99d2mw9y"
+        },
+        "cwd": "/tmp/opencode/verij-metadata-99d2mw9y",
+        "runtime": "24.3.0",
+        "bun": "1.3.14"
+      }
+    },
+    {
+      "long_history_reload_same_completion": true,
+      "completion_revision": 1,
+      "source_epoch_before": 1,
+      "source_epoch_after": 2,
+      "provider_requests": {
+        "success": 1
+      }
+    },
+    {
+      "standalone_worker_no_message_body_rpc": true,
+      "history_messages": 128,
+      "synthetic_tool_output_bytes": 8388608,
+      "metrics_before": {
+        "pid": 90109,
+        "events": 0,
+        "endpoints": {
+          "session.status": 2,
+          "session.get": 2,
+          "session.children": 3,
+          "session.messages": 3,
+          "permission.list": 1,
+          "question.list": 1
+        },
+        "ready": true,
+        "selected": "ses_ec5a6a646ffeXgBe1zv9MtOezK",
+        "version": "1.19.0",
+        "transport": {
+          "session.status": {
+            "bytes": 4,
+            "reads": 2,
+            "cancellations": 0
+          },
+          "session.get": {
+            "bytes": 1044,
+            "reads": 2,
+            "cancellations": 0
+          },
+          "session.children": {
+            "bytes": 4,
+            "reads": 2,
+            "cancellations": 1
+          },
+          "session.messages": {
+            "bytes": 0,
+            "reads": 0,
+            "cancellations": 0
+          },
+          "permission.list": {
+            "bytes": 2,
+            "reads": 1,
+            "cancellations": 0
+          },
+          "question.list": {
+            "bytes": 2,
+            "reads": 1,
+            "cancellations": 0
+          }
+        },
+        "max_message_limit": 1,
+        "failures": {
+          "session.children": "Observation cancelled"
+        },
+        "producer_paths": {
+          "home": "/tmp/opencode/verij-metadata-99d2mw9y/home",
+          "state": "/tmp/opencode/verij-metadata-99d2mw9y/state/opencode",
+          "config": "/tmp/opencode/verij-metadata-99d2mw9y/config/opencode",
+          "worktree": "/",
+          "directory": "/tmp/opencode/verij-metadata-99d2mw9y"
+        },
+        "cwd": "/tmp/opencode/verij-metadata-99d2mw9y",
+        "runtime": "24.3.0",
+        "bun": "1.3.14"
+      },
+      "metrics_after": {
+        "pid": 90109,
+        "events": 0,
+        "endpoints": {
+          "session.status": 6,
+          "session.get": 4,
+          "session.children": 5,
+          "session.messages": 9,
+          "permission.list": 3,
+          "question.list": 3
+        },
+        "ready": true,
+        "selected": "ses_ec5a6a646ffeXgBe1zv9MtOezK",
+        "version": "1.19.0",
+        "transport": {
+          "session.status": {
+            "bytes": 12,
+            "reads": 6,
+            "cancellations": 0
+          },
+          "session.get": {
+            "bytes": 2088,
+            "reads": 4,
+            "cancellations": 0
+          },
+          "session.children": {
+            "bytes": 8,
+            "reads": 4,
+            "cancellations": 1
+          },
+          "session.messages": {
+            "bytes": 0,
+            "reads": 0,
+            "cancellations": 0
+          },
+          "permission.list": {
+            "bytes": 6,
+            "reads": 3,
+            "cancellations": 0
+          },
+          "question.list": {
+            "bytes": 6,
+            "reads": 3,
+            "cancellations": 0
+          }
+        },
+        "max_message_limit": 1,
+        "failures": {
+          "session.children": "Observation cancelled"
+        },
+        "producer_paths": {
+          "home": "/tmp/opencode/verij-metadata-99d2mw9y/home",
+          "state": "/tmp/opencode/verij-metadata-99d2mw9y/state/opencode",
+          "config": "/tmp/opencode/verij-metadata-99d2mw9y/config/opencode",
+          "worktree": "/",
+          "directory": "/tmp/opencode/verij-metadata-99d2mw9y"
+        },
+        "cwd": "/tmp/opencode/verij-metadata-99d2mw9y",
+        "runtime": "24.3.0",
+        "bun": "1.3.14"
+      },
+      "completion_revision": 1
+    }
+  ],
+  "limitations": [
+    "Attach transport byte counts include read-ahead chunks, not just metadata bytes.",
+    "Standalone metadata requires verified local storage/indexes; unavailable or in-memory DBs stay conservative.",
+    "Other stock worker SDK endpoints still own their upstream buffers; adapter guards bound decoding and parsing.",
+    "Stored tool output is synthetic REST seed data, not a real tool execution.",
+    "Short runtime checks do not establish long-run memory stability or server-side serialization bounds."
+  ],
+  "verij": "/home/vudinhn/repos/verij/target/release/verij",
+  "zellij_version": "zellij 0.45.1",
+  "measurement_kind": "actual OpenCode HTTP/TUI/native reporter; synthetic stored tool part",
+  "assets": {
+    "bridge": {
+      "path": "/home/vudinhn/repos/verij/integrations/opencode/bridge.mjs",
+      "sha256": "0f4ed4635cba4c2ed958f0d4d0a1675d3abddea4295e88077047056a5f5131c8"
+    },
+    "core": {
+      "path": "/home/vudinhn/repos/verij/integrations/opencode/core.mjs",
+      "sha256": "da2898c87c4216b4d95d31649c998601d8bcde4e351d7ca6ca7c4d933f54b536"
+    },
+    "cli": {
+      "path": "/home/vudinhn/repos/verij/target/release/verij",
+      "sha256": "05bcd928ea485ef2ee6b776746e149c68608952d0bf7b95b4dae15b7407a28a8"
+    },
+    "transport_probe": {
+      "path": "/home/vudinhn/repos/verij/prototypes/resource-usage/runtime-tui.mjs",
+      "sha256": "3117f14b176f2a1631dbf963e405b716581198286c9a1c68f3ccc7fdc74d74e2"
+    }
+  },
+  "status": "PASS",
+  "rss_guard_mib": {
+    "opencode": 1536,
+    "zellij": 512
+  },
+  "peak_rss_mib": {
+    "87708": 767.66015625,
+    "88831": 73.8046875,
+    "88888": 792.20703125,
+    "89104": 480.015625,
+    "90109": 1290.53125
+  },
+  "probe_processes_exited": true,
+  "server_and_host_exited": true
+}

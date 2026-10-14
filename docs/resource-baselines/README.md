@@ -90,9 +90,9 @@ The actual OpenCode pair also passed completion acknowledgement, detachment, and
 cleanup. Its five-second windows are too short to estimate a ten-second idle
 recovery rate precisely; deterministic scheduler tests check that interval.
 
-P2 remains in progress: family caching, resumable traversal within the endpoint
-budget, and metadata-only outcome recovery are still pending. Existing full message
-retrieval is throttled but not yet removed. Verify these milestone reports explicitly:
+At this initial milestone, family caching, resumable traversal within the endpoint
+budget, and metadata-only outcome recovery remained pending. Existing full message
+retrieval was throttled but not yet removed. Verify these milestone reports explicitly:
 
 ```bash
 python prototypes/resource-usage/verify_evidence.py \
@@ -132,4 +132,122 @@ python prototypes/resource-usage/verify.py \
   --warmup 5 --seconds 10 --verify-p1-visits --quiet \
   --output /tmp/opencode/p1-visits.json
 python prototypes/resource-usage/verify_evidence.py /tmp/opencode/p1-visits.json
+```
+
+## P2 cached and resumable family recovery milestone
+
+The 2026-10-14 continuation retains four reports:
+
+- `p2-family-scheduler.json`: synthetic endpoint invocations with an exiting reporter
+  stub, plus budgeted cold and cached family recovery. Families of 1/16/64 complete
+  in 1/3/9 slices, taking 9/39/135 cold calls. Subsequent cached recovery uses four
+  calls for each size. The 64-member recovery takes about ten seconds across slices;
+  it does not increase the three-second deadline for an individual collection.
+- `p2-family-synthetic.json`: matched private stock Zellij, real sidebar, native
+  reporter and synthetic API/events, with one host and four status-bar tabs. Requested
+  20/100 owned events/sec produced 19.5/96.6 observed events/sec, 4.5/4.8 API calls/sec,
+  and 0.3/0.2 native writes/sec. Streaming API traffic is about 97% below P0. Idle
+  samples include startup/reporter recovery at one-second counter resolution;
+  deterministic tests establish the ten-second quiet recovery interval.
+- `p2-family-opencode.json`: the same topology with installed OpenCode 1.19.0,
+  actual TUI/API calls, and controlled local provider chunks. Requested 20/100
+  chunks/sec produced 1.0/1.3 subscribed events/sec and 4.4/4.4 bridge calls/sec.
+  Completion acknowledgement, detachment and birth-qualified cleanup passed.
+- `p2-family-h3.json`: the production installed adapter in private stock Zellij
+  panes passed 26 H3 runtime checks. The evidence checker corroborates 27 snapshots
+  across four instances, including input, errors, cancellation, child aggregation,
+  reload, conversation reselection, lease expiry and mid-turn replacement.
+
+The scheduler report records checkout bridge/core hashes; matched resource reports
+also identify tested release CLI, installed exporter and status-bar hashes. H3
+installs the embedded adapter into its private configuration and verifies asset
+equality through doctor. The final runtime pair ran alongside H3 in independent
+private roots; the final synthetic pair ran separately. CPU/RSS observations are
+retained, but the milestone conclusions use
+endpoint/write limits and semantics rather than attributing machine-wide load.
+
+Verification also exposed a harness timing race: immediate Working could precede
+arrival of the held provider request. H3 now waits for provider arrival before
+capturing its no-replay request count. The earlier assertion failure remains at
+`/tmp/opencode/vj-h3-25et2_y_/results.json`; the corrected fixture passed. A concurrent
+synthetic bootstrap failed host registration with `inner display unavailable`,
+retained at `/tmp/opencode/verij-baseline-lydfpd0z/results.json`. Its separate rerun
+passed all phases. These failures are not folded into the successful measurements.
+
+Topology caches retain metadata only. Busy families do not retrieve message bodies.
+Quiescent recovery still retrieves up to 100 messages, then retains only structured
+metadata. This is neither a response byte bound nor metadata-only retrieval. Those
+remaining P2 items and P5's combined matrix/soak are still open.
+
+```bash
+node --test integrations/opencode/core.test.mjs
+cargo test -p verij-cli opencode
+node prototypes/resource-usage/opencode_probe.mjs \
+  --warmup 2 --seconds 10 --output /tmp/opencode/p2-family-scheduler.json
+python prototypes/resource-usage/verify_evidence.py \
+  docs/resource-baselines/p2-family-synthetic.json \
+  docs/resource-baselines/p2-family-opencode.json
+python prototypes/h3-opencode/verify_evidence.py \
+  docs/resource-baselines/p2-family-h3.json
+```
+
+## P2 bounded outcome recovery completion
+
+`p2-metadata-scheduler.json`, `p2-metadata-opencode.json`, `p2-metadata-h3.json`,
+and `p2-metadata-large-output.json` retain the completed P2 assets. Earlier family
+reports remain historical measurements, including their then-open history limitations.
+
+Attach now reads a bounded metadata prefix from one-message API pages and cancels
+before parts. Standalone worker observation uses fresh, read-only, indexed SQLite
+metadata rather than a worker RPC that buffers complete message bodies. Current-user
+and latest-assistant relationships, chronological pagination, and a final head
+recheck establish authority; empty/stale local TUI caches do not. Outcome suffixes
+resume in at most six invocations per collection, with a 100-message search bound.
+Only current outcome metadata and a cursor are retained.
+
+Adapter limits are 64 KiB per metadata prefix or stored message metadata, 1 MiB for
+other response buffers, depth 32 and 16,384 JSON structural nodes. Standalone's
+read-only SQLite cache is 512 KiB, with mmap disabled and zero busy timeout. These
+are allocation/parse limits on Verij-owned work, not byte bounds on transport-owned
+chunks, OpenCode's normal cache, or server serialization. Missing/unverified local
+storage and unsupported response shapes stay conservative without bulk-history
+fallback. The tests exercise these limits independently of CPU measurements.
+
+The large-output fixture uses 128 genuine historical no-reply turns, one actual
+controlled-provider completion, and an explicitly synthetic 8 MiB stored tool part
+inserted through the real REST API. Six attach queries across two subsequent
+recoveries delivered 312,094 bytes including read-ahead; standalone's corresponding
+message-body transport counters remained zero. Reload changed source epoch and
+preserved completion revision 1, with one provider request. Its final run includes
+three actual TUIs, server-owned listener/storage verification, RSS guards and cleanup.
+The wrapper retains bounded cumulative endpoint/transport counters, never payloads.
+
+The full H3 suite passed 26 checks, corroborated against 27 snapshots across four
+instances. All 55 Node tests and four focused native OpenCode/setup tests passed.
+The matched actual OpenCode pair covers one host/four status-bar tabs, completion
+acknowledgement and detachment. The scheduler report still separates synthetic
+events and invocation counts from real HTTP traffic. These short runs were executed
+in independent private roots alongside other verification; they close P2's scoped
+checks, not P5's combined matrix/four-hour soak or P6 rollout.
+
+Earlier standalone attempts retained their scratch reports, including
+`/tmp/opencode/verij-metadata-hnszumcj/results.json`. The fixture exposed API latency
+postponing a nominal ten-second fallback to twenty seconds. Eligibility now starts
+at collection start; a deterministic regression covers that timing. Startup/rebind
+cancellations of unrelated SDK reads remain visible in the final transport metrics;
+successful metadata proofs and native completion checks are verified separately.
+
+```bash
+node --test integrations/opencode/core.test.mjs integrations/opencode/recovery.test.mjs
+cargo test -p verij-cli opencode
+python prototypes/resource-usage/metadata.py \
+  --zellij "$(command -v zellij)" --verij target/release/verij \
+  --plugin /path/to/installed/verij_plugin.wasm \
+  --output /tmp/opencode/p2-metadata-large-output.json
+python prototypes/resource-usage/verify_metadata.py \
+  docs/resource-baselines/p2-metadata-large-output.json --current-assets
+python prototypes/resource-usage/verify_evidence.py \
+  docs/resource-baselines/p2-metadata-opencode.json
+python prototypes/h3-opencode/verify_evidence.py \
+  docs/resource-baselines/p2-metadata-h3.json
 ```

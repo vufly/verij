@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { EventEmitter } from "node:events"
 import { createBridge } from "./bridge.mjs"
 import { fixture } from "../../prototypes/resource-usage/fixture.mjs"
-import { normalize, reconcile, supportsVersion, SnapshotQueue, ReconcileScheduler,
+import { normalize, reconcile, ObservationRecovery, supportsVersion, SnapshotQueue, ReconcileScheduler,
   RequestBudget, budgetedAPI, observationBudget } from "./core.mjs"
 
 const version = "1.18.34"
@@ -98,7 +98,7 @@ test("activity changing across a recovery observation stays uncertain", async ()
   await assert.rejects(reconcile(api), /Activity changed/)
 })
 
-const flush = async () => { for (let n = 0; n < 20; n++) await Promise.resolve() }
+const flush = async () => { for (let n = 0; n < 200; n++) await Promise.resolve() }
 class Clock {
   time = 0
   next = 0
@@ -283,14 +283,16 @@ test("cancelled physical request retains slot and queued cancellation never invo
 
 test("budget wrapper retains read-only SDK options and charges family fan-out", async () => {
   const result = data => Promise.resolve({ data })
-  const budget = new RequestBudget(new Clock())
+  const clock = new Clock(), budget = new RequestBudget(clock)
   const api = { state: { ready: true }, route: { current: { name: "session", params: { sessionID: "root" } } },
     client: { session: { get: () => result({ id: "root" }), children: () => result([]), messages: () => result([]),
       status: (_args, options) => { assert.equal(options.throwOnError, true); assert.ok(options.signal); return result({}) } },
     permission: { list: () => result([]) }, question: { list: () => result([]) } } }
   Object.freeze(api)
-  assert.equal(normalize(version, await reconcile(budgetedAPI(api, budget))).activity, "idle")
-  assert.equal(budget.calls, 8)
+  const collecting = reconcile(budgetedAPI(api, budget))
+  await clock.advance(1000)
+  assert.equal(normalize(version, await collecting).activity, "idle")
+  assert.equal(budget.calls, 9)
   budget.dispose()
 })
 
@@ -362,12 +364,12 @@ test("real bridge dedupes recovery receipts and renews idle source without API w
   await probe.start(); await probe.clock.advance(1500)
   const child = probe.children[0], frames = child.frames.length, calls = probe.subject.count()
   assert.equal(child.frames.at(-1).activity, "idle")
-  await probe.clock.advance(4500) // Five seconds since the accepted idle snapshot.
+  await probe.clock.advance(4600) // Includes token-bucket delay before the idle receipt.
   assert.equal(probe.subject.count(), calls)
   assert.equal(child.frames.length, frames + 1)
   assert.deepEqual(child.frames.at(-1), child.frames.at(-2))
   await probe.clock.advance(5000) // Periodic recovery and independent renewal coincide.
-  assert.equal(probe.subject.count(), calls + 8)
+  assert.equal(probe.subject.count(), calls + 9) // Ten-second eligibility starts before API latency.
   assert.equal(child.frames.length, frames + 2)
   await probe.dispose()
 })
@@ -388,12 +390,13 @@ test("real bridge keeps explicit question open/reply edges ordered through coale
   probe.subject.listeners.get("message.updated")({ properties: { info: { id: "user-1", role: "user", sessionID: "root" } } })
   await probe.clock.advance(0)
   assert.deepEqual(child.frames.at(-1).pending_requests, [{ id: "q", kind: "question" }])
-  assert.equal(child.frames.length, frames)
+  assert.equal(child.frames.at(-1).turn_id, "root/user-1")
+  assert.equal(child.frames.length, frames + 1)
   probe.subject.listeners.get("question.replied")({ properties: { requestID: "q", sessionID: "root" } })
   await probe.clock.advance(0)
   assert.deepEqual(child.frames.at(-1).pending_requests, [])
   assert.equal(child.frames.at(-1).completed_at_ms, undefined)
-  assert.equal(child.frames.length, frames + 1)
+  assert.equal(child.frames.length, frames + 2)
   await probe.dispose()
 })
 
@@ -430,5 +433,271 @@ test("input ingress beyond supported request bound degrades without oversized na
   await probe.clock.advance(0)
   assert.equal(probe.children[0].frames.at(-1).activity, "unknown")
   assert.ok(probe.children[0].frames.every(frame => frame.pending_requests.length <= 100))
+  await probe.dispose()
+})
+
+test("validated family cache separates status recovery from ancestry and tool history", async () => {
+  const clock = new Clock(), recovery = new ObservationRecovery(clock), subject = fixture(16)
+  let result
+  for (let slice = 0; slice < 3; slice++) result = await recovery.collect(subject.api)
+  assert.equal(result.members.length, 16)
+  const topologyCalls = subject.calls["session.children"] + subject.calls["session.get"]
+  const historyCalls = subject.calls["session.messages"]
+  subject.activity("busy")
+  for (let n = 0; n < 9; n++) {
+    await clock.advance(1000)
+    const before = subject.count()
+    result = await recovery.collect(subject.api)
+    assert.equal(subject.count() - before, 4)
+    assert.equal(normalize(version, result).activity, "working")
+    assert.equal(result.messagesComplete, false)
+  }
+  assert.equal(subject.calls["session.children"] + subject.calls["session.get"], topologyCalls)
+  assert.equal(subject.calls["session.messages"], historyCalls)
+  assert.ok(recovery.family.members.every(s => Object.keys(s).every(k => ["id", "parentID", "title"].includes(k))))
+})
+
+for (const count of [1, 16, 64]) {
+  test(`${count}-member family resumes within bounded slices and token/concurrency envelope`, async () => {
+    const clock = new Clock(), budget = new RequestBudget(clock), recovery = new ObservationRecovery(clock)
+    const subject = fixture(count), api = budgetedAPI(subject.api, budget)
+    subject.finish()
+    let result, slices = 0
+    while (!result && slices < 12) {
+      const before = subject.count(), collecting = recovery.collect(api)
+      assert.ok(budget.active <= 4); assert.ok(budget.waiting.length <= 4)
+      await clock.advance(1000)
+      result = await collecting; slices++
+      assert.ok(subject.count() - before <= observationBudget.topologySliceCalls + 5)
+      assert.ok(budget.calls <= 8 + 32 * clock.now() / 1000)
+      if (!result) assert.equal(recovery.family, undefined)
+    }
+    assert.equal(result.members.length, count)
+    assert.ok(normalize(version, result).completed_at_ms)
+    assert.equal(subject.calls["session.children"], count * 2)
+    assert.equal(subject.calls["session.messages"], 3)
+    budget.dispose()
+    assert.equal(clock.tasks.size, 0)
+  })
+}
+
+test("topology invalidation retires partial scans while unrelated stream events do not", async () => {
+  const clock = new Clock(), recovery = new ObservationRecovery(clock), subject = fixture(64)
+  assert.equal(await recovery.collect(subject.api), undefined)
+  assert.equal(recovery.topology("session.created", { id: "foreign", parentID: "other" }), false)
+  assert.equal(recovery.topology("session.updated", { id: "child-0", parentID: "foreign" }), true)
+  assert.equal(recovery.scan, undefined)
+  assert.equal(recovery.family, undefined)
+  assert.equal(await recovery.collect(subject.api), undefined)
+  recovery.reset() // Reporter/server epoch replacement must not reuse ancestry.
+  assert.equal(recovery.scan, undefined)
+  assert.equal(recovery.messages, undefined)
+})
+
+test("missed topology notification recovers on fallback without promoting child Done", async () => {
+  const clock = new Clock(), recovery = new ObservationRecovery(clock), subject = fixture()
+  subject.finish()
+  assert.ok(normalize(version, await recovery.collect(subject.api)).completed_at_ms)
+  subject.api.client.session.children = async ({ sessionID }) => {
+    subject.calls["session.children"]++
+    return { data: sessionID === "root" ? [{ id: "new-child", parentID: "root" }] : [] }
+  }
+  subject.api.client.session.status = async () => {
+    subject.calls["session.status"]++
+    return { data: { "new-child": { type: "busy" } } }
+  }
+  await clock.advance(10000)
+  const snapshot = normalize(version, await recovery.collect(subject.api))
+  assert.equal(snapshot.activity, "working")
+  assert.equal(snapshot.background_task_count, 1)
+  assert.equal(snapshot.completed_at_ms, undefined)
+})
+
+test("cancelled topology read retains completed cursor work and later verifies full family", async () => {
+  const recovery = new ObservationRecovery(new Clock()), subject = fixture(64), controller = new AbortController()
+  const children = subject.api.client.session.children
+  let calls = 0
+  subject.api.client.session.children = async (...args) => {
+    if (++calls === 5) { controller.abort(); throw Error("Read cancelled") }
+    return children(...args)
+  }
+  await assert.rejects(recovery.collect(subject.api, controller.signal), /cancelled/)
+  assert.equal(recovery.scan.cursor, 4)
+  let result
+  for (let n = 0; n < 9 && !result; n++) result = await recovery.collect(subject.api)
+  assert.equal(result.members.length, 64)
+  assert.equal(subject.calls["session.children"], 128)
+})
+
+test("inconsistent second pass, oversized family and wrong get identity refuse terminal authority", async () => {
+  const recovery = new ObservationRecovery(new Clock()), subject = fixture()
+  let queries = 0
+  subject.api.client.session.children = async () => ({ data: ++queries === 1 ? [] : [{ id: "late", parentID: "root" }] })
+  await assert.rejects(recovery.collect(subject.api), /Family changed/)
+  assert.equal(recovery.family, undefined)
+  assert.equal(recovery.scan, undefined)
+  const oversized = fixture(65)
+  await assert.rejects(recovery.collect(oversized.api), /exceeds bound/)
+  const wrong = fixture()
+  wrong.api.client.session.get = async () => ({ data: { id: "foreign" } })
+  await assert.rejects(recovery.collect(wrong.api), /ancestry/)
+})
+
+test("selected child ancestry must belong to independently verified root family", async () => {
+  const recovery = new ObservationRecovery(new Clock()), subject = fixture(16)
+  subject.api.route.current.params.sessionID = "child-0"
+  subject.api.client.session.get = async ({ sessionID }) => ({ data: sessionID === "root"
+    ? { id: "root" } : { id: "child-0", parentID: "root" } })
+  let result
+  for (let n = 0; n < 3; n++) result = await recovery.collect(subject.api)
+  assert.equal(result.root.id, "root")
+  subject.api.client.session.children = async () => ({ data: [] })
+  recovery.reset()
+  await assert.rejects(recovery.collect(subject.api), /outside family/)
+})
+
+test("route and producer replacement retire previously verified completion metadata", async () => {
+  const recovery = new ObservationRecovery(new Clock()), subject = fixture()
+  subject.finish()
+  assert.ok(normalize(version, await recovery.collect(subject.api)).completed_at_ms)
+  subject.api.route.current = { name: "home" }
+  assert.equal(await recovery.collect(subject.api), null)
+  assert.equal(recovery.family, undefined)
+  assert.equal(recovery.messages, undefined)
+  subject.api.route.current = { name: "session", params: { sessionID: "root" } }
+  subject.api.client.session.messages = async () => ({ error: "offline" })
+  await assert.rejects(recovery.collect(subject.api), /Incomplete observation/)
+  assert.equal(recovery.messages, undefined)
+})
+
+test("recovery retains only bounded structured outcome metadata, never tool bodies or private errors", async () => {
+  const recovery = new ObservationRecovery(new Clock()), subject = fixture()
+  const privateValue = "private-output".repeat(100000)
+  const messages = [
+    { info: { id: "u", sessionID: "root", role: "user", time: { created: 1 }, system: privateValue, parentID: privateValue }, parts: [{ text: privateValue }] },
+    { info: { id: "a", sessionID: "root", role: "assistant", parentID: "u", finish: "stop",
+      time: { created: 2, completed: 42 }, error: { name: "MessageAbortedError", data: { message: privateValue } } },
+      parts: [{ state: { output: privateValue } }] },
+  ]
+  subject.api.client.session.messages = async ({ before }) => ({ data: [messages[before ? 0 : 1]],
+    response: { headers: new Headers(before ? {} : { "x-next-cursor": "cursor" }) } })
+  const result = await recovery.collect(subject.api)
+  assert.equal(normalize(version, result).error_name, "MessageAbortedError")
+  assert.ok(JSON.stringify(recovery.messages).length < 512)
+  assert.ok(!JSON.stringify(result).includes("private-output"))
+  subject.api.client.session.messages = async () => ({ data: [{ info: { id: "u", sessionID: "foreign", role: "user" } }] })
+  recovery.invalidateMessages()
+  await assert.rejects(recovery.collect(subject.api), /Foreign or invalid/)
+})
+
+test("explicit descendant input uses validated ancestry; creation alone cannot claim ownership", async () => {
+  const probe = bridgeFixture()
+  const children = probe.subject.api.client.session.children
+  probe.subject.api.client.session.children = async ({ sessionID }) => sessionID === "root"
+    ? { data: [{ id: "child", parentID: "root" }] } : children({ sessionID })
+  await probe.start(); await probe.clock.advance(1500)
+  const child = probe.children[0]
+  probe.subject.listeners.get("question.asked")({ properties: { id: "q", sessionID: "child" } })
+  await probe.clock.advance(0)
+  assert.deepEqual(child.frames.at(-1).pending_requests, [{ id: "q", kind: "question" }])
+  probe.subject.listeners.get("permission.asked")({ properties: { id: "q", sessionID: "root" } })
+  await probe.clock.advance(0)
+  assert.equal(child.frames.at(-1).pending_requests.length, 2)
+  probe.subject.listeners.get("question.rejected")({ properties: { requestID: "q", sessionID: "root" } })
+  await probe.clock.advance(0)
+  assert.equal(child.frames.at(-1).pending_requests.length, 2) // Wrong owner cannot resolve child's request.
+  probe.subject.listeners.get("question.rejected")({ properties: { requestID: "q", sessionID: "child" } })
+  await probe.clock.advance(0)
+  assert.deepEqual(child.frames.at(-1).pending_requests, [{ id: "q", kind: "permission" }])
+  probe.subject.listeners.get("session.created")({ properties: { info: { id: "new", parentID: "root" } } })
+  await probe.clock.advance(0)
+  assert.equal(child.frames.at(-1).activity, "unknown")
+  assert.deepEqual(child.frames.at(-1).pending_requests, [{ id: "q", kind: "permission" }])
+  const frames = child.frames.length
+  probe.subject.listeners.get("permission.asked")({ properties: { id: "unverified", sessionID: "new" } })
+  await probe.clock.advance(0)
+  assert.equal(child.frames.length, frames)
+  probe.subject.listeners.get("session.created")({ properties: { info: { id: "second-new", parentID: "root" } } })
+  probe.subject.listeners.get("session.updated")({ properties: { info: { id: "root", title: "Updated title" } } })
+  await probe.clock.advance(0)
+  assert.deepEqual(child.frames.at(-1).pending_requests, [{ id: "q", kind: "permission" }])
+  probe.subject.listeners.get("permission.replied")({ properties: { requestID: "q", sessionID: "root" } })
+  await probe.clock.advance(0)
+  assert.deepEqual(child.frames.at(-1).pending_requests, [])
+  await probe.dispose()
+})
+
+test("reparent and server reconnect immediately revoke cached family input/completion authority", async () => {
+  const probe = bridgeFixture()
+  probe.subject.finish()
+  await probe.start(); await probe.clock.advance(1500)
+  const child = probe.children[0]
+  assert.ok(child.frames.at(-1).completed_at_ms)
+  probe.subject.listeners.get("session.updated")({ properties: { info: { id: "root", parentID: "foreign" } } })
+  await probe.clock.advance(0)
+  assert.equal(child.frames.at(-1).activity, "unknown")
+  assert.equal(child.frames.at(-1).completed_at_ms, undefined)
+  probe.subject.listeners.get("server.connected")({ properties: {} })
+  await probe.clock.advance(0)
+  assert.equal(child.frames.at(-1).activity, "unknown")
+  await probe.dispose()
+})
+
+test("child retry projects Working rather than root Retrying and malformed request IDs never reach native", async () => {
+  const probe = bridgeFixture()
+  probe.subject.api.client.session.children = async ({ sessionID }) => ({ data: sessionID === "root"
+    ? [{ id: "child", parentID: "root" }] : [] })
+  await probe.start(); await probe.clock.advance(1500)
+  const child = probe.children[0]
+  probe.subject.listeners.get("session.status")({ properties: { sessionID: "child", status: { type: "retry" } } })
+  await probe.clock.advance(0)
+  assert.equal(child.frames.at(-1).activity, "working")
+  assert.equal(child.frames.at(-1).background_task_count, 1)
+  const frames = child.frames.length
+  for (const id of [undefined, 42, {}, { toString: 42 }, "", "x".repeat(257), "p\n", "p\x1b", "😀".repeat(100)]) {
+    probe.subject.listeners.get("permission.asked")({ properties: { id, sessionID: "root" } })
+  }
+  await probe.clock.advance(0)
+  assert.equal(child.frames.length, frames)
+  await probe.dispose()
+})
+
+test("continuous streaming cannot starve verified-family input projection at startup", async () => {
+  const probe = bridgeFixture()
+  probe.subject.activity("busy")
+  const status = probe.subject.api.client.session.status
+  probe.subject.api.client.session.status = async (...args) => {
+    probe.subject.listeners.get("message.part.updated")?.({ properties: { part: { sessionID: "root" } } })
+    return status(...args)
+  }
+  await probe.start(); await probe.clock.advance(1500)
+  probe.subject.listeners.get("question.asked")({ properties: { id: "q", sessionID: "root" } })
+  await probe.clock.advance(0)
+  assert.equal(probe.children[0].frames.at(-1).conversation_id, "root")
+  assert.deepEqual(probe.children[0].frames.at(-1).pending_requests, [{ id: "q", kind: "question" }])
+  await probe.dispose()
+})
+
+test("inconsistent status and duplicate input responses cannot establish Done", async () => {
+  const recovery = new ObservationRecovery(new Clock()), subject = fixture()
+  subject.finish()
+  subject.api.client.session.status = async () => ({ data: { root: { type: "unrecognized" } } })
+  await assert.rejects(recovery.collect(subject.api), /Invalid activity/)
+  subject.api.client.session.status = async () => ({ data: {} })
+  subject.api.client.permission.list = async () => ({ data: [{ id: "p", sessionID: "root" }, { id: "p", sessionID: "root" }] })
+  await assert.rejects(recovery.collect(subject.api), /Input exceeds bound/)
+})
+
+test("stale local Working metadata cannot overwrite an explicitly observed newer root turn", async () => {
+  const probe = bridgeFixture()
+  probe.subject.activity("busy")
+  probe.subject.api.state.session = { messages: () => [{ id: "old-user", sessionID: "root", role: "user" }] }
+  await probe.start(); await probe.clock.advance(1500)
+  probe.subject.listeners.get("message.updated")({ properties: {
+    info: { id: "new-user", sessionID: "root", role: "user" },
+  } })
+  await probe.clock.advance(1500)
+  assert.equal(probe.children[0].frames.at(-1).turn_id, "root/new-user")
+  assert.equal(probe.children[0].frames.at(-1).completed_at_ms, undefined)
   await probe.dispose()
 })

@@ -4,7 +4,7 @@ import { parseArgs } from "node:util"
 import { writeFileSync, readFileSync } from "node:fs"
 import { createHash } from "node:crypto"
 import bridge from "../../integrations/opencode/bridge.mjs"
-import { reconcile } from "../../integrations/opencode/core.mjs"
+import { ObservationRecovery, RequestBudget, budgetedAPI, observationBudget } from "../../integrations/opencode/core.mjs"
 import { fixture } from "./fixture.mjs"
 
 const { values } = parseArgs({ options: {
@@ -19,8 +19,23 @@ const hashes = Object.fromEntries(["bridge.mjs", "core.mjs"].map(name => [name,
 const familyCosts = []
 for (const members of [1, 16, 64]) {
   const subject = fixture(members)
-  await reconcile(subject.api, new AbortController().signal)
-  familyCosts.push({ members, requests_per_reconciliation: subject.count(), endpoints: subject.calls })
+  const recovery = new ObservationRecovery(), budget = new RequestBudget(), api = budgetedAPI(subject.api, budget)
+  let result, slices = 0, peakSliceCalls = 0
+  const start = performance.now()
+  try {
+    while (!result && slices < 12) {
+      const before = subject.count()
+      result = await recovery.collect(api, AbortSignal.timeout(3000))
+      slices++; peakSliceCalls = Math.max(peakSliceCalls, subject.count() - before)
+      if (!result) await sleep(1000)
+    }
+    if (result?.members.length !== members) throw Error("Family recovery failed")
+    const first = subject.count()
+    await recovery.collect(api, AbortSignal.timeout(3000))
+    familyCosts.push({ members, requests_per_reconciliation: first, slices, peak_slice_calls: peakSliceCalls,
+      elapsed_seconds: (performance.now() - start) / 1000,
+      cached_recovery_calls: subject.count() - first, endpoints: { ...subject.calls } })
+  } finally { budget.dispose() }
 }
 
 process.env.ZELLIJ_PANE_ID = "0"
@@ -55,6 +70,7 @@ for (const monitoring of [false, true]) {
 }
 const report = { status: "PASS", measurement_kind: "synthetic API scheduling; exiting reporter stub; no native writes",
   node_version: process.version, asset_sha256: hashes, warmup_seconds: warmup, workload_seconds: seconds,
+  observation_budget: observationBudget,
   familyCosts, measurements }
 const text = JSON.stringify(report, null, 2) + "\n"
 if (values.output) writeFileSync(values.output, text)

@@ -1,0 +1,2545 @@
+{
+  "artifacts_dir": "/tmp/opencode/vj-h3-yz6w9p8b",
+  "provider": "controlled local HTTP fixture (synthetic model output)",
+  "opencode_version": "1.19.0",
+  "checks": [
+    {
+      "setup_idempotence_and_diagnostics": true,
+      "setup": {
+        "bridge_version": 1,
+        "config": "/tmp/opencode/vj-h3-yz6w9p8b/config/opencode/tui.json",
+        "installed": true,
+        "opencode_version": "1.19.0",
+        "reporter": "/home/vudinhn/repos/verij/target/release/verij",
+        "restart_required": true,
+        "runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents"
+      },
+      "doctor": {
+        "adapter": "opencode",
+        "assets_match": true,
+        "binding_requires": "Linux foreground tty + current native Zellij inventory",
+        "blockers": [
+          "No verified pane inventory is available for the selected session scope. Check inventory_sessions; legacy snapshots require a Verij WASM exporter upgrade/reload, not another OpenCode restart."
+        ],
+        "bridge_version": 1,
+        "bundled_plugin": "/home/vudinhn/repos/verij/dist/verij_plugin.wasm",
+        "capabilities": [
+          "activity",
+          "permissions",
+          "questions",
+          "conversation_title",
+          "aggregate_completion",
+          "terminal_failure"
+        ],
+        "config": "/tmp/opencode/vj-h3-yz6w9p8b/config/opencode/tui.json",
+        "configured": true,
+        "default_installed_plugin": "/tmp/opencode/vj-h3-yz6w9p8b/data/verij/verij_plugin.wasm",
+        "disabled": false,
+        "effective_adapter_inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+        "effective_adapter_runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+        "exporter_upgrade": "From the checkout: make install-plugin (or set VERIJ_DATA_DIR to the directory of your configured Verij WASM). Reload the same configured plugin URL in the affected existing session using zellij -s SESSION action start-or-reload-plugin URL. New sessions load the installed artifact normally.",
+        "installation_ready": true,
+        "installed_inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+        "installed_plugin_matches_bundle": null,
+        "installed_runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+        "inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+        "inventory_path_matches_adapter": true,
+        "inventory_ready": false,
+        "inventory_sessions": [],
+        "live_records": 0,
+        "monitoring_prerequisites_ready": false,
+        "note": "Installation, runtime and pane-inventory prerequisite checks. live_records confirms actual reporting; installation alone is insufficient. Restart OpenCode after adapter setup/uninstall; reload the Verij exporter after a WASM upgrade.",
+        "opencode_version": "1.19.0",
+        "records": [],
+        "reporter": "/home/vudinhn/repos/verij/target/release/verij",
+        "reporter_available": true,
+        "reporter_version": "verij 0.1.0",
+        "requested_session": null,
+        "runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+        "runtime_matches_adapter": true,
+        "runtime_writable": true,
+        "supported_versions": [
+          "1.x.x"
+        ],
+        "version_supported": true
+      },
+      "database_path": "/tmp/opencode/vj-h3-yz6w9p8b/data/opencode/opencode.db"
+    },
+    {
+      "legacy_exporter_prerequisite_diagnosed": true,
+      "snapshot_fixture_synthetic": true,
+      "doctor": {
+        "adapter": "opencode",
+        "assets_match": true,
+        "binding_requires": "Linux foreground tty + current native Zellij inventory",
+        "blockers": [
+          "No verified pane inventory is available for the selected session scope. Check inventory_sessions; legacy snapshots require a Verij WASM exporter upgrade/reload, not another OpenCode restart."
+        ],
+        "bridge_version": 1,
+        "bundled_plugin": "/home/vudinhn/repos/verij/dist/verij_plugin.wasm",
+        "capabilities": [
+          "activity",
+          "permissions",
+          "questions",
+          "conversation_title",
+          "aggregate_completion",
+          "terminal_failure"
+        ],
+        "config": "/tmp/opencode/vj-h3-yz6w9p8b/config/opencode/tui.json",
+        "configured": true,
+        "default_installed_plugin": "/tmp/opencode/vj-h3-yz6w9p8b/data/verij/verij_plugin.wasm",
+        "disabled": false,
+        "effective_adapter_inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+        "effective_adapter_runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+        "exporter_upgrade": "From the checkout: make install-plugin (or set VERIJ_DATA_DIR to the directory of your configured Verij WASM). Reload the same configured plugin URL in the affected existing session using zellij -s SESSION action start-or-reload-plugin URL. New sessions load the installed artifact normally.",
+        "installation_ready": true,
+        "installed_inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+        "installed_plugin_matches_bundle": null,
+        "installed_runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+        "inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+        "inventory_path_matches_adapter": true,
+        "inventory_ready": false,
+        "inventory_sessions": [
+          {
+            "detail": "This session exports only sessions/tabs. Upgrade the Verij WASM plugin at its configured load_plugins path, then reload that same URL in this session.",
+            "session": "legacy-exporter-fixture",
+            "status": "legacy_snapshot",
+            "verified_terminal_panes": 0
+          }
+        ],
+        "live_records": 0,
+        "monitoring_prerequisites_ready": false,
+        "note": "Installation, runtime and pane-inventory prerequisite checks. live_records confirms actual reporting; installation alone is insufficient. Restart OpenCode after adapter setup/uninstall; reload the Verij exporter after a WASM upgrade.",
+        "opencode_version": "1.19.0",
+        "records": [],
+        "reporter": "/home/vudinhn/repos/verij/target/release/verij",
+        "reporter_available": true,
+        "reporter_version": "verij 0.1.0",
+        "requested_session": "legacy-exporter-fixture",
+        "runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+        "runtime_matches_adapter": true,
+        "runtime_writable": true,
+        "supported_versions": [
+          "1.x.x"
+        ],
+        "version_supported": true
+      }
+    },
+    {
+      "private_home_xdg_database_and_verified_listener": true,
+      "port": 47157,
+      "server_birth": {
+        "pid": 31864,
+        "start_jiffies": 395650,
+        "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe"
+      },
+      "paths": {
+        "home": "/tmp/opencode/vj-h3-yz6w9p8b/home",
+        "state": "/tmp/opencode/vj-h3-yz6w9p8b/state/opencode",
+        "config": "/tmp/opencode/vj-h3-yz6w9p8b/config/opencode",
+        "worktree": "/",
+        "directory": "/tmp/opencode/vj-h3-yz6w9p8b"
+      }
+    },
+    {
+      "two_native_panes_foreground_tpgid_and_birth_verified": true,
+      "tuis": [
+        {
+          "ts": 1791973824435,
+          "pid": 34419,
+          "pane": "0",
+          "kind": "ready",
+          "birth": {
+            "pid": 34419,
+            "pgrp": 34419,
+            "tty_nr": 34833,
+            "tpgid": 34419,
+            "start_jiffies": 396639,
+            "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe"
+          },
+          "route": "48c8bc6b61fb6dc2851f"
+        },
+        {
+          "ts": 1791973829249,
+          "pid": 34869,
+          "pane": "1",
+          "kind": "ready",
+          "birth": {
+            "pid": 34869,
+            "pgrp": 34869,
+            "tty_nr": 34827,
+            "tpgid": 34869,
+            "start_jiffies": 397307,
+            "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe"
+          },
+          "route": "6d97f0f3cea14fbf2405"
+        }
+      ],
+      "inventory": [
+        {
+          "pane_id": 0,
+          "command_is_opencode_attach": true,
+          "cwd_is_private": true
+        },
+        {
+          "pane_id": 1,
+          "command_is_opencode_attach": true,
+          "cwd_is_private": true
+        }
+      ]
+    },
+    {
+      "two_live_idle_production_rows_before_prompt": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 4,
+            "updated_at_ms": 1791973828969,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 3,
+                "observed_at_ms": 1791973828969,
+                "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+                "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+                "turn_epoch": 1,
+                "turn_revision": 3,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "idle",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 3,
+              "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+              "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "completion_revision": 0
+            },
+            "completion_revision": 0,
+            "completed_turn_epoch": 0,
+            "completed_turn_revision": 0
+          }
+        },
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 1
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34869,
+              "start_jiffies": 397307,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973829111,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "record_revision": 4,
+            "updated_at_ms": 1791973829826,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 3,
+                "observed_at_ms": 1791973829826,
+                "conversation_id": "ses_ec60983fcffeyPSCnSx95Xx5UL",
+                "conversation_title": "New session - 2026-10-14T10:30:17.347Z",
+                "turn_epoch": 1,
+                "turn_revision": 3,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "idle",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 3,
+              "conversation_id": "ses_ec60983fcffeyPSCnSx95Xx5UL",
+              "conversation_title": "New session - 2026-10-14T10:30:17.347Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "completion_revision": 0
+            },
+            "completion_revision": 0,
+            "completed_turn_epoch": 0,
+            "completed_turn_revision": 0
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-04.json"
+    },
+    {
+      "shared_server_working_isolation": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 5,
+            "updated_at_ms": 1791973831285,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 4,
+                "observed_at_ms": 1791973831285,
+                "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+                "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+                "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                "turn_epoch": 1,
+                "turn_revision": 4,
+                "activity": "working",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "working",
+              "current_turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 4,
+              "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+              "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "completion_revision": 0
+            },
+            "completion_revision": 0,
+            "completed_turn_epoch": 0,
+            "completed_turn_revision": 0
+          }
+        },
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 1
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34869,
+              "start_jiffies": 397307,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973829111,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "record_revision": 4,
+            "updated_at_ms": 1791973829826,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 3,
+                "observed_at_ms": 1791973829826,
+                "conversation_id": "ses_ec60983fcffeyPSCnSx95Xx5UL",
+                "conversation_title": "New session - 2026-10-14T10:30:17.347Z",
+                "turn_epoch": 1,
+                "turn_revision": 3,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "idle",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 3,
+              "conversation_id": "ses_ec60983fcffeyPSCnSx95Xx5UL",
+              "conversation_title": "New session - 2026-10-14T10:30:17.347Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "completion_revision": 0
+            },
+            "completion_revision": 0,
+            "completed_turn_epoch": 0,
+            "completed_turn_revision": 0
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-05.json"
+    },
+    {
+      "terminal_success_is_idempotent": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 9,
+            "updated_at_ms": 1791973839908,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 8,
+                "observed_at_ms": 1791973839908,
+                "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+                "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+                "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                "turn_epoch": 1,
+                "turn_revision": 8,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "successful_completion": {
+                  "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                  "turn_epoch": 1,
+                  "turn_revision": 8,
+                  "completed_at_ms": 1791973832545
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "done",
+              "current_turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 8,
+              "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+              "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_completion": {
+                "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                "turn_epoch": 1,
+                "turn_revision": 8,
+                "completed_at_ms": 1791973832545
+              },
+              "completion_revision": 1
+            },
+            "completion_revision": 1,
+            "completed_turn": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 8,
+            "opencode_completions": {
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        },
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 1
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34869,
+              "start_jiffies": 397307,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973829111,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "record_revision": 6,
+            "updated_at_ms": 1791973839840,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 5,
+                "observed_at_ms": 1791973839839,
+                "conversation_id": "ses_ec60983fcffeyPSCnSx95Xx5UL",
+                "conversation_title": "New session - 2026-10-14T10:30:17.347Z",
+                "turn_epoch": 1,
+                "turn_revision": 5,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "idle",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 5,
+              "conversation_id": "ses_ec60983fcffeyPSCnSx95Xx5UL",
+              "conversation_title": "New session - 2026-10-14T10:30:17.347Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "completion_revision": 0
+            },
+            "completion_revision": 0,
+            "completed_turn_epoch": 0,
+            "completed_turn_revision": 0
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-06.json"
+    },
+    {
+      "terminal_error_without_done": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 9,
+            "updated_at_ms": 1791973839908,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 8,
+                "observed_at_ms": 1791973839908,
+                "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+                "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+                "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                "turn_epoch": 1,
+                "turn_revision": 8,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "successful_completion": {
+                  "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                  "turn_epoch": 1,
+                  "turn_revision": 8,
+                  "completed_at_ms": 1791973832545
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "done",
+              "current_turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 8,
+              "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+              "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_completion": {
+                "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                "turn_epoch": 1,
+                "turn_revision": 8,
+                "completed_at_ms": 1791973832545
+              },
+              "completion_revision": 1
+            },
+            "completion_revision": 1,
+            "completed_turn": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 8,
+            "opencode_completions": {
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        },
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 1
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34869,
+              "start_jiffies": 397307,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973829111,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "record_revision": 9,
+            "updated_at_ms": 1791973843327,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 8,
+                "observed_at_ms": 1791973843327,
+                "conversation_id": "ses_ec60983fcffeyPSCnSx95Xx5UL",
+                "conversation_title": "New session - 2026-10-14T10:30:17.347Z",
+                "turn_id": "ses_ec60983fcffeyPSCnSx95Xx5UL/msg_139f6dc650012KTrZ8BoGbfvq1",
+                "turn_epoch": 1,
+                "turn_revision": 8,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "execution_error": {
+                  "turn_id": "ses_ec60983fcffeyPSCnSx95Xx5UL/msg_139f6dc650012KTrZ8BoGbfvq1",
+                  "turn_epoch": 1,
+                  "turn_revision": 8,
+                  "message": "APIError",
+                  "is_terminal": true
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "error",
+              "current_turn_id": "ses_ec60983fcffeyPSCnSx95Xx5UL/msg_139f6dc650012KTrZ8BoGbfvq1",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 8,
+              "conversation_id": "ses_ec60983fcffeyPSCnSx95Xx5UL",
+              "conversation_title": "New session - 2026-10-14T10:30:17.347Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_error": {
+                "turn_id": "ses_ec60983fcffeyPSCnSx95Xx5UL/msg_139f6dc650012KTrZ8BoGbfvq1",
+                "turn_epoch": 1,
+                "turn_revision": 8,
+                "message": "APIError",
+                "is_terminal": true
+              },
+              "completion_revision": 0,
+              "detail": "APIError"
+            },
+            "completion_revision": 0,
+            "completed_turn_epoch": 0,
+            "completed_turn_revision": 0
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-07.json"
+    },
+    {
+      "native_permission_needs_input_and_foreign_isolation": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 14,
+            "updated_at_ms": 1791973845231,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 13,
+                "observed_at_ms": 1791973845231,
+                "conversation_id": "ses_ec6091e13ffe8f6DniXaEHj3wF",
+                "conversation_title": "New session - 2026-10-14T10:30:43.437Z",
+                "turn_id": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+                "turn_epoch": 1,
+                "turn_revision": 13,
+                "activity": "working",
+                "pending_requests": [
+                  {
+                    "id": "per_139f6e8d3001Tc2BsT3geziu4Q",
+                    "kind": "permission"
+                  }
+                ],
+                "background_task_count": 0,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "needs_input",
+              "current_turn_id": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 13,
+              "conversation_id": "ses_ec6091e13ffe8f6DniXaEHj3wF",
+              "conversation_title": "New session - 2026-10-14T10:30:43.437Z",
+              "pending_requests": [
+                {
+                  "id": "per_139f6e8d3001Tc2BsT3geziu4Q",
+                  "kind": "permission"
+                }
+              ],
+              "background_task_count": 0,
+              "completion_revision": 1,
+              "detail": "permission required"
+            },
+            "completion_revision": 1,
+            "completed_turn": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 8,
+            "opencode_completions": {
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        },
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 1
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34869,
+              "start_jiffies": 397307,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973829111,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "record_revision": 9,
+            "updated_at_ms": 1791973843327,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 8,
+                "observed_at_ms": 1791973843327,
+                "conversation_id": "ses_ec60983fcffeyPSCnSx95Xx5UL",
+                "conversation_title": "New session - 2026-10-14T10:30:17.347Z",
+                "turn_id": "ses_ec60983fcffeyPSCnSx95Xx5UL/msg_139f6dc650012KTrZ8BoGbfvq1",
+                "turn_epoch": 1,
+                "turn_revision": 8,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "execution_error": {
+                  "turn_id": "ses_ec60983fcffeyPSCnSx95Xx5UL/msg_139f6dc650012KTrZ8BoGbfvq1",
+                  "turn_epoch": 1,
+                  "turn_revision": 8,
+                  "message": "APIError",
+                  "is_terminal": true
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "error",
+              "current_turn_id": "ses_ec60983fcffeyPSCnSx95Xx5UL/msg_139f6dc650012KTrZ8BoGbfvq1",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 8,
+              "conversation_id": "ses_ec60983fcffeyPSCnSx95Xx5UL",
+              "conversation_title": "New session - 2026-10-14T10:30:17.347Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_error": {
+                "turn_id": "ses_ec60983fcffeyPSCnSx95Xx5UL/msg_139f6dc650012KTrZ8BoGbfvq1",
+                "turn_epoch": 1,
+                "turn_revision": 8,
+                "message": "APIError",
+                "is_terminal": true
+              },
+              "completion_revision": 0,
+              "detail": "APIError"
+            },
+            "completion_revision": 0,
+            "completed_turn_epoch": 0,
+            "completed_turn_revision": 0
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-08.json"
+    },
+    {
+      "permission_resolution_continues_then_completes": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 17,
+            "updated_at_ms": 1791973846585,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 16,
+                "observed_at_ms": 1791973846585,
+                "conversation_id": "ses_ec6091e13ffe8f6DniXaEHj3wF",
+                "conversation_title": "New session - 2026-10-14T10:30:43.437Z",
+                "turn_id": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+                "turn_epoch": 1,
+                "turn_revision": 16,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "successful_completion": {
+                  "turn_id": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+                  "turn_epoch": 1,
+                  "turn_revision": 16,
+                  "completed_at_ms": 1791973845801
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "done",
+              "current_turn_id": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 16,
+              "conversation_id": "ses_ec6091e13ffe8f6DniXaEHj3wF",
+              "conversation_title": "New session - 2026-10-14T10:30:43.437Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_completion": {
+                "turn_id": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+                "turn_epoch": 1,
+                "turn_revision": 16,
+                "completed_at_ms": 1791973845801
+              },
+              "completion_revision": 2
+            },
+            "completion_revision": 2,
+            "completed_turn": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 16,
+            "opencode_completions": {
+              "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11": 2,
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-09.json"
+    },
+    {
+      "native_question_needs_input": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 17,
+            "updated_at_ms": 1791973846585,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 16,
+                "observed_at_ms": 1791973846585,
+                "conversation_id": "ses_ec6091e13ffe8f6DniXaEHj3wF",
+                "conversation_title": "New session - 2026-10-14T10:30:43.437Z",
+                "turn_id": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+                "turn_epoch": 1,
+                "turn_revision": 16,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "successful_completion": {
+                  "turn_id": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+                  "turn_epoch": 1,
+                  "turn_revision": 16,
+                  "completed_at_ms": 1791973845801
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "done",
+              "current_turn_id": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 16,
+              "conversation_id": "ses_ec6091e13ffe8f6DniXaEHj3wF",
+              "conversation_title": "New session - 2026-10-14T10:30:43.437Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_completion": {
+                "turn_id": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+                "turn_epoch": 1,
+                "turn_revision": 16,
+                "completed_at_ms": 1791973845801
+              },
+              "completion_revision": 2
+            },
+            "completion_revision": 2,
+            "completed_turn": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 16,
+            "opencode_completions": {
+              "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11": 2,
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        },
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 1
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34869,
+              "start_jiffies": 397307,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973829111,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "record_revision": 14,
+            "updated_at_ms": 1791973847611,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 13,
+                "observed_at_ms": 1791973847611,
+                "conversation_id": "ses_ec6091183ffe3GHMW3z1cVtRSO",
+                "conversation_title": "New session - 2026-10-14T10:30:46.652Z",
+                "turn_id": "ses_ec6091183ffe3GHMW3z1cVtRSO/msg_139f6f104001o80gVR5AlP0jS4",
+                "turn_epoch": 1,
+                "turn_revision": 13,
+                "activity": "working",
+                "pending_requests": [
+                  {
+                    "id": "que_139f6f1bf001D4BUiwNOLUcg6c",
+                    "kind": "question"
+                  }
+                ],
+                "background_task_count": 0,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "needs_input",
+              "current_turn_id": "ses_ec6091183ffe3GHMW3z1cVtRSO/msg_139f6f104001o80gVR5AlP0jS4",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 13,
+              "conversation_id": "ses_ec6091183ffe3GHMW3z1cVtRSO",
+              "conversation_title": "New session - 2026-10-14T10:30:46.652Z",
+              "pending_requests": [
+                {
+                  "id": "que_139f6f1bf001D4BUiwNOLUcg6c",
+                  "kind": "question"
+                }
+              ],
+              "background_task_count": 0,
+              "completion_revision": 0,
+              "detail": "question pending"
+            },
+            "completion_revision": 0,
+            "completed_turn_epoch": 0,
+            "completed_turn_revision": 0
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-10.json"
+    },
+    {
+      "question_rejection_idle_without_terminal_success": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 1
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34869,
+              "start_jiffies": 397307,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973829111,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "record_revision": 17,
+            "updated_at_ms": 1791973849198,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 16,
+                "observed_at_ms": 1791973849198,
+                "conversation_id": "ses_ec6091183ffe3GHMW3z1cVtRSO",
+                "conversation_title": "New session - 2026-10-14T10:30:46.652Z",
+                "turn_id": "ses_ec6091183ffe3GHMW3z1cVtRSO/msg_139f6f104001o80gVR5AlP0jS4",
+                "turn_epoch": 1,
+                "turn_revision": 16,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "idle",
+              "current_turn_id": "ses_ec6091183ffe3GHMW3z1cVtRSO/msg_139f6f104001o80gVR5AlP0jS4",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 16,
+              "conversation_id": "ses_ec6091183ffe3GHMW3z1cVtRSO",
+              "conversation_title": "New session - 2026-10-14T10:30:46.652Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "completion_revision": 0
+            },
+            "completion_revision": 0,
+            "completed_turn_epoch": 0,
+            "completed_turn_revision": 0
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-11.json"
+    },
+    {
+      "question_reply_resumes_to_terminal_success": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 1
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34869,
+              "start_jiffies": 397307,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973829111,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "record_revision": 25,
+            "updated_at_ms": 1791973851407,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 24,
+                "observed_at_ms": 1791973851407,
+                "conversation_id": "ses_ec6090750ffe39qCMcPWBvwwlQ",
+                "conversation_title": "New session - 2026-10-14T10:30:49.264Z",
+                "turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+                "turn_epoch": 1,
+                "turn_revision": 24,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "successful_completion": {
+                  "turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+                  "turn_epoch": 1,
+                  "turn_revision": 24,
+                  "completed_at_ms": 1791973851060
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "done",
+              "current_turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 24,
+              "conversation_id": "ses_ec6090750ffe39qCMcPWBvwwlQ",
+              "conversation_title": "New session - 2026-10-14T10:30:49.264Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_completion": {
+                "turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+                "turn_epoch": 1,
+                "turn_revision": 24,
+                "completed_at_ms": 1791973851060
+              },
+              "completion_revision": 1
+            },
+            "completion_revision": 1,
+            "completed_turn": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 24,
+            "opencode_completions": {
+              "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI": 1
+            }
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-12.json"
+    },
+    {
+      "retry_is_working_without_completion": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 23,
+            "updated_at_ms": 1791973852824,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 22,
+                "observed_at_ms": 1791973852824,
+                "conversation_id": "ses_ec608fe96ffe7FaDJuHx4hu9rN",
+                "conversation_title": "New session - 2026-10-14T10:30:51.497Z",
+                "turn_id": "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ",
+                "turn_epoch": 1,
+                "turn_revision": 22,
+                "activity": "retrying",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "working",
+              "current_turn_id": "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 22,
+              "conversation_id": "ses_ec608fe96ffe7FaDJuHx4hu9rN",
+              "conversation_title": "New session - 2026-10-14T10:30:51.497Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "completion_revision": 2,
+              "detail": "retrying"
+            },
+            "completion_revision": 2,
+            "completed_turn": "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 17,
+            "opencode_completions": {
+              "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11": 2,
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-13.json"
+    },
+    {
+      "abort_error_never_done": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 34,
+            "updated_at_ms": 1791973857362,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 33,
+                "observed_at_ms": 1791973857362,
+                "conversation_id": "ses_ec608ee52fferLcFL4K4LXaCJV",
+                "conversation_title": "New session - 2026-10-14T10:30:55.661Z",
+                "turn_id": "ses_ec608ee52fferLcFL4K4LXaCJV/msg_139f71574001I3o4BqwCVHDtfD",
+                "turn_epoch": 1,
+                "turn_revision": 33,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "execution_error": {
+                  "turn_id": "ses_ec608ee52fferLcFL4K4LXaCJV/msg_139f71574001I3o4BqwCVHDtfD",
+                  "turn_epoch": 1,
+                  "turn_revision": 33,
+                  "message": "MessageAbortedError",
+                  "is_terminal": true
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "error",
+              "current_turn_id": "ses_ec608ee52fferLcFL4K4LXaCJV/msg_139f71574001I3o4BqwCVHDtfD",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 33,
+              "conversation_id": "ses_ec608ee52fferLcFL4K4LXaCJV",
+              "conversation_title": "New session - 2026-10-14T10:30:55.661Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_error": {
+                "turn_id": "ses_ec608ee52fferLcFL4K4LXaCJV/msg_139f71574001I3o4BqwCVHDtfD",
+                "turn_epoch": 1,
+                "turn_revision": 33,
+                "message": "MessageAbortedError",
+                "is_terminal": true
+              },
+              "completion_revision": 3,
+              "detail": "MessageAbortedError"
+            },
+            "completion_revision": 3,
+            "completed_turn": "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 27,
+            "opencode_completions": {
+              "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ": 3,
+              "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11": 2,
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-14.json"
+    },
+    {
+      "child_work_is_aggregated_without_extra_pane_row": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 40,
+            "updated_at_ms": 1791973859612,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 39,
+                "observed_at_ms": 1791973859612,
+                "conversation_id": "ses_ec608e76fffe35GCyBpUfW0Yuj",
+                "conversation_title": "New session - 2026-10-14T10:30:57.424Z",
+                "turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+                "turn_epoch": 1,
+                "turn_revision": 39,
+                "activity": "working",
+                "pending_requests": [],
+                "background_task_count": 1,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "working",
+              "current_turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 39,
+              "conversation_id": "ses_ec608e76fffe35GCyBpUfW0Yuj",
+              "conversation_title": "New session - 2026-10-14T10:30:57.424Z",
+              "pending_requests": [],
+              "background_task_count": 1,
+              "completion_revision": 3,
+              "detail": "1 background task"
+            },
+            "completion_revision": 3,
+            "completed_turn": "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 27,
+            "opencode_completions": {
+              "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ": 3,
+              "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11": 2,
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        },
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 1
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34869,
+              "start_jiffies": 397307,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973829111,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "record_revision": 26,
+            "updated_at_ms": 1791973856409,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 25,
+                "observed_at_ms": 1791973856409,
+                "conversation_id": "ses_ec6090750ffe39qCMcPWBvwwlQ",
+                "conversation_title": "New session - 2026-10-14T10:30:49.264Z",
+                "turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+                "turn_epoch": 1,
+                "turn_revision": 25,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "successful_completion": {
+                  "turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+                  "turn_epoch": 1,
+                  "turn_revision": 25,
+                  "completed_at_ms": 1791973851060
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "done",
+              "current_turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 25,
+              "conversation_id": "ses_ec6090750ffe39qCMcPWBvwwlQ",
+              "conversation_title": "New session - 2026-10-14T10:30:49.264Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_completion": {
+                "turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+                "turn_epoch": 1,
+                "turn_revision": 25,
+                "completed_at_ms": 1791973851060
+              },
+              "completion_revision": 1
+            },
+            "completion_revision": 1,
+            "completed_turn": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 25,
+            "opencode_completions": {
+              "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI": 1
+            }
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-15.json"
+    },
+    {
+      "child_completion_keeps_parent_working": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 40,
+            "updated_at_ms": 1791973859612,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 39,
+                "observed_at_ms": 1791973859612,
+                "conversation_id": "ses_ec608e76fffe35GCyBpUfW0Yuj",
+                "conversation_title": "New session - 2026-10-14T10:30:57.424Z",
+                "turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+                "turn_epoch": 1,
+                "turn_revision": 39,
+                "activity": "working",
+                "pending_requests": [],
+                "background_task_count": 1,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "working",
+              "current_turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 39,
+              "conversation_id": "ses_ec608e76fffe35GCyBpUfW0Yuj",
+              "conversation_title": "New session - 2026-10-14T10:30:57.424Z",
+              "pending_requests": [],
+              "background_task_count": 1,
+              "completion_revision": 3,
+              "detail": "1 background task"
+            },
+            "completion_revision": 3,
+            "completed_turn": "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 27,
+            "opencode_completions": {
+              "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ": 3,
+              "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11": 2,
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-16.json"
+    },
+    {
+      "plugin_reload_preserves_instance_and_completion_revision": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 47,
+            "updated_at_ms": 1791973861966,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 2,
+                "source_revision": 3,
+                "observed_at_ms": 1791973861966,
+                "conversation_id": "ses_ec608e76fffe35GCyBpUfW0Yuj",
+                "conversation_title": "New session - 2026-10-14T10:30:57.424Z",
+                "turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+                "turn_epoch": 2,
+                "turn_revision": 3,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "successful_completion": {
+                  "turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+                  "turn_epoch": 2,
+                  "turn_revision": 3,
+                  "completed_at_ms": 1791973859866
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "done",
+              "current_turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+              "current_turn_epoch": 2,
+              "current_turn_revision": 3,
+              "conversation_id": "ses_ec608e76fffe35GCyBpUfW0Yuj",
+              "conversation_title": "New session - 2026-10-14T10:30:57.424Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_completion": {
+                "turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+                "turn_epoch": 2,
+                "turn_revision": 3,
+                "completed_at_ms": 1791973859866
+              },
+              "completion_revision": 4
+            },
+            "completion_revision": 4,
+            "completed_turn": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+            "completed_turn_epoch": 2,
+            "completed_turn_revision": 3,
+            "opencode_completions": {
+              "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw": 4,
+              "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ": 3,
+              "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11": 2,
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-17.json"
+    },
+    {
+      "source_silence_is_unknown_not_exit_or_done": true,
+      "doctor": {
+        "adapter": "opencode",
+        "assets_match": true,
+        "binding_requires": "Linux foreground tty + current native Zellij inventory",
+        "blockers": [],
+        "bridge_version": 1,
+        "bundled_plugin": "/home/vudinhn/repos/verij/dist/verij_plugin.wasm",
+        "capabilities": [
+          "activity",
+          "permissions",
+          "questions",
+          "conversation_title",
+          "aggregate_completion",
+          "terminal_failure"
+        ],
+        "config": "/tmp/opencode/vj-h3-yz6w9p8b/config/opencode/tui.json",
+        "configured": true,
+        "default_installed_plugin": "/tmp/opencode/vj-h3-yz6w9p8b/data/verij/verij_plugin.wasm",
+        "disabled": false,
+        "effective_adapter_inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+        "effective_adapter_runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+        "exporter_upgrade": "From the checkout: make install-plugin (or set VERIJ_DATA_DIR to the directory of your configured Verij WASM). Reload the same configured plugin URL in the affected existing session using zellij -s SESSION action start-or-reload-plugin URL. New sessions load the installed artifact normally.",
+        "installation_ready": true,
+        "installed_inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+        "installed_plugin_matches_bundle": null,
+        "installed_runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+        "inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+        "inventory_path_matches_adapter": true,
+        "inventory_ready": true,
+        "inventory_sessions": [
+          {
+            "detail": "Verified native pane inventory is available. A foreground agent TUI can register against it.",
+            "session": "runtime-probe",
+            "status": "ready",
+            "verified_terminal_panes": 2
+          }
+        ],
+        "live_records": 2,
+        "monitoring_prerequisites_ready": true,
+        "note": "Installation, runtime and pane-inventory prerequisite checks. live_records confirms actual reporting; installation alone is insufficient. Restart OpenCode after adapter setup/uninstall; reload the Verij exporter after a WASM upgrade.",
+        "opencode_version": "1.19.0",
+        "records": [
+          {
+            "instance": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "pid": 34419,
+            "source_healthy": false,
+            "status": "unknown"
+          },
+          {
+            "instance": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "pane": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 1
+            },
+            "pid": 34869,
+            "source_healthy": true,
+            "status": "done"
+          }
+        ],
+        "reporter": "/home/vudinhn/repos/verij/target/release/verij",
+        "reporter_available": true,
+        "reporter_version": "verij 0.1.0",
+        "requested_session": null,
+        "runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+        "runtime_matches_adapter": true,
+        "runtime_writable": true,
+        "supported_versions": [
+          "1.x.x"
+        ],
+        "version_supported": true
+      }
+    },
+    {
+      "lease_recovery_does_not_replay_completion": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 48,
+            "updated_at_ms": 1791973877614,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 2,
+                "source_revision": 4,
+                "observed_at_ms": 1791973877614,
+                "conversation_id": "ses_ec608e76fffe35GCyBpUfW0Yuj",
+                "conversation_title": "New session - 2026-10-14T10:30:57.424Z",
+                "turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+                "turn_epoch": 2,
+                "turn_revision": 4,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "successful_completion": {
+                  "turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+                  "turn_epoch": 2,
+                  "turn_revision": 4,
+                  "completed_at_ms": 1791973859866
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "done",
+              "current_turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+              "current_turn_epoch": 2,
+              "current_turn_revision": 4,
+              "conversation_id": "ses_ec608e76fffe35GCyBpUfW0Yuj",
+              "conversation_title": "New session - 2026-10-14T10:30:57.424Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_completion": {
+                "turn_id": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+                "turn_epoch": 2,
+                "turn_revision": 4,
+                "completed_at_ms": 1791973859866
+              },
+              "completion_revision": 4
+            },
+            "completion_revision": 4,
+            "completed_turn": "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw",
+            "completed_turn_epoch": 2,
+            "completed_turn_revision": 4,
+            "opencode_completions": {
+              "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw": 4,
+              "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ": 3,
+              "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11": 2,
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-19.json"
+    },
+    {
+      "conversation_reselection_restores_original_revision": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 54,
+            "updated_at_ms": 1791973879913,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 2,
+                "source_revision": 10,
+                "observed_at_ms": 1791973879913,
+                "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+                "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+                "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                "turn_epoch": 2,
+                "turn_revision": 10,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "successful_completion": {
+                  "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                  "turn_epoch": 2,
+                  "turn_revision": 10,
+                  "completed_at_ms": 1791973832545
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "done",
+              "current_turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+              "current_turn_epoch": 2,
+              "current_turn_revision": 10,
+              "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+              "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_completion": {
+                "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                "turn_epoch": 2,
+                "turn_revision": 10,
+                "completed_at_ms": 1791973832545
+              },
+              "completion_revision": 1
+            },
+            "completion_revision": 4,
+            "completed_turn": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+            "completed_turn_epoch": 2,
+            "completed_turn_revision": 10,
+            "opencode_completions": {
+              "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw": 4,
+              "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ": 3,
+              "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11": 2,
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-20.json"
+    },
+    {
+      "session_rename_reload_rebind_ignores_stale_environment": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 0
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34419,
+              "start_jiffies": 396639,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973824216,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+            "record_revision": 58,
+            "updated_at_ms": 1791973882624,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+                "source_id": "opencode",
+                "source_epoch": 3,
+                "source_revision": 3,
+                "observed_at_ms": 1791973882624,
+                "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+                "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+                "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                "turn_epoch": 3,
+                "turn_revision": 3,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "successful_completion": {
+                  "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                  "turn_epoch": 3,
+                  "turn_revision": 3,
+                  "completed_at_ms": 1791973832545
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "done",
+              "current_turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+              "current_turn_epoch": 3,
+              "current_turn_revision": 3,
+              "conversation_id": "ses_ec609843dffeOotJd4Ke5hXD1a",
+              "conversation_title": "New session - 2026-10-14T10:30:17.282Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_completion": {
+                "turn_id": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+                "turn_epoch": 3,
+                "turn_revision": 3,
+                "completed_at_ms": 1791973832545
+              },
+              "completion_revision": 1
+            },
+            "completion_revision": 4,
+            "completed_turn": "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN",
+            "completed_turn_epoch": 3,
+            "completed_turn_revision": 3,
+            "opencode_completions": {
+              "ses_ec608e76fffe35GCyBpUfW0Yuj/msg_139f71d71001WOKGDImi7VJNNw": 4,
+              "ses_ec608fe96ffe7FaDJuHx4hu9rN/msg_139f7057c001vK0YgI3WUiowrQ": 3,
+              "ses_ec6091e13ffe8f6DniXaEHj3wF/msg_139f6e678001bFWp5xc0hZrq11": 2,
+              "ses_ec609843dffeOotJd4Ke5hXD1a/msg_139f6b1eb0016vAeSuVMzSHQtN": 1
+            }
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-21.json"
+    },
+    {
+      "midturn_recovery_new_process_no_provider_replay": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-674385f5-27fa-4adb-b4ea-555ceeb160de",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 2
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 36537,
+              "start_jiffies": 403246,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973887326,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-674385f5-27fa-4adb-b4ea-555ceeb160de",
+            "record_revision": 4,
+            "updated_at_ms": 1791973888178,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-674385f5-27fa-4adb-b4ea-555ceeb160de",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 3,
+                "observed_at_ms": 1791973888178,
+                "conversation_id": "ses_ec60884b9ffeWwJj52V3K6YQGY",
+                "conversation_title": "New session - 2026-10-14T10:31:22.694Z",
+                "turn_epoch": 1,
+                "turn_revision": 3,
+                "activity": "working",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "working",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 3,
+              "conversation_id": "ses_ec60884b9ffeWwJj52V3K6YQGY",
+              "conversation_title": "New session - 2026-10-14T10:31:22.694Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "completion_revision": 0
+            },
+            "completion_revision": 0,
+            "completed_turn_epoch": 0,
+            "completed_turn_revision": 0
+          }
+        },
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 1
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 34869,
+              "start_jiffies": 397307,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973829111,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+            "record_revision": 32,
+            "updated_at_ms": 1791973886448,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 31,
+                "observed_at_ms": 1791973886448,
+                "conversation_id": "ses_ec6090750ffe39qCMcPWBvwwlQ",
+                "conversation_title": "New session - 2026-10-14T10:30:49.264Z",
+                "turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+                "turn_epoch": 1,
+                "turn_revision": 31,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "successful_completion": {
+                  "turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+                  "turn_epoch": 1,
+                  "turn_revision": 31,
+                  "completed_at_ms": 1791973851060
+                },
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "done",
+              "current_turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 31,
+              "conversation_id": "ses_ec6090750ffe39qCMcPWBvwwlQ",
+              "conversation_title": "New session - 2026-10-14T10:30:49.264Z",
+              "pending_requests": [],
+              "background_task_count": 0,
+              "latest_completion": {
+                "turn_id": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+                "turn_epoch": 1,
+                "turn_revision": 31,
+                "completed_at_ms": 1791973851060
+              },
+              "completion_revision": 1
+            },
+            "completion_revision": 1,
+            "completed_turn": "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI",
+            "completed_turn_epoch": 1,
+            "completed_turn_revision": 31,
+            "opencode_completions": {
+              "ses_ec6090750ffe39qCMcPWBvwwlQ/msg_139f6fd35001eXUKZUU18x1seI": 1
+            }
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-22.json"
+    },
+    {
+      "normal_opencode_home_presence_before_prompt": true,
+      "records": [
+        {
+          "identity": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-f1f6dc5c-5f83-48c0-abb9-adb9cdf3c784",
+            "pane_key": {
+              "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+              "terminal": 3
+            },
+            "kind": "opencode",
+            "process": {
+              "pid": 36988,
+              "start_jiffies": 403718,
+              "boot_id": "2a5bef2f-80ed-4814-903b-f379381a20fe",
+              "uid": 1000
+            },
+            "registered_at_ms": 1791973895235,
+            "is_synthetic": false
+          },
+          "state": {
+            "schema_version": 1,
+            "agent_instance_id": "agent-f1f6dc5c-5f83-48c0-abb9-adb9cdf3c784",
+            "record_revision": 3,
+            "updated_at_ms": 1791973895431,
+            "sources": {
+              "opencode": {
+                "schema_version": 1,
+                "agent_instance_id": "agent-f1f6dc5c-5f83-48c0-abb9-adb9cdf3c784",
+                "source_id": "opencode",
+                "source_epoch": 1,
+                "source_revision": 2,
+                "observed_at_ms": 1791973895431,
+                "turn_epoch": 1,
+                "turn_revision": 2,
+                "activity": "idle",
+                "pending_requests": [],
+                "background_task_count": 0,
+                "capabilities": [
+                  "activity",
+                  "permissions",
+                  "questions",
+                  "conversation_title",
+                  "aggregate_completion",
+                  "terminal_failure",
+                  "lease"
+                ]
+              }
+            },
+            "reduced": {
+              "status": "idle",
+              "current_turn_epoch": 1,
+              "current_turn_revision": 2,
+              "pending_requests": [],
+              "background_task_count": 0,
+              "completion_revision": 0
+            },
+            "completion_revision": 0,
+            "completed_turn_epoch": 0,
+            "completed_turn_revision": 0
+          }
+        }
+      ],
+      "evidence_file": "/tmp/opencode/vj-h3-yz6w9p8b/evidence-23.json"
+    },
+    {
+      "agent_exit_removes_record_while_shell_survives": true,
+      "pruned": {
+        "dry_run": false,
+        "pruned": [
+          "agent-f1f6dc5c-5f83-48c0-abb9-adb9cdf3c784",
+          "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75"
+        ]
+      }
+    },
+    {
+      "uninstall_preserves_unrelated_plugin_and_theme": true
+    }
+  ],
+  "limitations": [
+    "Model output is controlled synthetic HTTP input; all TUI events, tool permission/question, child execution, store and bindings are real installed runtime.",
+    "This harness verifies production records and native panes. Whole-host input/visit UI remains a separate human H3 review."
+  ],
+  "verij": "/home/vudinhn/repos/verij/target/release/verij",
+  "zellij_version": "zellij 0.45.1",
+  "last_prerequisite_diagnostic": {
+    "adapter": "opencode",
+    "assets_match": true,
+    "binding_requires": "Linux foreground tty + current native Zellij inventory",
+    "blockers": [],
+    "bridge_version": 1,
+    "bundled_plugin": "/home/vudinhn/repos/verij/dist/verij_plugin.wasm",
+    "capabilities": [
+      "activity",
+      "permissions",
+      "questions",
+      "conversation_title",
+      "aggregate_completion",
+      "terminal_failure"
+    ],
+    "config": "/tmp/opencode/vj-h3-yz6w9p8b/config/opencode/tui.json",
+    "configured": true,
+    "default_installed_plugin": "/tmp/opencode/vj-h3-yz6w9p8b/data/verij/verij_plugin.wasm",
+    "disabled": false,
+    "effective_adapter_inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+    "effective_adapter_runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+    "exporter_upgrade": "From the checkout: make install-plugin (or set VERIJ_DATA_DIR to the directory of your configured Verij WASM). Reload the same configured plugin URL in the affected existing session using zellij -s SESSION action start-or-reload-plugin URL. New sessions load the installed artifact normally.",
+    "installation_ready": true,
+    "installed_inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+    "installed_plugin_matches_bundle": null,
+    "installed_runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+    "inventory_directory": "/tmp/opencode/vj-h3-yz6w9p8b/states",
+    "inventory_path_matches_adapter": true,
+    "inventory_ready": true,
+    "inventory_sessions": [
+      {
+        "detail": "Verified native pane inventory is available. A foreground agent TUI can register against it.",
+        "session": "runtime-probe",
+        "status": "ready",
+        "verified_terminal_panes": 2
+      }
+    ],
+    "live_records": 2,
+    "monitoring_prerequisites_ready": true,
+    "note": "Installation, runtime and pane-inventory prerequisite checks. live_records confirms actual reporting; installation alone is insufficient. Restart OpenCode after adapter setup/uninstall; reload the Verij exporter after a WASM upgrade.",
+    "opencode_version": "1.19.0",
+    "records": [
+      {
+        "instance": "agent-c83c20e7-b8a1-4394-92ae-40b7331fcd75",
+        "pane": {
+          "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+          "terminal": 0
+        },
+        "pid": 34419,
+        "source_healthy": true,
+        "status": "idle"
+      },
+      {
+        "instance": "agent-ecf1fb46-ab23-46ba-94f7-a636eed8021f",
+        "pane": {
+          "session": "linux:1000:2a5bef2f-80ed-4814-903b-f379381a20fe:34348:396610",
+          "terminal": 1
+        },
+        "pid": 34869,
+        "source_healthy": true,
+        "status": "idle"
+      }
+    ],
+    "reporter": "/home/vudinhn/repos/verij/target/release/verij",
+    "reporter_available": true,
+    "reporter_version": "verij 0.1.0",
+    "requested_session": "runtime-probe",
+    "runtime": "/tmp/opencode/vj-h3-yz6w9p8b/agents",
+    "runtime_matches_adapter": true,
+    "runtime_writable": true,
+    "supported_versions": [
+      "1.x.x"
+    ],
+    "version_supported": true
+  },
+  "provider_requests": {
+    "success": 1,
+    "error": 1,
+    "permission": 2,
+    "question": 3,
+    "retry": 3,
+    "cancel": 1,
+    "family": 2,
+    "child": 1,
+    "recovery": 1
+  },
+  "status": "PASS",
+  "probe_processes_exited": true,
+  "server_and_host_exited": true
+}

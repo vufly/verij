@@ -328,3 +328,92 @@ invalidation, stale/future proofs, superseding completion/new turn, and prompt
 filesystem topology despite slower discovery. H1 again passed its earlier
 ownership/visit gates and hit the pre-existing cross-session rebind failure;
 that result is retained in `resource-baselines/p1-navigation.json`.
+
+## P2 family recovery follow-up (2026-10-14)
+
+The scheduler foundation now has route/producer-local verified family caching and
+resumable ancestry discovery/verification. A collection performs at most 16 topology
+calls, retaining its three-second deadline and the existing shared 32-request/sec,
+eight-token-burst, four-in-flight/four-pending budget. Completed cursor work survives
+a timed-out read; stream invalidations do not continually restart structural scans.
+Synthetic 1/16/64-member families finish in 1/3/9 slices and 9/39/135 total cold calls.
+Once cached, status and pending-input recovery cost four endpoint calls for each size.
+
+Family topology has a ten-second fallback. Busy families skip message retrieval.
+Quiescent history repair is independently scheduled and stores only bounded metadata
+after retrieval. Immediate permission/question edges validate IDs, request kind and
+session ownership, retaining input for unaffected verified members during rescans.
+New children await topology validation; partial membership and old hints never
+establish Done. Route/producer/server replacement and reparent invalidate authority.
+
+`resource-baselines/p2-family-synthetic.json` retains a matched one-host/four-tab
+private stock Zellij pair with production sidebars and native reporters. Requested
+20/100 owned events/sec measured 4.5/4.8 bridge calls/sec and 0.3/0.2 committed
+native writes/sec. This is approximately 97% below P0's one-member 20-event/sec API
+baseline. Unchanged lease renewal remains independent of API collection.
+
+`p2-family-opencode.json` retains the actual OpenCode 1.19.0 pair. Its 20/100 provider
+chunk/sec phases observed 1.0/1.3 subscribed events/sec and 4.4/4.4 bridge calls/sec;
+provider chunks must not be relabeled as bridge events. Completion acknowledgement,
+detachment and private-process cleanup passed. `p2-family-h3.json` passed 26 actual
+runtime checks, with 27 independently corroborated snapshots across four instances.
+All 38 Node tests and four focused native OpenCode/setup tests passed. The separate
+`p2-family-scheduler.json` records deterministic family work and synthetic invocation
+rates; it does not measure native writes or real HTTP traffic.
+
+The runtime pair ran in independent private roots alongside H3; the final synthetic
+pair ran separately. H3's no-replay check now waits for actual held-provider arrival,
+since immediate Working can precede that request. An earlier harness assertion and
+a concurrent synthetic host-registration failure remain in local scratch reports,
+documented in the baseline README; both reruns passed. CPU/RSS and asset hashes are
+retained, but this milestone establishes bounded
+work and semantics rather than long-run memory behavior or monitoring-only CPU cost.
+P2 remains in progress: idle outcome recovery still retrieves full message bodies,
+and the 100-message limit is not a byte/allocation bound. OpenCode's structured local
+message cache exposes no per-session hydration marker; global `ready` is insufficient
+to authorize the latest outcome. Metadata-only recovery with current-turn currency,
+narrow startup queries, and pre-allocation response limits is the next P2 slice.
+
+## P2 bounded metadata completion (2026-10-14)
+
+P2's remaining outcome path now uses one-message metadata pages rather than recurring
+100-message/body retrieval. It verifies the newest root user, matching assistant,
+strict chronological pagination and a final unchanged head. Backdated insertion,
+deleted/missing predecessors and stale local caches cannot reuse old completion
+authority. At most six metadata observations run per collection; longer current-turn
+suffixes resume with a cursor, bounded to 100 searched messages. Only current-user
+and latest-assistant metadata are retained.
+
+For attach, the stock `info` prefix is scanned within 64 KiB and the response is
+cancelled before parts. Other SDK responses have a 1 MiB adapter buffer cap and
+pre-parse depth/node guards. Error bodies are cancelled without parsing. The SDK's
+resolved transport/authentication are retained; no shared client settings change.
+
+The installed standalone worker's fetch RPC calls `response.text()` upstream of
+the plugin. Its message path therefore uses fresh read-only SQLite metadata from
+the verified producer storage scope. Stock message/session indexes, file ownership,
+device/inode and schema currency are checked. SQLite uses a 512 KiB cache, no mmap
+and zero busy timeout. `octet_length` rejects oversized stored metadata before JSON
+extraction; parts are never selected. Metadata observations still consume the bridge
+budget, while message-body RPC counts stay zero. Unsupported/in-memory storage stays
+conservative. Other stock worker SDK endpoints retain their upstream buffering;
+the adapter limits do not claim to bound OpenCode's own caches or serialization.
+
+`resource-baselines/p2-metadata-large-output.json` passes seven checks with 128
+historical genuine turns and an explicitly synthetic 8 MiB tool part inserted via
+the actual REST API. Six attach recovery queries transferred 312,094 bytes including
+read-ahead; standalone message observation transferred zero RPC body bytes. Reload
+changed source epoch, preserved completion revision 1 and did not replay the one
+controlled provider request. Existing RSS guards and private-process cleanup passed.
+The retained verifier checks source hashes and cumulative transport counters.
+
+`p2-metadata-h3.json` passes 26 runtime checks, with 27 corroborated snapshots across
+four instances. `p2-metadata-opencode.json` retains a passing matched one-host/four-tab
+runtime pair; `p2-metadata-scheduler.json` retains synthetic family/stream budgets.
+All 55 Node tests and four focused native OpenCode/setup tests passed. The fixture
+also exposed latency doubling quiet recovery eligibility; timestamps now begin at
+collection start, with deterministic coverage. Scratch failures and incidental
+startup SDK cancellations remain documented in the baseline README.
+
+P0–P2 now have scoped completion evidence. P3/P4 retained-resource work, P5's combined
+matrix and four-hour soak, and P6 installed-asset rollout/follow-up remain pending.

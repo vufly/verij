@@ -2,7 +2,7 @@
 
 Date: **2026-10-13**
 
-Status: **P0 and P1 complete (2026-10-14). P2 scheduler foundation started; P2 remains in progress. P3–P6 remain pending.**
+Status: **P0–P2 complete (2026-10-14), with retained phase-specific evidence. P3–P6 remain pending, including combined soak and rollout.**
 
 ## 1. Objective
 
@@ -41,6 +41,9 @@ These are initial implementation targets. Record final values and measured resul
 | OpenCode family topology recovery | Cache verified ancestry; rescan on topology invalidation and a slower fallback, initially ten seconds |
 | OpenCode unchanged lease renewal | Every five seconds, below the existing 15-second lease expiry; no API query solely to renew the lease |
 | OpenCode total API traffic | Initial per-bridge sustained ceiling of 32 requests/second, including recovery scans; bounded bursts and concurrency |
+| OpenCode current-outcome recovery | One-message metadata pages; at most six history invocations per collection and 100 messages searched for the current user |
+| OpenCode adapter parsing | 64 KiB metadata-prefix scan; 1 MiB other response buffer; JSON depth 32 and 16,384 structural nodes |
+| Standalone worker metadata | Read-only indexed SQLite pages; 512 KiB cache, no mmap, zero lock-wait timeout; no message-body RPC |
 | Filesystem notification ingress | Fixed-capacity signal/path queue; notification callbacks never block |
 | Control result journal | Rotate at 8 MiB; retain at most two generations plus the active file |
 
@@ -117,17 +120,17 @@ was already reproduced without this implementation.
 
 ### P2 — Budget OpenCode observation work
 
-**Files:** `integrations/opencode/bridge.mjs`, `integrations/opencode/core.mjs`, `integrations/opencode/core.test.mjs`, `verij-cli/src/opencode.rs`, and `verij-cli/tests/opencode_setup.rs`.
+**Files:** `integrations/opencode/bridge.mjs`, `integrations/opencode/core.mjs`, `integrations/opencode/core.test.mjs`, `integrations/opencode/recovery.test.mjs`, `verij-cli/src/opencode.rs`, and `verij-cli/tests/opencode_setup.rs`.
 
 - [x] Replace event-triggered full collection with a dirty-state scheduler. Track the next eligible refresh, one in-flight collection, and one pending invalidation.
 - [x] Ensure an event arriving during collection invalidates the sampled generation and schedules one later retry. Do not lose the dirty flag on a rejected snapshot.
-- [ ] Preserve immediate bounded event projection for validated permission/question and activity edges. Reconcile terminal outcomes conservatively when current evidence is incomplete.
+- [x] Preserve immediate bounded event projection for validated permission/question and activity edges. Reconcile terminal outcomes conservatively when current evidence is incomplete.
 - [x] Avoid allocating a microtask or request graph for every streaming update. Repeated activity and part updates should only set an already-pending flag.
-- [ ] Cache validated root/family ancestry for the current route and producer generation. Invalidate it on relevant create/delete/reparent events, route changes, reconnect, or inconsistent responses.
-- [ ] Separate cheap current-status recovery from full ancestry/history recovery. Charge every endpoint invocation to the per-bridge request budget.
-- [ ] Inspect the installed OpenCode API/cache contract for metadata-only or incremental outcome recovery. Use local structured message metadata where verified. Do not repeatedly fetch full tool-output bodies to rediscover unchanged completion metadata.
-- [ ] If startup recovery requires message retrieval, use the narrowest supported query and explicit allocation limits where the API permits them. A message-count limit alone must not be presented as a byte bound.
-- [ ] Keep family-size, response-time, and concurrency bounds. When a complete family cannot be verified within the budget, retain conservative state and retry later rather than increasing request rate or manufacturing Done.
+- [x] Cache validated root/family ancestry for the current route and producer generation. Invalidate it on relevant create/delete/reparent events, route changes, reconnect, or inconsistent responses.
+- [x] Separate cheap current-status recovery from full ancestry/history recovery. Charge every endpoint invocation to the per-bridge request budget.
+- [x] Inspect the installed OpenCode API/cache contract for metadata-only or incremental outcome recovery. Use local structured message metadata where verified. Do not repeatedly fetch full tool-output bodies to rediscover unchanged completion metadata.
+- [x] If startup recovery requires message retrieval, use the narrowest supported query and explicit allocation limits where the API permits them. A message-count limit alone must not be presented as a byte bound.
+- [x] Keep family-size, response-time, and concurrency bounds. When a complete family cannot be verified within the budget, retain conservative state and retry later rather than increasing request rate or manufacturing Done.
 - [x] Back off failed API recovery and reporter reconnects independently. Reset backoff on meaningful ownership changes or explicit new work.
 - [x] Deduplicate against the last successfully delivered semantic observation, not only the current queue tail. Distinct state edges must remain ordered.
 - [x] Renew unchanged source health every five seconds without a full API reconciliation. Initially reuse the existing snapshot protocol; add a dedicated renewal frame only if compatibility and measured write cost justify it.
@@ -136,7 +139,7 @@ was already reproduced without this implementation.
 
 **Exit criteria:** streaming frequency no longer determines full-query frequency; idle recovery and lease renewals have independent rates; supported input/completion/error transitions remain correct; native writes for unchanged state are limited to lease renewal.
 
-**Initial P2 milestone (in progress):** active/dirty collection starts are separated
+**Initial P2 milestone (retained foundation evidence):** active/dirty collection starts are separated
 by at least one second; quiet idle recovery uses ten seconds; unchanged lease renewal
 uses five seconds after a native receipt. A shared endpoint token bucket permits
 32 invocations/second with an eight-call burst, four physical requests in flight,
@@ -147,12 +150,95 @@ lease renewal without queries, ordered input edges, reconnect, and disposal.
 Retained initial results: `resource-baselines/p2-synthetic-start.json` and
 `resource-baselines/p2-opencode-start.json`. One-member synthetic streaming at 20 and
 100 owned events/second both measured 8.0 API calls/second. Quiet synthetic idle
-measured 0.8 calls/second and 0.2 committed native writes/second. Existing ancestry
-and bulk-message reconciliation is still used behind the scheduler; verified family
-caching, resumable large-family recovery, and metadata-only outcome recovery remain
-required before P2 can be marked complete. Budget exhaustion yields conservative
-state; the current three-second collection deadline cannot finish every 64-member
-full scan at the request ceiling.
+measured 0.8 calls/second and 0.2 committed native writes/second. At that milestone,
+existing ancestry and bulk-message reconciliation remained behind the scheduler;
+family caching, resumable large-family recovery, and metadata-only outcome recovery
+were still required. Budget exhaustion yielded conservative state because the
+three-second collection deadline could not finish every 64-member full scan at
+the request ceiling. The following milestone addresses the topology portion.
+
+**Family recovery milestone (2026-10-14):** `ObservationRecovery` now caches
+verified root/family metadata for the route and producer generation, with a
+ten-second topology fallback. Discovery, child-set verification, and selected
+ancestry rechecks resume across slices of at most 16 topology calls. Each collection
+retains the three-second deadline and shared endpoint budget; completed cursor work
+survives a timed-out read. Streaming semantic invalidations do not discard structural
+progress. Partial or inconsistent families cannot establish Done.
+
+At the family milestone, cached status/input recovery cost four endpoint calls.
+Busy families skipped message retrieval; quiescent history recovery had an independent
+ten-second fallback and message/activity invalidation. Only bounded structured
+metadata was retained after retrieval; SDK response allocation and idle bulk-body
+retrieval were still open. The completion milestone below addresses those paths.
+
+Immediate input projection validates bounded IDs and request kind/session ownership.
+Topology changes retain input for unaffected, previously verified members; new
+descendants await verification. Old membership hints cannot establish family
+quiescence or completion. Root reparent, route replacement, and reporter/server
+reconnect retire authority. Child retry projects Working rather than root Retrying.
+Verified ancestry enables subsequent event projection even when continuous streaming
+supersedes every semantic recovery sample.
+
+**Evidence:** `resource-baselines/p2-family-scheduler.json` verifies families of
+1/16/64 members in 1/3/9 slices, with four-call cached recovery. The matched real
+sidebar/native-reporter synthetic run in `p2-family-synthetic.json` measured
+4.5/4.8 API calls/sec at requested 20/100 owned events/sec and 0.3/0.2 native
+writes/sec. The actual OpenCode 1.19.0 pair in `p2-family-opencode.json` passed
+completion acknowledgement, detachment, and cleanup. Its provider chunk rates
+are distinct from observed subscribed event rates. `p2-family-h3.json` passed
+26 runtime checks with 27 corroborated snapshots across four instances. All
+38 Node tests and the four focused native OpenCode/setup tests passed.
+
+Those short, one-host/four-tab measurements established the family milestone,
+before metadata-only outcome recovery and pre-parse bounds were complete.
+
+**P2 completion milestone (2026-10-14):** outcome recovery now reads one-message
+metadata pages, independently of topology and streaming frequency. It finds the
+newest root user and corresponding newest assistant, verifies strict page ordering,
+and rechecks the head before returning semantic authority. An unchanged head cannot
+skip predecessor verification: a backdated inserted user or deleted predecessor
+must not authorize an old Done. Long current-turn suffixes resume with one cursor,
+at most six metadata invocations per collection, and a 100-message search bound.
+Only current-user/latest-assistant metadata is retained. Local TUI metadata can
+label Working; empty, stale, or unhydrated caches never establish Idle or Done.
+
+Attach uses the existing SDK transport/authentication, extracting the stock `info`
+prefix and cancelling before parts. The prefix scan is capped at 64 KiB, including
+envelope whitespace. Other SDK responses are capped at 1 MiB before adapter copying,
+decoding, or SDK JSON parsing, with depth/node guards. Error bodies are cancelled
+without parsing. These are adapter allocation limits: transport-owned read-ahead
+chunks and server-side response construction are explicitly outside that bound.
+
+Stock standalone worker RPC buffers whole bodies upstream of the SDK. Its message
+path instead uses fresh, read-only SQLite metadata from the producer's verified
+storage scope. It checks path/UID/device/inode, schema and stock indexes; uses a
+512 KiB cache, no mmap, and zero busy wait; and rejects oversized stored metadata
+with `octet_length` before JSON extraction. It never selects parts or invokes
+message-body RPC. These local observation invocations are charged to the same
+budget. Missing/in-memory/unverified storage or unsupported schemas remain
+conservative, with bounded retries. Handles close on disposal; replacement and
+schema changes invalidate them. Other worker SDK endpoints retain their upstream
+transport behavior and the adapter's pre-parse guards.
+
+Recovery eligibility now starts at collection start, so API latency cannot silently
+turn a ten-second fallback into twenty seconds. New tests also prevent stale local
+Working metadata from overwriting an explicitly observed newer root turn.
+
+**Completion evidence:** `resource-baselines/p2-metadata-large-output.json` passes
+seven checks against OpenCode 1.19.0 with 128 historical messages and an 8 MiB
+synthetic tool part inserted through the actual REST API. Six attach recovery queries
+delivered 312,094 transport bytes (including read-ahead), while standalone recovery
+delivered **zero message-body RPC bytes**. Plugin reload changed source epoch and
+preserved completion revision; the controlled provider was invoked once. Existing
+512 MiB Zellij / 1536 MiB OpenCode guards and private-process cleanup passed.
+`p2-metadata-h3.json` passed 26 live checks with 27 corroborated snapshots across
+four instances; `p2-metadata-opencode.json` passed the matched runtime workload,
+acknowledgement, and cleanup. `p2-metadata-scheduler.json` retains family and stream
+budgets. All 55 Node tests and four focused native OpenCode/setup tests passed.
+
+P2's phase-specific exit criteria now have evidence. P5's combined multi-host matrix,
+four-hour soak, and P6 deployment/follow-up remain pending; these short runs do not
+establish leak freedom or a byte bound on stock OpenCode's own caches/serialization.
 
 ### P3 — Bound watcher ingress and directory work
 
@@ -242,8 +328,8 @@ Keep each change independently verifiable. Do not increase WSL memory or navigat
 
 - [x] Idle monitoring has no recurring whole-host visit proofs.
 - [x] Successful acknowledgement does not repeat the same proof sequence.
-- [ ] OpenCode query rate is independent of streaming event rate.
-- [ ] Unchanged semantic snapshots only renew their lease at the bounded interval.
+- [x] OpenCode query rate is independent of streaming event rate.
+- [x] Unchanged semantic snapshots only renew their lease at the bounded interval.
 - [ ] Watcher ingress, record reads, background scans, and retained journals are bounded.
 - [ ] Multi-host Done, input, error, lifecycle, and navigation behavior remain correct.
 - [ ] Four-hour soak and real WSL follow-up have retained measurements.

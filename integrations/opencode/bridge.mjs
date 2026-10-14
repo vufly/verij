@@ -1,6 +1,6 @@
 import { spawn as spawnReporter } from "node:child_process"
-import { events, normalize, unknown, reconcile, supportsVersion, SnapshotQueue,
-  ReconcileScheduler, RequestBudget, budgetedAPI, observationBudget } from "./core.mjs"
+import { events, normalize, unknown, ObservationRecovery, supportsVersion, SnapshotQueue,
+  ReconcileScheduler, RequestBudget, budgetedAPI, observationBudget, validObservationID } from "./core.mjs"
 
 export function createBridge(runtime = {}) {
   const clock = runtime.clock ?? {
@@ -28,8 +28,10 @@ export function createBridge(runtime = {}) {
     let generation = 0, last = unknown(version), lastRoute = "", lastWork = "", retryAfter = 0, reporterFailures = 0
     let startupTimeout, renewalTimeout
     let ownedFamily = new Set()
+    const ownedStatuses = new Map(), ownedRequests = new Map()
     let requestController, receiptTimeout
     const requestBudget = new RequestBudget(clock)
+    const recovery = new ObservationRecovery(clock)
     const observedAPI = budgetedAPI(api, requestBudget)
     let scheduler
     const env = { ...process.env }
@@ -62,7 +64,7 @@ export function createBridge(runtime = {}) {
       const route = `${current.name}/${current.params?.sessionID ?? ""}`
       if (route === lastRoute) return
       lastRoute = route; lastWork = ""; generation++
-      ownedFamily.clear()
+      ownedFamily.clear(); ownedStatuses.clear(); ownedRequests.clear(); recovery.reset()
       queue.reset() // Old family observations are locally superseded.
       publish(unknown(version))
       retryAfter = 0; reporterFailures = 0
@@ -93,7 +95,7 @@ export function createBridge(runtime = {}) {
             connected = true
             // A new native producer epoch must start conservatively, then sample
             // the current route again before publishing semantic authority.
-            generation++; ownedFamily.clear(); queue.reset()
+            generation++; ownedFamily.clear(); ownedStatuses.clear(); ownedRequests.clear(); recovery.reset(); queue.reset()
             publish(unknown(version))
             scheduler.invalidate({ resetBackoff: true })
           } else {
@@ -115,7 +117,7 @@ export function createBridge(runtime = {}) {
         if (stopped) return
         reporterFailures = Math.min(reporterFailures + 1, 6)
         retryAfter = clock.now() + Math.min(observationBudget.maxBackoffMs, 2000 * 2 ** (reporterFailures - 1))
-        ownedFamily.clear(); last = unknown(version)
+        ownedFamily.clear(); ownedStatuses.clear(); ownedRequests.clear(); recovery.reset(); last = unknown(version)
         queue.push(unknown(version))
         generation++
         scheduler.invalidate()
@@ -130,14 +132,41 @@ export function createBridge(runtime = {}) {
       requestController = new AbortController()
       const timeout = setTimeout(() => requestController.abort(), 3000)
       try {
-        const family = await reconcile(observedAPI, requestController.signal)
+        const family = await recovery.collect(observedAPI, requestController.signal)
+        // Streaming can supersede semantic samples continuously. Independently
+        // verified topology still qualifies later input/activity event projection.
+        const current = api.route.current
+        if (!stopped && recovery.family && current.name === "session" && current.params?.sessionID === recovery.route) {
+          ownedFamily = new Set(recovery.family.members.map(s => s.id))
+          if (last.conversation_id !== recovery.family.root.id) {
+            publish(normalize(version, { ...recovery.family, statuses: {}, messages: [], messagesComplete: false,
+              permissions: [], questions: [] }))
+          }
+        }
         if (sampledGeneration === generation && !stopped) {
+          if (family === undefined) {
+            // Retain bounded input/activity edges, but a partial family scan
+            // cannot renew old terminal authority as if it had been verified.
+            publish({ ...last, activity: "unknown", completed_at_ms: undefined, error_name: undefined })
+            return false
+          }
           ownedFamily = new Set(family?.members.map(s => s.id) ?? [])
-          publish(normalize(version, family))
+          ownedStatuses.clear(); ownedRequests.clear()
+          for (const member of family?.members ?? []) ownedStatuses.set(member.id, family.statuses[member.id]?.type ?? "idle")
+          for (const [kind, requests] of [["permission", family?.permissions ?? []], ["question", family?.questions ?? []]]) {
+            for (const request of requests) ownedRequests.set(`${kind}/${request.id}`, { ...request, kind })
+          }
+          const value = normalize(version, family)
+          if (["working", "retrying"].includes(value.activity) && value.conversation_id === last.conversation_id) {
+            if (family?.messagesComplete === false) value.turn_id = last.turn_id ?? value.turn_id
+            else value.turn_id ??= last.turn_id
+          }
+          publish(value)
           return true
         }
         return false
       } catch (error) {
+        if (!recovery.hint) { ownedFamily.clear(); ownedStatuses.clear(); ownedRequests.clear() }
         if (sampledGeneration === generation && !stopped) publish(unknown(version))
         throw error
       } finally {
@@ -150,18 +179,44 @@ export function createBridge(runtime = {}) {
       syncRoute()
       const p = event.properties ?? {}
       const sid = p.sessionID ?? (type.startsWith("session.") ? p.info?.id : p.info?.sessionID) ?? p.part?.sessionID
-      if (p.info?.parentID && ownedFamily.has(p.info.parentID) && type.startsWith("session.")) {
-        if (ownedFamily.size < 64) ownedFamily.add(p.info.id)
-        else if (!ownedFamily.has(p.info.id)) {
-          generation++; ownedFamily.clear(); publish(unknown(version)); scheduler.invalidate()
-          return
-        }
-      }
+      const previousFamily = recovery.hint, topologyEpoch = recovery.epoch
+      const topology = ["session.created", "session.updated", "session.deleted"].includes(type)
+        && recovery.topology(type, p.info)
       const selected = api.route.current
-      if (!ownedFamily.has(sid) && sid !== selected.params?.sessionID && type !== "server.instance.disposed") return
+      const reconnect = ["server.instance.disposed", "server.connected"].includes(type)
+      if (!ownedFamily.has(sid) && !recovery.tracks(sid) && sid !== selected.params?.sessionID && !topology && !reconnect) return
       generation++ // Never commit a snapshot sampled across a newer owned event.
+      if (reconnect || (topology && recovery.epoch !== topologyEpoch)) {
+        // Adding/removing a child invalidates family quiescence, not an unrelated
+        // root's explicit input. Only retain previously verified, unaffected IDs.
+        const removed = new Set([p.info?.id])
+        for (const member of previousFamily?.members ?? []) {
+          if (removed.has(member.parentID)) removed.add(member.id)
+        }
+        if (reconnect || !previousFamily || removed.has(previousFamily.root.id) || removed.has(selected.params?.sessionID)) {
+          if (reconnect) recovery.reset()
+          ownedFamily.clear(); ownedStatuses.clear(); ownedRequests.clear(); publish(unknown(version))
+        } else {
+          for (const id of removed) { ownedFamily.delete(id); ownedStatuses.delete(id) }
+          for (const [key, request] of ownedRequests) if (removed.has(request.sessionID)) ownedRequests.delete(key)
+          publish({ ...last, activity: "unknown", completed_at_ms: undefined, error_name: undefined,
+            pending_requests: [...ownedRequests.values()].map(({ id, kind }) => ({ id, kind })) })
+        }
+        requestController?.abort()
+        scheduler.invalidate({ resetBackoff: true })
+        return
+      }
+      const validID = validObservationID
+      if ((p.info?.sessionID && p.info.sessionID !== sid) || (p.part?.sessionID && p.part.sessionID !== sid)) {
+        recovery.invalidateMessages(); publish(unknown(version)); scheduler.invalidate()
+        return
+      }
+      if (sid === last.conversation_id && ["message.updated", "message.removed", "session.error"].includes(type)) {
+        recovery.invalidateMessages()
+      }
       const newWork = type === "message.updated" && p.info?.role === "user"
-        && typeof p.info.id === "string" && lastWork !== `${sid}/${p.info.id}` && last.turn_id !== `${sid}/${p.info.id}`
+        && validID(p.info.id) && validID(`${sid}/${p.info.id}`)
+        && lastWork !== `${sid}/${p.info.id}` && last.turn_id !== `${sid}/${p.info.id}`
       if (newWork) lastWork = `${sid}/${p.info.id}`
       let meaningful = newWork
       if (sid === last.conversation_id && newWork) {
@@ -169,26 +224,43 @@ export function createBridge(runtime = {}) {
           completed_at_ms: undefined, error_name: undefined })
       }
       if (ownedFamily.has(sid) && type === "session.status" && ["busy", "retry"].includes(p.status?.type)) {
-        meaningful ||= last.activity !== (p.status.type === "retry" ? "retrying" : "working")
+        recovery.invalidateMessages()
+        ownedStatuses.set(sid, p.status.type)
+        const activity = ownedStatuses.get(last.conversation_id) === "retry" ? "retrying" : "working"
+        meaningful ||= last.activity !== activity
         publish({ ...last, completed_at_ms: undefined, error_name: undefined,
-          activity: p.status.type === "retry" ? "retrying" : "working" })
+          background_task_count: [...ownedStatuses].filter(([id, status]) => id !== last.conversation_id && ["busy", "retry"].includes(status)).length,
+          activity })
       }
-      // Preserve input edges immediately for the owned root; descendant input
-      // is reconciled through its validated parent chain. No event broadcasts
+      if (ownedFamily.has(sid) && (type === "session.error" || type === "message.removed"
+          || (type === "session.idle" && last.activity !== "idle")
+          || (type === "session.status" && p.status?.type === "idle" && last.activity !== "idle")
+          || (type === "message.updated" && p.info?.role === "assistant" && (last.completed_at_ms || last.error_name)))) {
+        if (type === "session.idle" || (type === "session.status" && p.status?.type === "idle")) ownedStatuses.set(sid, "idle")
+        const busy = [...ownedStatuses].some(([, status]) => ["busy", "retry"].includes(status))
+        publish({ ...last, completed_at_ms: undefined, error_name: undefined,
+          background_task_count: [...ownedStatuses].filter(([id, status]) => id !== last.conversation_id && ["busy", "retry"].includes(status)).length,
+          activity: busy ? (ownedStatuses.get(last.conversation_id) === "retry" ? "retrying" : "working") : "unknown" })
+      }
+      // Preserve input edges immediately for root and verified descendants.
+      // New descendants await topology validation. No event broadcasts
       // are allowed to assign another TUI's conversation to this pane.
       if (ownedFamily.has(sid) && (type.startsWith("permission.") || type.startsWith("question."))) {
-        const pending = [...last.pending_requests]
         const id = p.id ?? p.requestID
-        if (type.endsWith(".asked") && id && !pending.some(r => r.id === id)) {
+        if (!validID(id)) { scheduler.invalidate(); return }
+        const kind = type.startsWith("permission") ? "permission" : "question", key = `${kind}/${id}`
+        if (type.endsWith(".asked") && !ownedRequests.has(key)) {
+          if (ownedRequests.size >= 100) {
+            ownedRequests.clear(); publish(unknown(version)); scheduler.invalidate()
+            return
+          }
           meaningful = true
-          pending.push({ id, kind: type.startsWith("permission") ? "permission" : "question" })
-        } else if (!type.endsWith(".asked")) {
-          const index = pending.findIndex(r => r.id === id)
-          if (index >= 0) { pending.splice(index, 1); meaningful = true }
+          ownedRequests.set(key, { id, kind, sessionID: sid })
+        } else if (!type.endsWith(".asked") && ownedRequests.get(key)?.sessionID === sid) {
+          ownedRequests.delete(key); meaningful = true
         }
-        if (pending.length > 100) publish(unknown(version))
-        else publish({ ...last, pending_requests: pending, completed_at_ms: undefined, error_name: undefined,
-          activity: "working" })
+        if (meaningful) publish({ ...last, pending_requests: [...ownedRequests.values()].map(({ id, kind }) => ({ id, kind })),
+          completed_at_ms: undefined, error_name: undefined, activity: "working" })
       }
       // Repeated stream events only advance generation and set one dirty bit.
       if (newWork) { retryAfter = 0; reporterFailures = 0 }
@@ -210,6 +282,7 @@ export function createBridge(runtime = {}) {
       clearTimeout(renewalTimeout)
       clearInterval(interval)
       scheduler.dispose()
+      recovery.reset()
       requestController?.abort()
       requestBudget.dispose()
       unsubscribe.forEach(dispose => dispose())

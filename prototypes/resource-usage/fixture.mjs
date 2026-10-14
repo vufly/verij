@@ -6,7 +6,15 @@ export function fixture(memberCount = 1) {
   const root = { id: "root", title: "Synthetic resource probe" }
   const children = Array.from({ length: memberCount - 1 }, (_, i) => ({ id: `child-${i}`, parentID: root.id }))
   let activity = "idle", turn = 1, completed = 0
-  const response = (endpoint, value) => { calls[endpoint]++; return Promise.resolve({ data: value }) }
+  const response = (endpoint, value, cursor) => {
+    calls[endpoint]++
+    return Promise.resolve({ data: value, response: { headers: new Headers(cursor ? { "x-next-cursor": cursor } : {}) } })
+  }
+  const messages = () => completed ? [
+    { info: { id: `user-${turn}`, sessionID: "root", role: "user", time: { created: turn * 10 } } },
+    { info: { id: `assistant-${turn}`, sessionID: "root", role: "assistant", parentID: `user-${turn}`,
+      finish: "stop", time: { created: turn * 10 + 1, completed } } },
+  ] : activity === "idle" ? [] : [{ info: { id: `user-${turn}`, sessionID: "root", role: "user", time: { created: turn * 10 } } }]
   const api = {
     app: { version: "1.18.34" },
     route: { current: { name: "session", params: { sessionID: root.id } } },
@@ -16,11 +24,11 @@ export function fixture(memberCount = 1) {
         status: () => response("session.status", { root: { type: activity } }),
         get: () => response("session.get", root),
         children: ({ sessionID }) => response("session.children", sessionID === root.id ? children : []),
-        messages: () => response("session.messages", completed ? [
-          { info: { id: `user-${turn}`, role: "user" } },
-          { info: { id: `assistant-${turn}`, role: "assistant", parentID: `user-${turn}`,
-            finish: "stop", time: { completed } } },
-        ] : activity === "idle" ? [] : [{ info: { id: `user-${turn}`, role: "user" } }]),
+        messages: ({ limit = 100, before } = {}) => {
+          const all = messages(), end = before ? Number(before) : all.length
+          const start = Math.max(0, end - limit)
+          return response("session.messages", all.slice(start, end), start ? String(start) : undefined)
+        },
       },
       permission: { list: () => response("permission.list", []) },
       question: { list: () => response("question.list", []) },

@@ -1,0 +1,190 @@
+{
+  "status": "PASS",
+  "measurement_kind": "synthetic API scheduling; exiting reporter stub; no native writes",
+  "node_version": "v24.21.0",
+  "asset_sha256": {
+    "bridge.mjs": "0f4ed4635cba4c2ed958f0d4d0a1675d3abddea4295e88077047056a5f5131c8",
+    "core.mjs": "da2898c87c4216b4d95d31649c998601d8bcde4e351d7ca6ca7c4d933f54b536"
+  },
+  "warmup_seconds": 2,
+  "workload_seconds": 10,
+  "observation_budget": {
+    "activeMs": 1000,
+    "idleMs": 10000,
+    "leaseMs": 5000,
+    "maxBackoffMs": 30000,
+    "topologyMs": 10000,
+    "historyMs": 10000,
+    "topologySliceCalls": 16,
+    "historySliceCalls": 6,
+    "historyMessages": 100,
+    "responseBytes": 1048576,
+    "metadataBytes": 65536,
+    "jsonDepth": 32,
+    "jsonNodes": 16384,
+    "requestsPerSecond": 32,
+    "requestBurst": 8,
+    "concurrency": 4,
+    "pendingRequests": 4
+  },
+  "familyCosts": [
+    {
+      "members": 1,
+      "requests_per_reconciliation": 9,
+      "slices": 1,
+      "peak_slice_calls": 9,
+      "elapsed_seconds": 0.158660717,
+      "cached_recovery_calls": 4,
+      "endpoints": {
+        "session.status": 4,
+        "session.get": 2,
+        "session.children": 2,
+        "session.messages": 1,
+        "permission.list": 2,
+        "question.list": 2
+      }
+    },
+    {
+      "members": 16,
+      "requests_per_reconciliation": 39,
+      "slices": 3,
+      "peak_slice_calls": 16,
+      "elapsed_seconds": 2.5999040460000002,
+      "cached_recovery_calls": 4,
+      "endpoints": {
+        "session.status": 4,
+        "session.get": 2,
+        "session.children": 32,
+        "session.messages": 1,
+        "permission.list": 2,
+        "question.list": 2
+      }
+    },
+    {
+      "members": 64,
+      "requests_per_reconciliation": 135,
+      "slices": 9,
+      "peak_slice_calls": 16,
+      "elapsed_seconds": 10.110806364,
+      "cached_recovery_calls": 4,
+      "endpoints": {
+        "session.status": 4,
+        "session.get": 2,
+        "session.children": 128,
+        "session.messages": 1,
+        "permission.list": 2,
+        "question.list": 2
+      }
+    }
+  ],
+  "measurements": [
+    {
+      "monitoring": false,
+      "owned_events_per_second": 0,
+      "events": 0,
+      "elapsed_seconds": 10.000286219,
+      "endpoints": {
+        "session.status": 0,
+        "session.get": 0,
+        "session.children": 0,
+        "session.messages": 0,
+        "permission.list": 0,
+        "question.list": 0
+      },
+      "requests": 0,
+      "requests_per_second": 0,
+      "rss_mib": 61.58203125,
+      "peak_rss_mib": 61.58203125
+    },
+    {
+      "monitoring": false,
+      "owned_events_per_second": 20,
+      "events": 199,
+      "elapsed_seconds": 10.000284311,
+      "endpoints": {
+        "session.status": 0,
+        "session.get": 0,
+        "session.children": 0,
+        "session.messages": 0,
+        "permission.list": 0,
+        "question.list": 0
+      },
+      "requests": 0,
+      "requests_per_second": 0,
+      "rss_mib": 61.70703125,
+      "peak_rss_mib": 61.70703125
+    },
+    {
+      "monitoring": false,
+      "owned_events_per_second": 100,
+      "events": 981,
+      "elapsed_seconds": 10.000216851999998,
+      "endpoints": {
+        "session.status": 0,
+        "session.get": 0,
+        "session.children": 0,
+        "session.messages": 0,
+        "permission.list": 0,
+        "question.list": 0
+      },
+      "requests": 0,
+      "requests_per_second": 0,
+      "rss_mib": 62.08203125,
+      "peak_rss_mib": 62.08203125
+    },
+    {
+      "monitoring": true,
+      "owned_events_per_second": 0,
+      "events": 0,
+      "elapsed_seconds": 10.000180028000003,
+      "endpoints": {
+        "session.status": 18,
+        "session.get": 4,
+        "session.children": 4,
+        "session.messages": 0,
+        "permission.list": 9,
+        "question.list": 9
+      },
+      "requests": 44,
+      "requests_per_second": 4.399920789106017,
+      "rss_mib": 62.83203125,
+      "peak_rss_mib": 62.83203125
+    },
+    {
+      "monitoring": true,
+      "owned_events_per_second": 20,
+      "events": 199,
+      "elapsed_seconds": 10.000390890000002,
+      "endpoints": {
+        "session.status": 20,
+        "session.get": 2,
+        "session.children": 2,
+        "session.messages": 0,
+        "permission.list": 10,
+        "question.list": 10
+      },
+      "requests": 44,
+      "requests_per_second": 4.399828015122716,
+      "rss_mib": 62.95703125,
+      "peak_rss_mib": 62.95703125
+    },
+    {
+      "monitoring": true,
+      "owned_events_per_second": 100,
+      "events": 981,
+      "elapsed_seconds": 10.001211865000005,
+      "endpoints": {
+        "session.status": 22,
+        "session.get": 2,
+        "session.children": 2,
+        "session.messages": 0,
+        "permission.list": 11,
+        "question.list": 11
+      },
+      "requests": 48,
+      "requests_per_second": 4.799418375285061,
+      "rss_mib": 63.3984375,
+      "peak_rss_mib": 63.58203125
+    }
+  ]
+}

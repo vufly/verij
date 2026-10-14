@@ -335,7 +335,11 @@ class Probe(runtime.Probe):
         self.fixture.gates["recovery"].clear()
         self.prompt(recovering, "recovery")
         self.wait(lambda: self.record(apid, "working"))
+        # Immediate activity projection can precede the actual provider call.
+        # Capture replay baseline only once the held request has really arrived.
+        self.wait(lambda: self.fixture.entered["recovery"].is_set())
         requests = self.fixture.counts["recovery"]
+        assert requests == 1, f"Expected one held recovery request, got {requests}"
         os.kill(apid, signal.SIGKILL)
         self.wait(lambda: runtime.process_identity(apid) is None)
         pane = self.action("new-pane", "--in-place", "--pane-id", "terminal_0", "--close-replaced-pane", "--",
@@ -351,7 +355,8 @@ class Probe(runtime.Probe):
         self.children.append(apid)
         self.wait(lambda: self.record(apid, "working"))
         assert self.record(apid)["identity"]["agent_instance_id"] != identity["agent_instance_id"]
-        assert self.fixture.counts["recovery"] == requests
+        assert self.fixture.counts["recovery"] == requests, (
+            f"Provider request count changed during replacement: {requests} -> {self.fixture.counts['recovery']}")
         self.capture("midturn_recovery_new_process_no_provider_replay", apid, bpid)
         self.fixture.gates["recovery"].set()
         self.wait(lambda: self.record(apid, "done"))

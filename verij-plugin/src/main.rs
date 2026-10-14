@@ -682,7 +682,7 @@ impl State {
         let pane_changed = self.active_pane != active_pane;
         self.active_pane = active_pane;
         if name_changed || clients_changed || tabs_changed || raw_tabs_changed
-            || panes_changed || pane_changed {
+            || panes_changed || pane_changed || self.last_inventory.is_none() {
             if name_changed {
                 if let Some(old) = old_name { self.cleanup_renamed_session_file(&old); }
             }
@@ -690,16 +690,63 @@ impl State {
         }
     }
 
+    /// Session-list replies can retain a detached client's old topology. Resolve
+    /// stable IDs against the live screen before publishing another observation.
+    /// A missing object rejects the entire cached manifest; a failed query leaves
+    /// the last publication intact until the next poll.
+    #[cfg(any(target_arch = "wasm32", test))]
+    fn refresh_polled_topology(
+        current: &mut SessionInfo,
+        mut tab_info: impl FnMut(usize) -> Result<Option<TabInfo>, String>,
+        mut pane_info: impl FnMut(PaneId) -> Result<Option<PaneInfo>, String>,
+    ) -> Result<bool, String> {
+        let mut tabs = Vec::new();
+        let mut panes = PaneManifest::default();
+        for cached_tab in &current.tabs {
+            let Some(tab) = tab_info(cached_tab.tab_id)? else {
+                return Ok(false);
+            };
+            let mut live_panes = Vec::new();
+            if let Some(cached_panes) = current.panes.panes.get(&cached_tab.position) {
+                for cached_pane in cached_panes.iter().filter(|pane| !pane.is_plugin) {
+                    let Some(pane) = pane_info(PaneId::Terminal(cached_pane.id))? else {
+                        return Ok(false);
+                    };
+                    live_panes.push(pane);
+                }
+            }
+            panes.panes.insert(tab.position, live_panes);
+            tabs.push(tab);
+        }
+        tabs.sort_by_key(|tab| tab.position);
+        current.tabs = tabs;
+        current.panes = panes;
+        Ok(true)
+    }
+
     /// Bounded full-topology refresh, including sessions with no attached clients.
     pub fn resolve_session_from_snapshot(&mut self) {
         #[cfg(target_arch = "wasm32")]
         {
             if let Ok(snapshot) = queries::session_list() {
-                if let Some(current) = snapshot
+                if let Some(mut current) = snapshot
                     .live_sessions
                     .into_iter()
                     .find(|s| s.is_current_session)
                 {
+                    match Self::refresh_polled_topology(
+                        &mut current, queries::tab_info, queries::live_pane_info,
+                    ) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            // A new timestamp must never make a closed tab or pane
+                            // outrank a healthy exporter. Withdraw only our files.
+                            self.cleanup_renamed_session_file(&current.name);
+                            self.last_inventory = None;
+                            return;
+                        }
+                        Err(_) => return,
+                    }
                     let focus = (current.connected_clients > 0)
                         .then(|| queries::focused_pane().ok()).flatten();
                     CONTROL.with(|control| {
@@ -921,6 +968,34 @@ mod tests {
 
     fn uuid_for_test() -> u128 {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    }
+
+    #[test]
+    fn cached_closed_tabs_and_panes_cannot_be_republished_by_polling() {
+        let cached = SessionInfo {
+            tabs: vec![TabInfo { tab_id: 7, position: 1, name: "old".into(), ..Default::default() }],
+            panes: PaneManifest { panes: HashMap::from([
+                (1, vec![PaneInfo { id: 4, title: "old pane".into(), ..Default::default() }]),
+            ]) },
+            ..Default::default()
+        };
+        let live_tab = TabInfo { tab_id: 7, position: 0, name: "live".into(), ..Default::default() };
+        let live_pane = PaneInfo { id: 4, title: "live pane".into(), ..Default::default() };
+        let mut current = cached.clone();
+        assert!(!State::refresh_polled_topology(&mut current, |_| Ok(None), |_| panic!("closed tab must stop pane queries")).unwrap());
+        let mut current = cached.clone();
+        assert!(!State::refresh_polled_topology(&mut current, |_| Ok(Some(live_tab.clone())), |_| Ok(None)).unwrap());
+        let mut current = cached.clone();
+        assert!(State::refresh_polled_topology(&mut current, |_| Err("denied".into()), |_| Ok(None)).is_err());
+        assert_eq!(current.tabs, cached.tabs);
+        assert_eq!(current.panes, cached.panes);
+        let mut current = cached;
+        assert!(State::refresh_polled_topology(&mut current,
+            |id| { assert_eq!(id, 7); Ok(Some(live_tab.clone())) },
+            |id| { assert_eq!(id, PaneId::Terminal(4)); Ok(Some(live_pane.clone())) },
+        ).unwrap());
+        assert_eq!(current.tabs, vec![live_tab]);
+        assert_eq!(current.panes.panes, HashMap::from([(0, vec![live_pane])]));
     }
 
     #[test]
