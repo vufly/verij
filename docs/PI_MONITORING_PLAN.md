@@ -1,6 +1,6 @@
 # Pi Monitoring Support Plan
 
-Status: **approved by the user; P0 complete. P1–P4 implementation and acceptance remain pending**.
+Status: **approved by the user; P0 and P1 complete. P2–P4 implementation and acceptance remain pending**.
 
 P0 evidence: [runtime qualification and established contract](../prototypes/pi-runtime/README.md), [sanitized traces](../prototypes/pi-runtime/results.json), and [independent verification summary](../prototypes/pi-runtime/summary.json). Compiled and Node-based Pi 1.2.0 passed the two-extension-order matrix. This is lifecycle qualification, not production monitoring readiness.
 
@@ -190,6 +190,17 @@ Add Pi kind/source authority, CLI dispatch, title overrides, module wiring, stri
 
 **Gate:** unit tests cover source isolation, monotonic ordering, stale producer rejection, completion deduplication, unknown-kind compatibility, and unchanged existing adapters.
 
+**Completed:**
+- `AgentKind::Pi` and explicit `pi` source authority (priority 10) integrated in `verij-types/src/agent.rs` with wire compatibility preserved for unknown agent kinds.
+- Title resolution and configuration override `[agents.pi]` added to `verij-cli/src/config.rs`.
+- Hidden CLI dispatcher `verij agent pi` added in `verij-cli/src/agent_cli.rs`, guarded against duplicate nonblocking live producers with `.pi.lock` and global session resolution.
+- Source reservation: generic `verij agent report` rejects `source_id: "pi"` to prevent bypassing the strict native Pi protocol and epoch fencing.
+- Strict nested snapshot validation and privacy whitelist in `verij-cli/src/pi.rs`: closed enums (`PiActivity`, `PiRequestKind`, `PiErrorKind` with static terminal failure text), `deny_unknown_fields` on all frames/snapshots/outcomes, max 1 pending request, no dialog/detail content, no permission provenance, no arbitrary error message bodies.
+- Terminal outcomes (`Completed`, `Error`, `Aborted`) require conversation ID, run ID, and explicit quiescent idle activity with zero pending requests and background tasks.
+- Reconnect and handshake state: atomic persistence of `PiAdapterState` (bounded to 32KiB/128 entries ledger), monotonic ordering, turn receipts correlating epoch/revision, and deduplication of completed runs scoped by structured tuple key `(conversation_id, run_id)`. Saturated ledgers degrade conservatively to Unknown. Handshake uses `source_epoch >= 1, source_revision >= 1`.
+- Native observer lease expiry in `verij-cli/src/agent_watcher.rs`: marks live row `Unknown` while clearing pending requests and background task count, preserving process-live row and deduplication metadata.
+- Verification evidence: 29 `verij-types` tests pass, 17 unit tests in `pi::tests` pass, `agent_watcher` lease degradation test passes, `tree_format` custom Pi row test passes, and 8 isolated CLI integration tests with controlling PTY and private tempfile inventory pass in `pi_reporter.rs`.
+
 ### P2 — Pi extension and bounded transport
 
 Implement thin event bindings, pure projection, full snapshots, nonblocking queue, receipts, backoff, lease renewal, and idempotent teardown. Avoid UI mutation, transcript mutation, and permission interception.
@@ -234,4 +245,4 @@ Planned checks: `cargo test --workspace`, native/WASM build checks, Pi setup/rep
 
 Pi monitoring is ready when normal interactive launches work after owned setup; activity, blocking extension UI, completion, abort, error, exit, and recovery obey the shared contracts; generic titles and host-local visits work unchanged; installation is reversible; and reproducible runtime/resource evidence accompanies the documented supported-version and capability matrix.
 
-P0 is complete. The next implementation task is P1 native Pi kind/protocol/reducer support, not global installation or a UI redesign.
+P0 and P1 are complete. The next implementation task is P2 Pi extension and bounded transport (`integrations/pi/*`), not global installation or a UI redesign.

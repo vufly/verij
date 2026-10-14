@@ -54,12 +54,19 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 - Creation waits for the first tab's configured status plugin and a terminal pane to stabilize, then verifies the plugin survived fake-client detach.
 - Plugin fallback launches the agent when automatic layout loading does not produce state.
 
-### Pi Monitoring — P0 Lifecycle Qualification
+### Pi Monitoring — P0 Lifecycle Qualification & P1 Native Kind/Protocol/Reducer
 
-- The [Pi monitoring plan](docs/PI_MONITORING_PLAN.md) is approved; P0 is complete, while P1–P4 remain pending.
-- The [private runtime probe](prototypes/pi-runtime/README.md) exercised Pi 1.2.0 compiled/Bun and npm/Node TUI distributions with the observer loaded before and after the active fixture: 112 scenario runs, 1,608 sanitized lifecycle records.
-- Retained evidence covers parallel/nested tools, recoverable tool errors, provider errors and retries, cancellation, steering/follow-ups, extension continuation, automatic/manual compaction, blocking/nested/idle UI, session name/tree/replacement/reload, and orderly shutdown. All private process groups, provider workers, and scratch directories were cleaned up.
-- Eight JavaScript tests, twelve Python tests, strict TypeScript probe checks, and independent evidence validation passed. No production Rust/WASM adapter or global Pi/Verij configuration changed.
+- The [Pi monitoring plan](docs/PI_MONITORING_PLAN.md) is approved; P0 and P1 are complete, while P2–P4 remain pending.
+- P0 private runtime qualification: 112 real-TUI scenario runs, 1,608 sanitized lifecycle records across compiled/Bun and npm/Node Pi 1.2.0.
+- P1 native implementation:
+  - Added `AgentKind::Pi` and explicit `pi` source authority (priority 10) in `verij-types/src/agent.rs`, preserving wire compatibility.
+  - Added `[agents.pi]` title override in `verij-cli/src/config.rs`.
+  - Added hidden CLI dispatcher `verij agent pi` in `verij-cli/src/agent_cli.rs`, guarded by `.pi.lock` nonblocking single-producer fencing and global session resolution.
+  - Reserved source `"pi"` in `agent_store::report` against generic report bypass.
+  - Strict metadata-only whitelist and closed enums in `verij-cli/src/pi.rs`, enforcing zero unknown fields, max 1 pending request, no permission provenance or dialog content, and quiescent terminal idle outcomes.
+  - Atomic handshake state claim, monotonic ordering, turn receipts correlating epoch/revision, and deduplication of completed runs scoped by structured tuple key `(conversation_id, run_id)`. Bounded completions ledger with conservative degradation to Unknown on saturation.
+  - Native observer lease expiry in `agent_watcher.rs` clears background task count and pending requests, retaining live process row as Unknown.
+  - Full test verification: 29 `verij-types` tests, 17 `pi::tests` unit tests, `agent_watcher` lease expiry unit test, `tree_format` actual Pi row test, 8 isolated CLI integration tests with controlling PTY in `pi_reporter.rs`, workspace tests, and `wasm32-wasip1` target check all pass.
 - Completion requires final settlement plus current final outcome evidence: a post-run exception can settle non-aborted after a successful turn without the pre-settlement boundary. Missing evidence remains Unknown.
 
 ## Verification

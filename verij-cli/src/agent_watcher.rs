@@ -153,7 +153,33 @@ pub fn read_single_agent(
         state.reduced.detail = Some("OpenCode reporter unavailable".into());
     }
 
+    degrade_expired_pi_lease(&mut state, crate::agent_store::now_ms());
+
     Some(AgentRecord { identity, state })
+}
+
+/// Read-side projection only: preserve source snapshots and the completion ledger.
+/// Idempotence avoids publishing the same expired cached row every sweep.
+fn degrade_expired_pi_lease(state: &mut AgentState, now_ms: u64) -> bool {
+    if !crate::pi::lease_expired(state, now_ms) {
+        return false;
+    }
+    let reduced = &mut state.reduced;
+    let changed = reduced.status != AgentStatus::Unknown
+        || !reduced.pending_requests.is_empty()
+        || reduced.background_task_count != 0
+        || reduced.latest_completion.is_some()
+        || reduced.latest_error.is_some()
+        || reduced.detail.as_deref() != Some("Pi reporter unavailable");
+    if changed {
+        reduced.status = AgentStatus::Unknown;
+        reduced.pending_requests.clear();
+        reduced.background_task_count = 0;
+        reduced.latest_completion = None;
+        reduced.latest_error = None;
+        reduced.detail = Some("Pi reporter unavailable".into());
+    }
+    changed
 }
 
 pub fn read_records(root: &Path) -> Vec<AgentRecord> {
@@ -678,7 +704,7 @@ pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
                     }
                 }
 
-                // In-memory OpenCode lease projection & cheap liveness check bounded to 32 records per slice
+                // In-memory lease projection & cheap liveness check bounded to 32 records per slice
                 if now >= next_lease_liveness {
                     let now_ms = crate::agent_store::now_ms();
                     let mut dead_ids = Vec::new();
@@ -713,6 +739,8 @@ pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
                                 Some("OpenCode reporter lease expired".into());
                             changed = true;
                         }
+
+                        changed |= degrade_expired_pi_lease(&mut record.state, now_ms);
 
                         // Cached liveness recheck
                         let is_dead = if let Some(cached) = identity_cache.get_mut(id) {
@@ -1431,5 +1459,166 @@ mod tests {
         assert!(live_only, "Snapshot did not reflect orphan removal");
 
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_read_records_expired_pi_lease_degrades_to_unknown_while_preserving_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let instance_name = "agent-test-pi-lease";
+        let inst_dir = dir.path().join(instance_name);
+        std::fs::create_dir_all(&inst_dir).unwrap();
+
+        let inst_id = verij_types::agent::AgentInstanceId(instance_name.to_string());
+        let identity = AgentIdentity {
+            schema_version: AGENT_SCHEMA_VERSION,
+            agent_instance_id: inst_id.clone(),
+            pane_key: verij_types::identity::PaneKey {
+                session: verij_types::identity::SessionInstanceId("test-sess".to_string()),
+                terminal: verij_types::identity::TerminalPaneId(1),
+            },
+            kind: verij_types::agent::AgentKind::Pi,
+            process: verij_types::identity::ProcessIdentity {
+                pid: std::process::id(),
+                start_jiffies: 0,
+                boot_id: "test-boot".to_string(),
+                uid: unsafe { libc::getuid() },
+            },
+            registered_at_ms: 1000,
+            is_synthetic: true,
+            runner_id: None,
+        };
+        std::fs::write(
+            inst_dir.join("identity.json"),
+            serde_json::to_string(&identity).unwrap(),
+        )
+        .unwrap();
+
+        // Expired lease: observed_at_ms is 30 seconds in the past
+        let expired_time = crate::agent_store::now_ms().saturating_sub(30_000);
+        let mut sources = std::collections::BTreeMap::new();
+        sources.insert(
+            "pi".to_string(),
+            verij_types::agent::NormalizedSourceRecord {
+                schema_version: 1,
+                agent_instance_id: inst_id.clone(),
+                source_id: "pi".to_string(),
+                source_epoch: 1,
+                source_revision: 5,
+                observed_at_ms: expired_time,
+                conversation_id: Some(verij_types::agent::ConversationId("conv-1".to_string())),
+                conversation_title: Some("Pi Session".to_string()),
+                turn_id: Some(verij_types::agent::TurnId("run-1".to_string())),
+                turn_epoch: 1,
+                turn_revision: 5,
+                activity: Some(verij_types::agent::ActivityKind::Working),
+                pending_requests: vec![verij_types::agent::PendingRequest {
+                    id: "req-1".to_string(),
+                    kind: verij_types::agent::RequestKind::Confirmation,
+                    detail: None,
+                }],
+                background_task_count: 2,
+                successful_completion: None,
+                execution_error: None,
+                capabilities: vec!["activity".to_string(), "lease".to_string()],
+            },
+        );
+
+        let mut adapter_state = std::collections::BTreeMap::new();
+        let mut adapter_completions = std::collections::BTreeMap::new();
+        adapter_completions.insert("(\"conv-1\",\"run-1\")".to_string(), 1u64);
+        adapter_state.insert(
+            "pi".to_string(),
+            serde_json::json!({
+                "running_version": "1.2.0",
+                "runtime_id": "rt-1",
+                "conversation_id": "conv-1",
+                "source_epoch": 1,
+                "source_revision": 5,
+                "aggregate_run_id": "run-1",
+                "aggregate_turn_epoch": 1,
+                "aggregate_turn_revision": 5,
+                "latest_snapshot": null,
+                "completions": adapter_completions
+            }),
+        );
+
+        let state = AgentState {
+            schema_version: AGENT_SCHEMA_VERSION,
+            agent_instance_id: inst_id,
+            record_revision: 5,
+            updated_at_ms: 1000,
+            sources,
+            reduced: verij_types::agent::ReducedExecutionState {
+                status: verij_types::agent::AgentStatus::NeedsInput,
+                detail: Some("confirmation pending".to_string()),
+                conversation_id: Some(verij_types::agent::ConversationId("conv-1".to_string())),
+                conversation_title: Some("Pi Session".to_string()),
+                current_turn_id: Some(verij_types::agent::TurnId("run-1".to_string())),
+                current_turn_epoch: 1,
+                current_turn_revision: 5,
+                pending_requests: vec![verij_types::agent::PendingRequest {
+                    id: "req-1".to_string(),
+                    kind: verij_types::agent::RequestKind::Confirmation,
+                    detail: None,
+                }],
+                background_task_count: 2,
+                latest_completion: Some(verij_types::agent::SuccessfulCompletion {
+                    turn_id: Some(verij_types::agent::TurnId("run-1".to_string())),
+                    turn_epoch: 1,
+                    turn_revision: 5,
+                    completed_at_ms: 1000,
+                    summary: None,
+                }),
+                latest_error: None,
+                completion_revision: 1,
+            },
+            completion_revision: 1,
+            completed_turn: None,
+            completed_turn_epoch: 0,
+            completed_turn_revision: 0,
+            opencode_completions: Default::default(),
+            adapter_state,
+        };
+        std::fs::write(
+            inst_dir.join("state.json"),
+            serde_json::to_string(&state).unwrap(),
+        )
+        .unwrap();
+
+        let records = read_records(dir.path());
+        assert_eq!(records.len(), 1, "expired lease row must be preserved");
+        let rec = &records[0];
+        assert_eq!(rec.identity.agent_instance_id.0, instance_name);
+        assert_eq!(
+            rec.state.reduced.status,
+            verij_types::agent::AgentStatus::Unknown
+        );
+        assert_eq!(
+            rec.state.reduced.detail,
+            Some("Pi reporter unavailable".into())
+        );
+        assert!(
+            rec.state.reduced.pending_requests.is_empty(),
+            "pending requests cleared"
+        );
+        assert_eq!(
+            rec.state.reduced.background_task_count, 0,
+            "background tasks cleared"
+        );
+        assert!(
+            rec.state.reduced.latest_completion.is_none(),
+            "completion cleared"
+        );
+        assert!(rec.state.reduced.latest_error.is_none(), "error cleared");
+
+        // Verify adapter_state["pi"] is preserved
+        let adapter_val = rec
+            .state
+            .adapter_state
+            .get("pi")
+            .expect("pi adapter_state preserved");
+        assert_eq!(adapter_val["running_version"], "1.2.0");
+        assert_eq!(adapter_val["runtime_id"], "rt-1");
+        assert_eq!(adapter_val["completions"]["(\"conv-1\",\"run-1\")"], 1);
     }
 }

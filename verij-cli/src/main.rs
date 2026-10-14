@@ -31,6 +31,7 @@ mod magy;
 mod navigation;
 pub(crate) mod navigation_diagnostics;
 mod opencode;
+mod pi;
 mod process;
 mod registry;
 mod resource_metrics;

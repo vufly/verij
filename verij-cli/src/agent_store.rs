@@ -738,6 +738,9 @@ fn register_inner(
 
 /// Report source observation, atomically updating `state.json`.
 pub fn report(instance_id: &AgentInstanceId, partial: PartialSourceRecord) -> Result<AgentState> {
+    if partial.source_id == "pi" {
+        bail!("source 'pi' is reserved for native Pi reporter");
+    }
     update(instance_id, |_| Ok(partial), |_| Ok(()))
 }
 
