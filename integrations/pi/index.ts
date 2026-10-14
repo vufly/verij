@@ -5,6 +5,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import {
   VERSION,
+  getAgentDir,
   type AgentBeforeSettleEvent,
   type AgentEndEvent,
   type AgentSettledEvent,
@@ -51,10 +52,29 @@ function isValidConfigPath(val: unknown): val is string {
   return true
 }
 
+export function resolveAgentDir(): string {
+  if (typeof getAgentDir === "function") {
+    try {
+      return getAgentDir()
+    } catch {}
+  }
+  const envDir = process.env.PI_CODING_AGENT_DIR
+  if (envDir) {
+    if (envDir === "~") {
+      return homedir()
+    }
+    if (envDir.startsWith("~/")) {
+      return join(homedir(), envDir.slice(2))
+    }
+    return envDir
+  }
+  return join(homedir(), ".pi", "agent")
+}
+
 function loadSiblingAdapterConfig(): AdapterConfig | null {
   let fd: number | null = null
   try {
-    const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent")
+    const agentDir = typeof getAgentDir === "function" ? getAgentDir() : resolveAgentDir()
     const configPath = join(agentDir, "verij-monitoring", "adapter.json")
     fd = openSync(configPath, constants.O_RDONLY | constants.O_NONBLOCK)
     const stat = fstatSync(fd)

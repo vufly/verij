@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 /// verij-cli/src/main.rs
 ///
 /// Entry point for the `verij` binary.
@@ -32,6 +34,7 @@ mod navigation;
 pub(crate) mod navigation_diagnostics;
 mod opencode;
 mod pi;
+mod pi_setup;
 mod process;
 mod registry;
 mod resource_metrics;

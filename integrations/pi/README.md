@@ -1,16 +1,8 @@
-# Pi pane-local monitoring (P2)
+# Pi pane-local monitoring (P3)
 
 This extension provides event-driven, metadata-only observation for **Pi 1.2.0 (`@earendil-works/pi-coding-agent`)** running in interactive TUI mode inside a verified Zellij terminal pane.
 
-## P2 Source Scope and Testing
-
-At Phase 2 (P2), this extension is **source-only**. It is tested via explicit path execution:
-
-```bash
-pi -e ./integrations/pi/index.ts
-```
-
-There is **no global installation**, repository modification, or automatic loading into global Pi directories at this phase. Automatic installation, profile management, and lifecycle CLI commands (`setup pi`, `doctor pi`, `uninstall pi`) belong strictly to **Phase 3 (P3)**.
+Phase 3 (P3) integrates owned asset lifecycle management via the Verij CLI (`setup pi`, `doctor pi`, `uninstall pi`), typed ownership manifests, conservative preservation, ancestor and child symlink safety, and doctor diagnostics. **Phase 4 (P4) acceptance in actual Zellij runtime remains pending.**
 
 ## Architecture and lifecycle
 
@@ -24,13 +16,112 @@ Pi process / pane
 
 - **Process boundary**: Subprocesses and timers start only during `session_start` when `ctx.mode === "tui"` and in verified Zellij panes (`ZELLIJ_PANE_ID` 0..4294967295), never in the extension factory. If `session_start` rejects (e.g. print mode or invalid ID), an explicit lifecycle flag ensures all subsequent events no-op.
 - **Typed event bindings**: Event listeners in `index.ts` are explicitly registered with Pi's typed `ExtensionAPI` and `ExtensionContext`, delegating nonblocking event observation to `bridge.handleEvent` without raw error body retention.
-- **P3 adapter configuration (wiring design)**: At `session_start` in TUI mode only, reads bounded configuration (<= 16 KiB, schema validated, no tilde expansion) from `~/.pi/agent/verij-monitoring/adapter.json` if present. Zero filesystem I/O occurs in the extension factory or non-TUI modes. Explicit launch-time overrides (`VERIJ_BIN`, `VERIJ_AGENT_STATE_DIR`, `VERIJ_STATES_DIR`) always take precedence.
+- **Adapter configuration**: At `session_start` in TUI mode only, reads bounded configuration (<= 16 KiB, schema validated, host `getAgentDir()` path resolution) from `<agent_dir>/verij-monitoring/adapter.json` placed sibling to the `extensions/` root directory (outside extension discovery). Zero filesystem I/O occurs in the extension factory or non-TUI modes. Explicit launch-time overrides (`VERIJ_BIN`, `VERIJ_AGENT_STATE_DIR`, `VERIJ_STATES_DIR`) always take precedence.
 - **Private transport**: Spawns one `verij agent pi` reporter per active extension runtime with private stdin/stdout pipes (`stdio: ["pipe", "pipe", "ignore"]`). No protocol frames or error logs appear in the user's terminal.
 - **Strict handshake & greetings**: On startup, sends a single `hello` frame correlating `runtime_id`, `version`, and `conversation_id`. The native reporter validates ownership, single-producer lock (`.pi.lock`), and monotonic source epochs. Ready greetings and receipts enforce strict whitelists and closed status enums (`idle`, `needs_input`, `working`, `done`, `error`, `unknown`).
 - **Receipt correlation**: Snapshots wait for native transaction receipts verifying exact source epoch, monotonic next revision, and positive record revisions. A recurring five-second heartbeat renews the 15-second observer lease.
 - **Framing**: Uses UTF-8 `StringDecoder` and caps input frame buffers at 256 KiB.
 - **Process lifecycle & bounded teardown flush**: Listeners are installed before any stdin write. Spontaneous child crashes clear timers, requeue in-flight frames, and wait for process closure before backoff retries. Teardown performs a bounded nonblocking flush of already-observed semantic frames within total fixed grace (500ms), still receipt-correlated and rate-limited; once delivered or expired, closes stdin (EOF) and escalates via 500ms `SIGTERM` and 500ms `SIGKILL`. Reconnects are strictly prevented during teardown.
 - **Context conversation changes**: Unexpected conversation ID changes or invalid identifiers during an active run or after `Done` immediately retire run, outcome, and prompt state to `Unknown`, reseeding a fresh runtime ID to ensure no prior completions are published under new associations.
+
+## Lifecycle commands (P3)
+
+Verij manages the Pi monitoring adapter through dedicated CLI commands:
+
+```bash
+# Install or refresh owned adapter assets into the resolved agent directory
+verij agent setup pi [--config-dir <DIR>] [--pi-bin <PATH>]
+
+# Diagnose installation integrity, runtime writability, and live pane monitoring
+verij agent doctor pi [--config-dir <DIR>] [--pi-bin <PATH>] [--session <SESSION>]
+
+# Cleanly uninstall owned adapter assets with conservative user preservation
+verij agent uninstall pi [--config-dir <DIR>] [--pi-bin <PATH>]
+```
+
+### Directory resolution precedence
+
+The Pi configuration directory is resolved using the exact upstream precedence:
+
+1. Explicit `--config-dir <PATH>` CLI option.
+2. `PI_CODING_AGENT_DIR` environment variable (if non-empty; empty string falls back to default, non-empty whitespace is preserved).
+3. Default `~/.pi/agent` expanded relative to the user's home directory.
+
+All paths are normalized and canonicalized to absolute local filesystem paths. Nonexistent path components with `..` resolution are normalized component-by-component, resolving existing prefixes via canonicalization while forbidding symlinks in owned extension and configuration subtrees.
+
+> [!IMPORTANT]
+> **Matching Launch Environment**: `PI_CODING_AGENT_DIR` is used to configure Pi's agent directory; for Verij lifecycle commands, pass the same path via `PI_CODING_AGENT_DIR` or `--config-dir <DIR>`. Note that `--config-dir` is a Verij CLI flag, not a Pi CLI flag.
+>
+> Shell example with custom directory:
+> ```bash
+> verij agent setup pi --config-dir /path/to/agent
+> PI_CODING_AGENT_DIR=/path/to/agent pi
+> ```
+>
+> **Local Filesystem Paths Required**: `file:` URLs (e.g. `file:///path/to/agent`) are explicitly rejected before any filesystem writes or operations; local filesystem paths must be provided.
+
+### Owned asset layout
+
+To prevent Pi's package loader from treating configuration as an extension, Verij places code and configuration in separate subtrees:
+
+- **Autoloaded extension**: `<agent_dir>/extensions/verij-monitoring/`
+  - `index.ts` — thin event bridge
+  - `core.mjs` — pure projection and bounded transport
+- **Sibling configuration & manifest**: `<agent_dir>/verij-monitoring/`
+  - `adapter.json` — resolved absolute reporter and states/runtime paths
+  - `installed.json` — typed ownership manifest
+
+### Ownership manifest & adoption guards
+
+The manifest `<agent_dir>/verij-monitoring/installed.json` enforces strict ownership:
+- `schema_version: 1`
+- `adapter_id: "verij-monitoring-v1"`
+- `version: "1.2.0"`
+- 16-hex lowercase noncryptographic FNV-1a 64-bit ownership fingerprints for `index.ts`, `core.mjs`, and `adapter.json`
+- Canonical absolute reporter executable path
+- `installed_at_ms` preserved across idempotent reinstallations
+
+Preflight adoption checks require a valid manifest before touching any existing files. Unowned directories, empty `{}` or `null` manifests, foreign files, or corrupted manifests refuse adoption.
+
+### Symlink safety
+
+To prevent symlink attacks:
+- The ancestor `extensions` directory and `<agent_dir>/verij-monitoring` must not be symlinks.
+- Owned directories, subdirectories, manifests, config files, and code assets must not be symlinks (broken or valid).
+- Operations reject any non-regular files (FIFOs, sockets, device nodes).
+
+### Conservative preservation on uninstall
+
+`verij agent uninstall pi` enforces conservative retention:
+- **Code or extra files retained**: If any code asset (`index.ts`, `core.mjs`) is modified, or if any extra user file or dotfile exists in `extensions/verij-monitoring/` or `verij-monitoring/`, the entire code and configuration group is preserved untouched, the manifest is not marked uninstalled, and the command reports:
+  ```json
+  {
+    "uninstalled": false,
+    "restart_required": false,
+    "preserved": ["adapter.json", "core.mjs", "index.ts", "installed.json"],
+    "note": "Extension code, configuration, or extra files retained; adapter remains active"
+  }
+  ```
+  *(Any extra user files or dotfiles trigger full group retention and remain preserved on disk alongside the standard assets).*
+- **Modified configuration only**: If extension code is unmodified and neither directory contains extra files, but `adapter.json` was modified, clean extension code is removed while the modified configuration and manifest (marked `uninstalled: true`) are retained (`"uninstalled": true, "preserved": ["adapter.json", "installed.json"]`).
+- **Clean removal**: Only when all assets are unmodified and neither directory contains extra files are all files removed and empty owned directories pruned (`"uninstalled": true, "preserved": []`).
+
+### Doctor diagnostics
+
+`verij agent doctor pi` evaluates:
+1. **Binary availability & version**: Probes `pi --version` with a bounded nonblocking pipe, 4 KiB cap, dedicated process group cleanup, and a 3-second deadline. Qualified strictly for `1.2.0`.
+2. **Structural installation readiness**: Validates ownership manifest integrity, asset hashes, reporter binary availability (`verij --version`), and runtime directory writability.
+3. **Discovery overrides**: Evaluates `settings.json` against Pi's supported subset of `isEnabledByOverrides`:
+   - `!` glob exclusions evaluated first against directory name `verij-monitoring` and relative path `extensions/verij-monitoring`.
+   - `+` exact inclusions evaluated second (re-enabling matching extensions).
+   - `-` exact exclusions evaluated third (order-independent; always overrides `+`). Minus patterns are literal strings, not globs.
+   - Complex minimatch syntax (`@(`, `+(`, `!(`, `{`, `[`) is reported as uncertainty rather than a false block.
+   - Project-level `.pi/settings.json` overrides are reported as uncertainties rather than absolute blockers.
+4. **Hydrated inventory & live monitoring**:
+   - Matches exact session incarnation (`session_instance_id == pane_key.session`).
+   - Verifies foreground terminal job ownership via `/proc` controlling terminal ancestry (`verify_foreground`).
+   - Verifies active observer lease: source `"pi"`, `"lease"` capability, observed timestamp within 15 seconds, matching source epoch/revision, non-empty `runtime_id`, and supported version `1.2.0`.
+   - Distinguishes structural readiness (`installation_ready: true`) from actual verified live reporting (`adapter_loaded: true`).
 
 ## Capabilities
 
@@ -43,13 +134,15 @@ Pi process / pane
 - **Bounded transport**: 128-item total capacity FIFO queue with coalescing of identical consecutive refreshes. Rate limiter enforces at most 10 writes per second (interval >= 100ms) across all writes without bypassing priority frames. Queue overflow invalidates qualified projector state, reseeds blocking UI metadata to `NeedsInput` when locally provable, and prevents old completions from reasserting on heartbeats.
 - **Fault tolerance and backoff**: Process exits and pipe errors trigger exponential backoff (2s, 4s, 8s, 16s, capped at 30s). Reconnects with the same runtime restore active state without replaying unread completion badges. In-flight frames are requeued and retried across reporter crashes.
 
-## Exclusions
+## Exclusions & Limitations
 
 - **Non-interactive modes**: Print, JSON, and RPC modes do not run the TUI reporter.
 - **Untracked background work**: Extensions launching asynchronous background work outside Pi's tracked turn lifecycle remain outside aggregate completion guarantees.
 - **Unobservable UI**: External browser approvals, raw terminal readers, third-party UI bypassing Pi's extension API, and assistant conversational questions are not observable and do not trigger `Needs input`.
 - **Historical transcripts**: Resumed sessions do not replay historical completions.
-- **Versions**: Qualified strictly for Pi 1.2.0. Unsupported versions disable monitoring cleanly without spawning processes or setting timers.
+- **Versions**: Qualified strictly for Pi 1.2.0. Other releases are unsupported.
+- **Autoloading prerequisite**: Launching with `--no-extensions` or disabling `verij-monitoring` via settings overrides disables monitoring.
+- **Explicit local paths**: Explicit filesystem paths are required; `file:` URLs are not supported.
 
 ## Recovery
 
@@ -59,48 +152,26 @@ Pi process / pane
 
 ## Verification
 
-Deterministic event-state projection, transport, rate limiting, and P0 trace replay tests:
+1. Isolated lifecycle CLI tests (16 tests in `verij-cli/tests/pi_setup.rs`):
+```bash
+cargo test -p verij-cli --test pi_setup
+```
+Covers: repeated setup/uninstall idempotency, unowned directory adoption rejection, dotfile and custom config preservation, custom path/tilde resolution, explicit `file:` URL rejection, symlink safety across parent and child trees, unsupported version rejection, missing reporter and `VERIJ_BIN` override, legacy/missing inventory, doctor structural readiness vs loaded live adapter, settings discovery exclusion overrides, manifest integrity error handling, and process group timeout/large output handling.
 
+2. Deterministic event projection and P0 trace replay (35 tests):
 ```bash
 node --test integrations/pi/core.test.mjs
 ```
 
-Strict TypeScript check against private Pi 1.2.0 declarations:
-
-```bash
-scratch=$(mktemp -d /tmp/vj-pi-p2-types-XXXXXX)
-chmod 700 "$scratch"
-npm install --prefix "$scratch" --ignore-scripts --no-audit --no-fund --save-exact \
-  @earendil-works/pi-coding-agent@1.2.0 typescript@5.9.3 @types/node@24
-cat << 'EOF' > "$scratch/tsconfig.json"
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true
-  },
-  "include": ["index.ts"]
-}
-EOF
-printf '{"type":"module"}\n' > "$scratch/package.json"
-cp integrations/pi/{index.ts,core.mjs,core.d.mts} "$scratch/"
-"$scratch/node_modules/.bin/tsc" --project "$scratch/tsconfig.json"
-rm -rf -- "$scratch"
-```
-
-Native Rust reporter unit and integration test suite:
-
+3. Native reporter unit and integration test suite:
 ```bash
 cargo test -p verij-types
 cargo test -p verij-cli --test pi_reporter
 cargo test -p verij-cli -- pi
 ```
 
-Reviewer smoke verification evidence (synthetic ownership inventory via private controlling PTY, not P4):
-- **Smoke 1**: Status transition sequence `idle -> working -> needs_input -> working -> done -> unknown`, completion revision 1, child clean exit.
-- **Smoke 2**: Killed native reporter process after `Done`, reconnect source epochs 1 -> 2, completion revisions 0 -> 1 only, one stable `completed_at` timestamp preserved across reconnection, child clean exit.
+4. Full workspace verification:
+```bash
+cargo test --workspace
+make check
+```

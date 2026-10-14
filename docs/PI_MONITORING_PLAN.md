@@ -1,6 +1,6 @@
 # Pi Monitoring Support Plan
 
-Status: **approved by the user; P0, P1, and P2 complete. P3–P4 implementation and acceptance remain pending**.
+Status: **approved by the user; P0, P1, P2, and P3 complete. P4 implementation and acceptance remain pending**.
 
 P0 evidence: [runtime qualification and established contract](../prototypes/pi-runtime/README.md), [sanitized traces](../prototypes/pi-runtime/results.json), and [independent verification summary](../prototypes/pi-runtime/summary.json). Compiled and Node-based Pi 1.2.0 passed the two-extension-order matrix. This is lifecycle qualification, not production monitoring readiness.
 
@@ -223,6 +223,21 @@ Embed owned assets, add Pi configuration directory resolution and version qualif
 
 **Gate:** isolated command tests pass for repeated setup/uninstall, custom paths, user modifications, disabled discovery, unsupported versions, missing reporter, and missing/legacy inventory.
 
+**Completed:**
+- `verij-cli/src/pi_setup.rs`: full implementation of `setup`, `uninstall`, and `doctor` commands for Pi adapter lifecycle.
+- Owned embedded assets: `index.ts` and `core.mjs` embedded in the binary; written atomically into `<agent_dir>/extensions/verij-monitoring/`.
+- Sibling configuration & typed ownership manifest: written to `<agent_dir>/verij-monitoring/{adapter.json, installed.json}`, placed outside `extensions/` discovery to prevent spurious loading errors.
+- Typed manifest (`installed.json`): `schema_version: 1`, `adapter_id: "verij-monitoring-v1"`, version `"1.2.0"`, 16-hex lowercase noncryptographic FNV-1a 64-bit ownership fingerprints, bounded absolute reporter path, and `deny_unknown_fields`. Reinstallation preserves initial `installed_at_ms` for byte-idempotency.
+- Adoption guards & preflight checks: unowned directories, missing/invalid manifests, empty `{}` or `null`, foreign files, or corrupt manifests refuse adoption and preserve all preexisting files.
+- Symlink safety: rejects symlinks, broken symlinks, non-regular files, and FIFOs across ancestor and child trees, including the ancestor `extensions` directory, owned subdirectories, manifest, config, and assets.
+- Conservative preservation on uninstall: code modification or extra user files/dotfiles retain entire code and configuration group intact (`uninstalled: false`); modified configuration only removes clean code while retaining custom config and manifest (`uninstalled: true`); clean state removes all files and prunes empty owned directories (`uninstalled: true, preserved: []`).
+- Path canonicalization & resolution: component-by-component walk normalizes nonexistent relative/`..` paths without losing parent segments, resolving existing prefixes via canonicalization while forbidding symlinks in owned extension and configuration subtrees; Pi launch uses `PI_CODING_AGENT_DIR`, while Verij CLI supports `--config-dir` and `PI_CODING_AGENT_DIR`; empty environment string falls back to default, whitespace-containing non-empty directory is preserved.
+- Explicit local filesystem paths: `file:` URLs are rejected with clear error before any filesystem writes.
+- Upstream supported discovery overrides: mirrors supported subset of Pi 1.2.0 `isEnabledByOverrides` contract (`!` glob exclusions evaluated first against directory `verij-monitoring` and relative path, `+` exact force-inclusions evaluated second, `-` exact force-exclusions evaluated third; order-independent; `-` patterns are literal strings, not globs). Complex minimatch syntax is reported as uncertainty rather than false block.
+- Doctor diagnostics: distinguishes structural installation readiness (`installation_ready: true`) from live loaded adapter (`adapter_loaded: true`); verifies live foreground terminal job ownership against hydrated inventory using exact session incarnation; checks active observer lease (`pi` source, `lease` capability, unexpired timestamp, matching epoch/revision, non-empty `runtime_id`, supported version `1.2.0`); catches manifest integrity errors gracefully without aborting diagnostics; filters records and healthy count by `--session`.
+- Bounded subprocess version probe: puts child in dedicated process group (`setpgid`), uses non-blocking pipe with validated `fcntl` flags, drains buffered output to EOF/WouldBlock before processing exit up to a 4096-byte cap, enforces a 3-second deadline, kills the owned process group on timeout or exit, avoiding child hangs and grandchild leaks.
+- Verification evidence: 16 isolated integration tests pass in `verij-cli/tests/pi_setup.rs`; 3 unit tests pass in `pi_setup::tests`; 234 CLI unit tests pass; workspace checks pass (`make check`).
+
 ### P4 — End-to-end and resource acceptance
 
 Run real Pi inside stock Zellij with real exporter inventory and sidebars. Use the prototype provider to avoid credential-dependent tests. Separate synthetic inventory/projection tests from actual pane and multi-host acceptance.
@@ -255,4 +270,4 @@ Planned checks: `cargo test --workspace`, native/WASM build checks, Pi setup/rep
 
 Pi monitoring is ready when normal interactive launches work after owned setup; activity, blocking extension UI, completion, abort, error, exit, and recovery obey the shared contracts; generic titles and host-local visits work unchanged; installation is reversible; and reproducible runtime/resource evidence accompanies the documented supported-version and capability matrix.
 
-P0, P1, and P2 are complete. The next implementation task is P3 Setup, uninstall, doctor, and documentation, not global installation or a UI redesign.
+P0, P1, P2, and P3 are complete. The next task is P4 End-to-end and resource acceptance in actual Zellij runtime, not global installation or premature production readiness claims.

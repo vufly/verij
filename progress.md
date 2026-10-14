@@ -54,9 +54,9 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 - Creation waits for the first tab's configured status plugin and a terminal pane to stabilize, then verifies the plugin survived fake-client detach.
 - Plugin fallback launches the agent when automatic layout loading does not produce state.
 
-### Pi Monitoring — P0 Lifecycle Qualification & P1 Native Kind/Protocol/Reducer
+### Pi Monitoring — P0–P3 Complete; P4 Acceptance Pending
 
-- The [Pi monitoring plan](docs/PI_MONITORING_PLAN.md) is approved; P0 and P1 are complete, while P2–P4 remain pending.
+- The [Pi monitoring plan](docs/PI_MONITORING_PLAN.md) is approved; P0, P1, P2, and P3 are complete, while P4 acceptance remains pending.
 - P0 private runtime qualification: 112 real-TUI scenario runs, 1,608 sanitized lifecycle records across compiled/Bun and npm/Node Pi 1.2.0.
 - P1 native implementation:
   - Added `AgentKind::Pi` and explicit `pi` source authority (priority 10) in `verij-types/src/agent.rs`, preserving wire compatibility.
@@ -66,8 +66,23 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
   - Strict metadata-only whitelist and closed enums in `verij-cli/src/pi.rs`, enforcing zero unknown fields, max 1 pending request, no permission provenance or dialog content, and quiescent terminal idle outcomes.
   - Atomic handshake state claim, monotonic ordering, turn receipts correlating epoch/revision, and deduplication of completed runs scoped by structured tuple key `(conversation_id, run_id)`. Bounded completions ledger with conservative degradation to Unknown on saturation.
   - Native observer lease expiry in `agent_watcher.rs` clears background task count and pending requests, retaining live process row as Unknown.
-  - Full test verification: 29 `verij-types` tests, 17 `pi::tests` unit tests, `agent_watcher` lease expiry unit test, `tree_format` actual Pi row test, 8 isolated CLI integration tests with controlling PTY in `pi_reporter.rs`, workspace tests, and `wasm32-wasip1` target check all pass.
-- Completion requires final settlement plus current final outcome evidence: a post-run exception can settle non-aborted after a successful turn without the pre-settlement boundary. Missing evidence remains Unknown.
+  - Full test verification: 29 `verij-types` tests, 17 `pi::tests` unit tests, `agent_watcher` lease expiry unit test, `tree_format` actual Pi row test, 8 isolated CLI integration tests with controlling PTY in `pi_reporter.rs`.
+- P2 extension & bounded transport:
+  - Pure event-state projection (`integrations/pi/core.mjs`) and thin typed event bindings (`integrations/pi/index.ts`).
+  - Strict whitelist, bounded nonblocking FIFO transport (128-item queue), rate-limiting (<= 10 writes/s), exponential backoff (2s–30s), 5-second lease renewal heartbeat, and bounded nonblocking teardown flush (500ms grace) with SIGTERM/SIGKILL escalation.
+  - Outcome qualification finalized strictly at `agent_settled` with `aborted === false` and complete quiescence.
+  - 35 deterministic unit tests and full trace replay across all 112 P0 scenario runs in `core.test.mjs`; strict TypeScript check passes against private Pi 1.2.0 declarations.
+- P3 lifecycle management, CLI commands, and doctor diagnostics:
+  - Embedded owned assets: `index.ts` and `core.mjs` embedded in CLI binary; written atomically into `<agent_dir>/extensions/verij-monitoring/`.
+  - Sibling configuration & manifest: `<agent_dir>/verij-monitoring/{adapter.json, installed.json}` outside `extensions/` discovery.
+  - Typed manifest `installed.json` (`schema_version: 1`, `adapter_id: "verij-monitoring-v1"`, version `"1.2.0"`, 16-hex lowercase noncryptographic FNV-1a 64-bit ownership fingerprints, bounded absolute reporter path, `deny_unknown_fields`). Byte-idempotent reinstallation preserves initial timestamp.
+  - Preflight adoption guards: unowned directories, missing/invalid manifests, foreign files, or corrupt manifests refuse adoption.
+  - Symlink safety: rejects symlinks, broken symlinks, non-regular files, and FIFOs across ancestor and child trees.
+  - Conservative preservation: code modification or extra user files/dotfiles retain entire code and configuration group intact (`uninstalled: false`); modified configuration only removes clean code while retaining custom config and manifest (`uninstalled: true`); clean state removes all files and prunes empty owned directories.
+  - Path resolution: `--config-dir` > `PI_CODING_AGENT_DIR` > `~/.pi/agent` with canonical absolute paths, resolving existing prefixes while forbidding symlinks in owned extension and configuration subtrees; Pi launch uses `PI_CODING_AGENT_DIR`, while Verij CLI supports `--config-dir` and `PI_CODING_AGENT_DIR`; explicit local filesystem paths required; `file:` URLs rejected before writes.
+  - Doctor diagnostics: distinguishes structural installation readiness from live loaded adapter; verifies live foreground terminal job ownership against hydrated inventory using exact session incarnation; checks active observer lease; mirrors supported subset of Pi 1.2.0 discovery overrides contract (`!`, `+`, `-`), reporting complex minimatch syntax as uncertainty.
+  - Bounded version probe: nonblocking pipe with validated `fcntl` flags, 4 KiB cap, dedicated process group cleanup (`setpgid`), and 3-second deadline.
+  - Verification: 16 isolated tests in `verij-cli/tests/pi_setup.rs`, 3 unit tests in `pi_setup::tests`, 234 CLI tests, workspace tests, and `make check` all pass.
 
 ## Verification
 

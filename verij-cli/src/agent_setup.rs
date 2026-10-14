@@ -13,6 +13,7 @@ pub enum Adapter {
     Opencode,
     Agy,
     Codex,
+    Pi,
 }
 
 #[derive(Debug, Args)]
@@ -28,6 +29,8 @@ pub struct SetupArgs {
     pub agy_bin: PathBuf,
     #[arg(long, default_value = "codex")]
     pub codex_bin: PathBuf,
+    #[arg(long, default_value = "pi")]
+    pub pi_bin: PathBuf,
     #[arg(long, default_value = "python3")]
     pub python_bin: PathBuf,
 }
@@ -44,6 +47,8 @@ pub struct DoctorArgs {
     pub agy_bin: PathBuf,
     #[arg(long, default_value = "codex")]
     pub codex_bin: PathBuf,
+    #[arg(long, default_value = "pi")]
+    pub pi_bin: PathBuf,
     /// Diagnose the exporter prerequisite for one inner Zellij session.
     #[arg(long)]
     pub session: Option<String>,
@@ -433,6 +438,9 @@ pub fn setup(args: SetupArgs) -> Result<()> {
     if matches!(args.adapter, Adapter::Codex) {
         return crate::codex_setup::setup(args);
     }
+    if matches!(args.adapter, Adapter::Pi) {
+        return crate::pi_setup::setup(args);
+    }
     let version = version(&args.opencode_bin)?;
     if !crate::opencode::supports_version(&version) {
         bail!(
@@ -489,6 +497,9 @@ pub fn uninstall(args: SetupArgs) -> Result<()> {
     }
     if matches!(args.adapter, Adapter::Codex) {
         return crate::codex_setup::uninstall(args);
+    }
+    if matches!(args.adapter, Adapter::Pi) {
+        return crate::pi_setup::uninstall(args);
     }
     let path = target(args.config_dir)?;
     let dir = path.parent().context("TUI config has no parent")?;
@@ -557,6 +568,9 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
     }
     if matches!(args.adapter, Adapter::Codex) {
         return crate::codex_setup::doctor(args);
+    }
+    if matches!(args.adapter, Adapter::Pi) {
+        return crate::pi_setup::doctor(args);
     }
     let path = target(args.config_dir)?;
     let dir = path.parent().context("TUI config has no parent")?;
