@@ -91,7 +91,7 @@ fn effective_assets(dir: &Path, status: &Value) -> PathBuf {
 
 pub fn setup(args: SetupArgs) -> Result<()> {
     let version = crate::agent_setup::version(&args.agy_bin)?;
-    if !crate::agy::SUPPORTED.contains(&version.as_str()) {
+    if !crate::agy::supports_version(&version) {
         bail!("unsupported Agy {version}");
     }
     let dir = directory(args.config_dir)?;
@@ -279,10 +279,10 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
         && lifecycle
         && exact_assets
         && reporter_available
-        && binary_matches
-        && version
-            .as_deref()
-            .is_some_and(|v| crate::agy::SUPPORTED.contains(&v))
+        && version.as_deref().is_some_and(crate::agy::supports_version)
+        && adapter["version"]
+            .as_str()
+            .is_some_and(crate::agy::supports_version)
         && effective_runtime.as_deref() == Some(runtime.as_path())
         && effective_states.as_deref() == Some(states.as_path());
     let mut records = crate::agent_watcher::read_records(&runtime.join("agents/v1"));
@@ -299,7 +299,7 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({"adapter":"agy","agy_version":version,
-        "supported_versions":crate::agy::SUPPORTED,"configured":configured,"lifecycle_hooks_installed":lifecycle,
+        "supported_versions":[crate::agy::SUPPORTED_VERSIONS],"configured":configured,"lifecycle_hooks_installed":lifecycle,
         "effective_assets":assets,
         "disabled":disabled,"assets_match":exact_assets,"binary_matches_adapter":binary_matches,
         "reporter":reporter,"reporter_available":reporter_available,"runtime":runtime,"runtime_writable":runtime_writable,

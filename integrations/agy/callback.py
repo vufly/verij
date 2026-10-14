@@ -16,7 +16,7 @@ def agent_parent():
     pid = os.getppid()
     for _ in range(128):
         stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-        executable = Path(os.readlink(f"/proc/{pid}/exe")).name
+        executable = Path(os.readlink(f"/proc/{pid}/exe")).name.removesuffix(" (deleted)")
         if executable == "agy" or executable.startswith("agy."):
             return pid, int(stat[19])
         pid = int(stat[1])
@@ -47,9 +47,8 @@ def report(config, value, event, sample):
     if not pane.isdigit():
         return
     pid, birth = agent_parent()
-    executable = Path(f"/proc/{pid}/exe").stat()
-    if (executable.st_dev, executable.st_ino) != (config["binary_dev"], config["binary_ino"]):
-        return  # An upgraded binary requires version-qualified setup again.
+    # Executable ancestry and reporter-side live foreground ownership establish
+    # identity. A package upgrade replaces the inode without changing contract.
     payload = snapshot(value, event, value.get("version") or config["version"], sample)
     env = dict(os.environ)
     env.setdefault("VERIJ_AGENT_STATE_DIR", config["runtime"])

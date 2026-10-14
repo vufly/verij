@@ -84,6 +84,28 @@ fn setup_uninstall_and_copied_profile_diagnostics_preserve_owned_and_user_settin
         doctor["effective_assets"],
         root.join(".gemini/verij-monitoring-agy").to_str().unwrap()
     );
+    // Profile callbacks share existing assets across routine binary upgrades.
+    let replacement = root.join("agy-new");
+    std::fs::write(&replacement, "#!/bin/sh\nprintf '1.99.42\\n'\n").unwrap();
+    std::fs::set_permissions(&replacement, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::rename(&replacement, &binary).unwrap();
+    let output = cli(
+        &root,
+        &[
+            "agent",
+            "doctor",
+            "agy",
+            "--config-dir",
+            profile.to_str().unwrap(),
+            "--agy-bin",
+            binary.to_str().unwrap(),
+        ],
+    );
+    assert!(output.status.success());
+    let upgraded: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(upgraded["agy_version"], "1.99.42");
+    assert_eq!(upgraded["binary_matches_adapter"], false);
+    assert_eq!(upgraded["installation_ready"], true);
     let mut changed = status;
     changed["unrelated_added"] = json!(true);
     std::fs::write(&status_file, serde_json::to_vec(&changed).unwrap()).unwrap();

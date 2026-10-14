@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 pub const CALLBACK: &str = include_str!("../../integrations/codex/callback.py");
 
-pub const SUPPORTED: &[&str] = crate::codex::SUPPORTED;
+pub const SUPPORTED_VERSIONS: &str = crate::codex::SUPPORTED_VERSIONS;
 pub const SUPPORTED_EVENTS: &[&str] = crate::codex::SUPPORTED_EVENTS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -43,10 +43,10 @@ pub fn parse_version(raw: &str) -> Result<String> {
         bail!("invalid Codex version prefix; expected 'codex-cli <version>', got: {trimmed}");
     };
     let version = version_part.trim();
-    if !SUPPORTED.contains(&version) {
+    if !crate::codex::supports_version(version) {
         bail!(
             "unsupported Codex version: {version}; supported: {:?}",
-            SUPPORTED
+            SUPPORTED_VERSIONS
         );
     }
     Ok(version.to_string())
@@ -736,7 +736,9 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
     let codex_bin = resolve_bin(&args.codex_bin).ok();
     let binary_available = codex_bin.is_some();
     let version = codex_bin.as_ref().and_then(|p| self::version(p).ok());
-    let supported_version = version.as_deref().is_some_and(|v| SUPPORTED.contains(&v));
+    let supported_version = version
+        .as_deref()
+        .is_some_and(crate::codex::supports_version);
 
     let manifest = read_manifest(&manifest_path).unwrap_or(None);
     let manifest_valid = manifest.is_some();
@@ -776,11 +778,10 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
                 && adapter["binary_ino"].as_u64() == Some(meta.ino())
         });
 
-    let adapter_version_matches = adapter_val
+    let adapter_version_compatible = adapter_val
         .as_ref()
         .and_then(|a| a.get("version").and_then(Value::as_str))
-        .zip(version.as_deref())
-        .map_or(false, |(av, v)| av == v);
+        .is_some_and(crate::codex::supports_version);
 
     let reporter_from_adapter = adapter_val
         .as_ref()
@@ -893,12 +894,9 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
         installation_error = Some("callback.py missing or modified".to_string());
     } else if !adapter_intact {
         installation_error = Some("adapter.json missing, disabled, or modified".to_string());
-    } else if !binary_matches {
+    } else if !adapter_version_compatible {
         installation_error =
-            Some("Codex binary dev/ino does not match installed adapter".to_string());
-    } else if !adapter_version_matches {
-        installation_error =
-            Some("Codex binary version differs from installed adapter".to_string());
+            Some("Codex installed adapter contract version is unsupported".to_string());
     } else if !hooks_installed {
         installation_error =
             Some("Codex lifecycle hooks missing, unowned, or modified in hooks.json".to_string());
@@ -933,7 +931,7 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
             "adapter": "codex",
             "version": version,
             "supported_version": supported_version,
-            "supported_versions": SUPPORTED,
+            "supported_versions": [SUPPORTED_VERSIONS],
             "binary_available": binary_available,
             "binary_matches": binary_matches,
             "python_available": python_available,
@@ -981,6 +979,8 @@ pub mod tests {
     pub fn test_version_parser() {
         assert_eq!(parse_version("codex-cli 0.162.1\n").unwrap(), "0.162.1");
         assert_eq!(parse_version("codex-cli 0.160.1").unwrap(), "0.160.1");
+        assert_eq!(parse_version("codex-cli 0.200.2").unwrap(), "0.200.2");
+        assert!(parse_version("codex-cli 1.0.0").is_err());
         assert!(parse_version("0.162.1").is_err());
         assert!(parse_version("codex 0.162.1").is_err());
         assert!(parse_version("codex-cli 0.99.0").is_err());

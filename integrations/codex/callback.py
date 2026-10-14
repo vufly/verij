@@ -76,7 +76,7 @@ def agent_parent():
     pid = os.getppid()
     for _ in range(128):
         stat = _read_stat(pid).rsplit(")", 1)[1].split()
-        executable = Path(os.readlink(f"/proc/{pid}/exe")).name
+        executable = Path(os.readlink(f"/proc/{pid}/exe")).name.removesuffix(" (deleted)")
         if (executable == "codex" or executable.startswith("codex.")) and is_interactive_codex(pid, stat):
             return pid, int(stat[19])
         pid = int(stat[1])
@@ -128,10 +128,8 @@ def report(config, value, event, sample):
     if value.get("hook_event_name") != event:
         return
     pid, birth = agent_parent()
-    executable = Path(f"/proc/{pid}/exe").stat()
-    if (executable.st_dev, executable.st_ino) != (config["binary_dev"], config["binary_ino"]):
-        return  # Upgraded or untrusted binary requires qualification setup again.
-
+    # Executable ancestry and reporter-side live foreground ownership establish
+    # identity. Installed version selects the hook contract, not a binary inode.
     version = config["version"]
     payload = snapshot(value, event, version, sample)
     env = dict(os.environ)

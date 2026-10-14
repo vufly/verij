@@ -16,6 +16,7 @@ mod activation;
 mod agent_cli;
 mod agent_setup;
 mod agent_store;
+mod agent_version;
 mod agent_watcher;
 mod agy;
 mod agy_setup;

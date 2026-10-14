@@ -25,7 +25,7 @@ Configuration directory resolution precedence:
 Setup installs:
 - Assets under `<config_dir>/verij-monitoring-codex/`:
   - `callback.py`: Non-gating hook handler.
-  - `adapter.json`: Runtime configuration and device/inode binary binding.
+  - `adapter.json`: Runtime configuration and hook contract version; recorded binary device/inode is diagnostic metadata.
   - `installed.json`: Manifest of owned commands and asset fingerprints.
 - Surgical entries in `<config_dir>/hooks.json` for 8 lifecycle events:
   `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `Stop`, `Interrupt`, `SessionEnd`.
@@ -67,11 +67,19 @@ verij agent doctor codex --session <SESSION_NAME>
 ```
 
 Doctor checks:
-- Codex binary qualification and version whitelist (`0.160.1`, `0.162.1`).
+- Codex binary availability and compatible release family (`>=0.160.1, <1.0.0`).
 - Integrity of `callback.py`, `adapter.json`, `installed.json`, and `hooks.json`.
 - Configured Python binary availability.
 - Reporter binary availability and runtime directory writability.
 - Verified Zellij pane inventory and active Codex instances.
+
+Minor and patch upgrades within this release family do not require rebuilding
+Verij or rerunning setup. Binary inode/version differences from installation
+are not readiness failures. Executable ancestry, process birth and live foreground
+pane ownership still establish identity, and hook payloads still undergo schema,
+identifier and lifecycle validation. The installed version selects the callback
+contract; it is not asserted to be the current binary version. Upgrading from an
+older inode-pinned Verij callback requires one setup refresh of its assets.
 
 ### 5. Uninstallation
 

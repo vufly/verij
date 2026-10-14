@@ -166,12 +166,8 @@ class CallbackTests(unittest.TestCase):
             "session_id": "sess-abc",
             "source": "startup",
         }
-        mock_stat = MagicMock()
-        mock_stat.st_dev = 12
-        mock_stat.st_ino = 34
-
         with patch.object(callback, "agent_parent", return_value=(999, 12345)):
-            with patch("pathlib.Path.stat", return_value=mock_stat):
+            with patch("pathlib.Path.stat", side_effect=AssertionError("binary inode must not be pinned")):
                 callback.report(config, value, "SessionStart", 5000)
 
         mock_run.assert_called_once()
@@ -222,7 +218,7 @@ class CallbackTests(unittest.TestCase):
             if p == "/proc/200/fd/1":
                 return "pipe:[12346]"
             if p == "/proc/100/exe":
-                return "/bin/codex"
+                return "/bin/codex (deleted)"  # Running old inode after upgrade
             if p == "/proc/100/fd/0":
                 return "/dev/pts/3"
             if p == "/proc/100/fd/1":

@@ -191,7 +191,7 @@ fn test_doctor_diagnostics_and_prerequisites() {
 }
 
 #[test]
-fn test_doctor_binary_upgraded_differs_dev_ino() {
+fn test_doctor_remains_ready_after_minor_upgrade_and_binary_replacement() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("home_upgrade");
     let codex_dir = root.join(".codex");
@@ -217,8 +217,9 @@ fn test_doctor_binary_upgraded_differs_dev_ino() {
     .success());
 
     // Replace fake codex with fresh file (new inode)
-    fs::remove_file(&fake_codex).unwrap();
-    make_executable(&fake_codex, "#!/bin/sh\nprintf 'codex-cli 0.162.1\\n'\n");
+    let replacement = root.join("codex-new");
+    make_executable(&replacement, "#!/bin/sh\nprintf 'codex-cli 0.200.2\\n'\n");
+    fs::rename(&replacement, &fake_codex).unwrap();
 
     let out = cli(
         &root,
@@ -234,11 +235,9 @@ fn test_doctor_binary_upgraded_differs_dev_ino() {
     assert!(out.status.success());
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(doc["binary_matches"], false);
-    assert_eq!(doc["installation_ready"], false);
-    assert!(doc["installation_error"]
-        .as_str()
-        .unwrap()
-        .contains("dev/ino"));
+    assert_eq!(doc["version"], "0.200.2");
+    assert_eq!(doc["installation_ready"], true);
+    assert!(doc["installation_error"].is_null());
 }
 
 #[test]

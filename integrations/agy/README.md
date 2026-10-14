@@ -23,12 +23,20 @@ rebuilt, restart that sidebar too: replacing the executable file does not update
 the code loaded by an existing process. An older sidebar can display a registered
 Agy row while refusing its renderer ownership on activation.
 
-`--agy-bin /absolute/path/agy` selects the executable
-whose version is inspected. Supported contracts: **1.2.14, 1.3.2, and 1.3.3**.
+`--agy-bin /absolute/path/agy` selects the executable whose version is inspected.
+The callback contract supports **Agy >=1.2.14 and <2.0.0**, including subsequent
+minor and patch releases. Routine agent upgrades do not require rebuilding Verij
+or rerunning setup. Executable ancestry, live process birth and foreground pane
+ownership establish identity; an installation-time binary inode is diagnostic
+metadata, not a reporting gate. Every report still validates the adapter schema,
+bounded metadata and lifecycle correlation before establishing status.
+
 The H4 production fixture verifies 1.3.3; 1.3.2 has earlier scoped live evidence,
-and 1.2.14 supplies the retained H0 payload contract. Setup records the binary's
-device/inode as well as its detected version. After an Agy binary upgrade, run
-setup again; stale installation metadata does not silently enable a new version.
+and 1.2.14 supplies the retained H0 payload contract. A 1.3.5 startup probe verifies
+callbacks and prior-command composition. These are tested versions, not an exact
+version allowlist. When upgrading from an older Verij adapter that pinned binary
+inodes, run setup once to replace its callback asset; future agent-only upgrades
+reuse that installation.
 
 Requirements: Linux `/proc`, Python 3, stock Zellij 0.45.1-compatible exporter,
 and the same runtime/inventory paths in the agent and sidebar. Python and Verij

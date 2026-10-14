@@ -4,7 +4,11 @@ use serde::{Deserialize, Serialize};
 use std::io::Read;
 use verij_types::agent::*;
 
-pub const SUPPORTED: &[&str] = &["0.160.1", "0.162.1"];
+pub const SUPPORTED_VERSIONS: &str = ">=0.160.1, <1.0.0";
+
+pub fn supports_version(version: &str) -> bool {
+    crate::agent_version::supports_series(version, (0, 160, 1))
+}
 
 pub const SUPPORTED_EVENTS: &[&str] = &[
     "SessionStart",
@@ -53,10 +57,7 @@ pub struct Observation {
 
 impl Observation {
     pub fn validate(&self) -> Result<()> {
-        if self.schema_version != 1
-            || !SUPPORTED.contains(&self.version.as_str())
-            || self.sample == 0
-        {
+        if self.schema_version != 1 || !supports_version(&self.version) || self.sample == 0 {
             bail!("unsupported Codex observation");
         }
         if !SUPPORTED_EVENTS.contains(&self.event.as_str()) {
@@ -420,7 +421,10 @@ pub fn run(pane: u32, pid: u32, birth: u64) -> Result<()> {
     if !executable
         .file_name()
         .and_then(|s| s.to_str())
-        .is_some_and(|s| s == "codex" || s.starts_with("codex."))
+        .is_some_and(|s| {
+            let s = s.strip_suffix(" (deleted)").unwrap_or(s);
+            s == "codex" || s.starts_with("codex.")
+        })
     {
         bail!("callback owner is not Codex");
     }
@@ -763,6 +767,17 @@ pub mod tests {
     #[test]
     fn test_missing_ids_and_schema_validation() {
         let mut s = test_state();
+
+        // Future minor/patch releases use the same validated hook contract.
+        for version in ["0.162.2", "0.200.0"] {
+            assert!(apply(
+                &mut test_state(),
+                "SessionStart",
+                100,
+                json!({"version": version, "source": "startup"})
+            )
+            .is_ok());
+        }
 
         // Empty session_id rejected
         assert!(apply(

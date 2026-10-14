@@ -210,7 +210,10 @@ pub fn verify_agy_foreground(
     if !executable
         .file_name()
         .and_then(|s| s.to_str())
-        .is_some_and(|s| s == "agy" || s.starts_with("agy."))
+        .is_some_and(|s| {
+            let s = s.strip_suffix(" (deleted)").unwrap_or(s);
+            s == "agy" || s.starts_with("agy.")
+        })
     {
         bail!("process is not Agy");
     }

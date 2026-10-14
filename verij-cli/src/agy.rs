@@ -4,7 +4,11 @@ use serde::{Deserialize, Serialize};
 use std::io::Read;
 use verij_types::agent::*;
 
-pub const SUPPORTED: &[&str] = &["1.2.14", "1.3.2", "1.3.3"];
+pub const SUPPORTED_VERSIONS: &str = ">=1.2.14, <2.0.0";
+
+pub fn supports_version(version: &str) -> bool {
+    crate::agent_version::supports_series(version, (1, 2, 14))
+}
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Correlation {
@@ -46,10 +50,7 @@ pub struct Observation {
 
 impl Observation {
     fn project(&self, state: &mut AgentState) -> Result<PartialSourceRecord> {
-        if self.schema_version != 1
-            || !SUPPORTED.contains(&self.version.as_str())
-            || self.sample == 0
-        {
+        if self.schema_version != 1 || !supports_version(&self.version) || self.sample == 0 {
             bail!("unsupported Agy observation");
         }
         let conversation = self
@@ -274,7 +275,10 @@ pub fn run(pane: u32, pid: u32, birth: u64) -> Result<()> {
     if !executable
         .file_name()
         .and_then(|s| s.to_str())
-        .is_some_and(|s| s == "agy" || s.starts_with("agy."))
+        .is_some_and(|s| {
+            let s = s.strip_suffix(" (deleted)").unwrap_or(s);
+            s == "agy" || s.starts_with("agy.")
+        })
     {
         bail!("callback owner is not Agy");
     }
@@ -327,6 +331,34 @@ mod tests {
             "updated_at_ms":1,"sources":{},"reduced":{"status":"unknown","current_turn_epoch":0,
             "current_turn_revision":0,"background_task_count":0,"completion_revision":0},"completion_revision":0,
             "completed_turn_epoch":0,"completed_turn_revision":0})).unwrap()
+    }
+
+    #[test]
+    fn future_minor_and_patch_observations_keep_schema_and_metadata_validation() {
+        let mut state = state();
+        for (sample, version) in [(1, "1.3.5"), (2, "1.99.42")] {
+            let mut report = observation(
+                "ui",
+                sample,
+                json!({
+                    "conversation_id": "c", "agent_state": "working", "task_count": 0
+                }),
+            );
+            report.version = version.into();
+            assert_eq!(
+                report.project(&mut state).unwrap().activity,
+                Some(ActivityKind::Working)
+            );
+        }
+        let mut report = observation("ui", 3, json!({"agent_state": "working"}));
+        report.version = "2.0.0".into();
+        assert!(report.project(&mut state).is_err());
+        report.version = "1.99.42".into();
+        report.schema_version = 2;
+        assert!(report.project(&mut state).is_err());
+        report.schema_version = 1;
+        report.task_count = Some(1025);
+        assert!(report.project(&mut state).is_err());
     }
 
     fn observation(event: &str, sample: u64, fields: Value) -> Observation {
