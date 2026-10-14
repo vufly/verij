@@ -1,0 +1,63 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "command": "cargo test --workspace -- --test-threads=1",
+      "exit_code": 0,
+      "elapsed_seconds": 50.119,
+      "tests_passed": 367
+    },
+    {
+      "command": "make check",
+      "exit_code": 0,
+      "elapsed_seconds": 0.597
+    },
+    {
+      "command": "node --test integrations/pi/core.test.mjs",
+      "exit_code": 0,
+      "elapsed_seconds": 0.244,
+      "tests_passed": 35
+    },
+    {
+      "command": "node --test integrations/opencode/*.test.mjs",
+      "exit_code": 0,
+      "elapsed_seconds": 1.184,
+      "tests_passed": 55
+    },
+    {
+      "command": "node --test prototypes/pi-runtime/trace.test.mjs",
+      "exit_code": 0,
+      "elapsed_seconds": 0.124,
+      "tests_passed": 8
+    },
+    {
+      "command": "python3 -m unittest discover -s prototypes/pi-runtime -p 'test_*.py'",
+      "exit_code": 0,
+      "elapsed_seconds": 0.753,
+      "tests_passed": 12
+    },
+    {
+      "command": "python3 -m unittest discover -s prototypes/pi-acceptance -p 'test_*.py'",
+      "exit_code": 0,
+      "elapsed_seconds": 0.08,
+      "tests_passed": 15
+    },
+    {
+      "command": "python3 -m unittest discover -s integrations/agy -p 'test_*.py'",
+      "exit_code": 0,
+      "elapsed_seconds": 0.369,
+      "tests_passed": 5
+    },
+    {
+      "command": "python3 -m unittest discover -s integrations/codex -p 'test_*.py'",
+      "exit_code": 0,
+      "elapsed_seconds": 0.597,
+      "tests_passed": 12
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "elapsed_seconds": 0.005
+    }
+  ]
+}
