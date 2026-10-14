@@ -58,9 +58,24 @@ Keep the reporter executable at its installed absolute path. Rerun setup after m
 - A bounded, ordered persistent reporter stream commits full snapshots atomically with completion bookkeeping. Original upstream turn revisions are retained across polling, plugin reload and conversation reselection. A sidebar captures the displayed completion revision, including when revisiting an older conversation.
 - Producer/SDK deadlines and a 128-frame queue bound adapter work. Overload invalidates authority and triggers fresh reconciliation. Disposal aborts collection, removes subscriptions/timers and bounds reporter shutdown. Missing reporting does not interrupt an OpenCode turn.
 - Heartbeats refresh an explicit **15-second lease**. Lease expiry projects Unknown while the agent remains alive and prevents stale acknowledgement. Process/pane absence removes its row; source silence is not exit or Error.
+- P2 work in progress: owned events set one dirty flag. Active/dirty refresh starts are at least one second apart; quiet idle recovery uses ten seconds. Endpoint invocations share a 32/sec token budget with an eight-call burst, four physical requests and four pending requests. API and reporter failures back off independently to 30 seconds. Unchanged observations dedupe against native transaction receipts and renew their lease every five seconds without an API query. Reconnect begins with Unknown and a fresh collection; disposal cancels every monitoring timer/subscription and request signal.
 - Persisted data contains identities, title, lifecycle facts and short error types. Prompts, message text, tool arguments/output, provider error bodies and credentials are excluded.
 
 Bounds: at most 64 family sessions, 100 pending requests and 1,024 remembered successful turns per agent process. Ledger exhaustion stops allocating further Done revisions for new turns, retaining observed activity and a diagnostic. Existing remembered outcomes remain idempotent. Only the currently selected root's latest turn is presented; this is a pane navigator, not a conversation archive.
+
+Family caching and metadata-only outcome recovery are still pending P2 work. Full
+reconciliation continues to retrieve message bodies at its scheduled rate. The
+100-message limit is not a byte bound. Large families that cannot complete inside
+the three-second deadline/request budget remain conservative and retry; resumable
+topology recovery is required before claiming complete 64-member performance coverage.
+
+The installed OpenCode 1.19.0 contract exposes `api.state.session.messages(id)` as
+structured `Message` metadata, with parts held separately. Its global `ready` flag
+does not prove a particular session's history finished hydrating. Future cache use
+must establish current-turn/hydration currency rather than treating an empty cache
+or an old completed assistant as proof of the latest outcome. Source references:
+[plugin state API](https://github.com/anomalyco/opencode/blob/v1.19.0/packages/plugin/src/tui.ts)
+and [TUI synchronization](https://github.com/anomalyco/opencode/blob/v1.19.0/packages/tui/src/context/sync.tsx).
 
 `agent doctor` inspects the selected configuration, versions, asset contents, reporter execution, runtime atomic-write availability, effective adapter/runtime paths, exporter inventory prerequisites and live source health. `--session` scopes inventory and records to one inner session. A legacy exporter is explicitly reported as `legacy_snapshot`; `monitoring_prerequisites_ready` remains false even when adapter installation is correct. Doctor also reports the bundled/default-installed WASM paths and whether their bytes match. `live_records` confirms actual registration, rather than inferring it from installed files. Merged project settings and OpenCode runtime KV can still disable a configured plugin.
 

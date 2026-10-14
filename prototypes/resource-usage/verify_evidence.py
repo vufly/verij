@@ -26,8 +26,14 @@ def verify(report):
         controls.append({name: {k: v for k, v in topology.items() if k != "server_pid"}
                          for name, topology in experiment["topology"].items()})
         phases = {m["phase"] for m in experiment["measurements"]}
-        assert {"idle_agent", "completion_visit", "idle_detached"} <= phases
-        assert len(phases) == 5
+        if experiment.get("p1_visits"):
+            assert {"idle_agent", "completion_sidebar", "completion_other_pane", "manual_completion_visit", "idle_detached"} <= phases
+            assert {"completion_multiple_displays", "single_display_recovery"} <= phases
+            assert len(phases) == 9
+            assert all(experiment["passive_visit_checks"].values())
+        else:
+            assert {"idle_agent", "completion_visit", "idle_detached"} <= phases
+            assert len(phases) == 5
         for measurement in experiment["measurements"]:
             assert measurement["elapsed_seconds"] > 0
             assert len(measurement["intervals"]) <= measurement["interval_capacity"] == 60
@@ -45,7 +51,10 @@ def verify(report):
             for host in visit["host_acknowledgements"].values():
                 for instance, revision in visit["completion_revisions"].items():
                     assert host[instance]["acknowledged_revision"] >= revision
-            assert sum(m["counters"].get("proof_attempts", 0) for m in experiment["measurements"]) > 0
+            proofs = sum(m["counters"].get("proof_attempts", 0) for m in experiment["measurements"])
+            assert proofs > 0
+            if experiment.get("p1_visits"):
+                assert proofs == experiment["hosts"] * 2 + experiment["failed_proof_attempts"]
     if len(controls) == 2:
         assert controls[0] == controls[1], "matched topology changed"
 

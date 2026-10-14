@@ -5,7 +5,7 @@ import { fixture } from "./fixture.mjs"
 const [root, cli, monitoring] = process.argv.slice(2)
 const subject = fixture()
 if (monitoring === "enabled") await bridge.tui(subject.api, { reporter: cli })
-let rate = 0, complete = false, timer, events = 0
+let rate = 0, complete = false, turn = 1, timer, events = 0
 const publish = () => {
   const path = `${root}/metrics/api.json`
   writeFileSync(path + ".tmp", JSON.stringify({ pid: process.pid, events, endpoints: subject.calls }))
@@ -13,13 +13,15 @@ const publish = () => {
 }
 const control = setInterval(() => {
   let requested
-  let done
+  let done, nextTurn
   try {
     const workload = JSON.parse(readFileSync(`${root}/workload.json`))
     requested = workload.events_per_second
     done = Boolean(workload.complete)
+    nextTurn = workload.turn ?? 1
   } catch { return }
-  if (requested === rate && done === complete) return
+  if (requested === rate && done === complete && nextTurn === turn) return
+  if (nextTurn !== turn) { subject.newTurn(); turn = nextTurn }
   clearInterval(timer)
   rate = requested
   complete = done

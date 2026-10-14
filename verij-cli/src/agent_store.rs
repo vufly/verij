@@ -576,6 +576,21 @@ pub fn acknowledge_if_current(
     proof: &VisitProof,
     is_current: impl Fn() -> bool,
 ) -> Result<InstanceAck> {
+    acknowledge_checked(proof, None, is_current)
+}
+
+/// Passive work is qualified by the exact current identity and displayed completion,
+/// checked under the instance lock. Explicit navigation retains older-revision semantics.
+pub(crate) fn acknowledge_current_if_current(
+    proof: &VisitProof, identity: &verij_types::agent::AgentIdentity, is_current: impl Fn() -> bool,
+) -> Result<InstanceAck> {
+    acknowledge_checked(proof, Some(identity), is_current)
+}
+
+fn acknowledge_checked(
+    proof: &VisitProof, expected_identity: Option<&verij_types::agent::AgentIdentity>,
+    is_current: impl Fn() -> bool,
+) -> Result<InstanceAck> {
     if !is_current() {
         bail!("visit superseded locally before persistence");
     }
@@ -632,6 +647,9 @@ pub fn acknowledge_if_current(
         fs::read_to_string(&id_file).with_context(|| format!("failed to read {:?}", id_file))?;
     let identity: AgentIdentity = serde_json::from_str(&id_content)
         .with_context(|| format!("failed to parse {:?}", id_file))?;
+    if expected_identity.is_some_and(|expected| expected != &identity) {
+        bail!("passive visit target identity changed");
+    }
 
     if identity.pane_key != proof.pane_key {
         bail!(
@@ -668,6 +686,10 @@ pub fn acknowledge_if_current(
         .with_context(|| format!("failed to read {:?}", state_file))?;
     let state: AgentState = serde_json::from_str(&state_content)
         .with_context(|| format!("failed to parse {:?}", state_file))?;
+    if expected_identity.is_some() && (state.reduced.status != AgentStatus::Done
+        || state.reduced.completion_revision != proof.observed_completion_revision) {
+        bail!("passive visit completion changed");
+    }
 
     if crate::opencode::lease_expired(&state, now_ms()) {
         bail!("OpenCode reporter lease expired");
@@ -1103,6 +1125,10 @@ mod tests {
         };
         let ack = acknowledge(&valid_proof).unwrap();
         assert_eq!(ack.acknowledged_revision, 1);
+        let captured_identity = inspect(&inst).unwrap().0;
+        let passive = VisitProof { host_key: HostKey("host-passive".into()), ..valid_proof.clone() };
+        assert_eq!(acknowledge_current_if_current(&passive, &captured_identity, || true)
+            .unwrap().acknowledged_revision, 1);
 
         // An obsolete visit waiting for the host lock must not publish an ack
         // after the new intent wins, even though its native proof was valid.
@@ -1165,6 +1191,13 @@ mod tests {
         };
         let state2 = report(&inst, turn2_partial).unwrap();
         assert_eq!(state2.completion_revision, 2);
+        let raced = VisitProof { host_key: HostKey("host-raced".into()), ..valid_proof.clone() };
+        assert!(acknowledge_current_if_current(&raced, &captured_identity, || true).is_err());
+        assert!(!resolve_hosts_dir().unwrap().join("host-raced.json").exists());
+        let current_proof = VisitProof { observed_completion_revision: 2, ..raced.clone() };
+        let mut replaced_identity = captured_identity.clone();
+        replaced_identity.process.start_jiffies += 1;
+        assert!(acknowledge_current_if_current(&current_proof, &replaced_identity, || true).is_err());
 
         // Stale navigation completed with observed_revision 1
         let stale_nav_proof = VisitProof {
@@ -1203,6 +1236,17 @@ mod tests {
             verified_at_ms: now_ms(),
         };
         assert!(acknowledge(&future_proof).is_err());
+
+        // A new turn can supersede Done without increasing the completed-turn
+        // high-water mark. Passive eligibility must check reduced state too.
+        let working = report(&inst, PartialSourceRecord {
+            source_id: "agy-lifecycle".into(), source_epoch: Some(1), source_revision: Some(3),
+            turn_epoch: Some(1), turn_revision: Some(3), turn_id: Some(TurnId("turn-3".into())),
+            activity: Some(ActivityKind::Working), ..Default::default()
+        }).unwrap();
+        assert_eq!(working.reduced.status, AgentStatus::Working);
+        assert!(acknowledge_current_if_current(&current_proof, &captured_identity, || true).is_err());
+        assert!(!resolve_hosts_dir().unwrap().join("host-raced.json").exists());
     }
 
     #[test]

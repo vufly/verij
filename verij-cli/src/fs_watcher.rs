@@ -324,8 +324,17 @@ pub fn read_all_states_with_statuses_cancelable(
                     // snapshots for sessions Zellij no longer knows about.
                     if let Some(statuses) = session_statuses {
                         if let Some(status) = statuses.get(&snapshot.name) {
-                            snapshot.needs_resurrection =
-                                matches!(status, crate::session::SessionStatus::Exited);
+                            // A fresh filesystem publication from a live producer
+                            // must not wait for the slower list-sessions fallback
+                            // to overturn cached Exited discovery data.
+                            let live_publication = !can_prune && snapshot.inventory.as_ref().is_some_and(|inventory| {
+                                inventory.schema_version == 1
+                                    && crate::process::identity(inventory.producer.server_pid).ok().is_some_and(|server|
+                                        crate::process::is_alive(&server)
+                                            && crate::process::started_at_ms(&server).is_ok_and(|birth| inventory.exported_at_ms >= birth))
+                            });
+                            snapshot.needs_resurrection = matches!(status, crate::session::SessionStatus::Exited)
+                                && !live_publication;
                         } else if can_prune {
                             let _ = std::fs::remove_file(&path);
                             continue;
@@ -522,8 +531,10 @@ pub fn spawn_fs_watcher_inner(
                 .unwrap_or_default();
             let mut host_cache = HashMap::new();
 
+            const TOPOLOGY_INTERVAL: Duration = Duration::from_secs(10);
+            // File-driven topology remains prompt; do not extend stale discovery
+            // authority merely because the quiet discovery fallback is slower.
             const STATUSES_TTL: Duration = Duration::from_millis(2500);
-            const TOPOLOGY_INTERVAL: Duration = Duration::from_secs(2);
 
             let mut cached_statuses: Option<(BTreeMap<String, SessionStatus>, Instant)> = None;
             if let Some(statuses) = query_session_statuses_bounded_cancelable(
@@ -872,6 +883,31 @@ mod tests {
             "New session export was incorrectly pruned on stale statuses"
         );
         assert!(sessions.iter().any(|s| s.name == "new-agent"));
+    }
+
+    #[test]
+    fn live_filesystem_publication_overturns_cached_exited_status_without_cli_poll() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut snapshot: SessionSnapshot = serde_json::from_value(serde_json::json!({
+            "name":"resurrected", "is_current":true, "tabs":[], "inventory":{
+                "schema_version":1, "producer":{"server_pid":std::process::id(), "plugin_id":1,
+                    "client_id":1, "epoch":"live"}, "revision":1,
+                "exported_at_ms":crate::agent_store::now_ms(), "panes":[], "tabs":[], "capabilities":[]
+            }
+        })).unwrap();
+        let path = dir.path().join("resurrected.json");
+        std::fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        let statuses = BTreeMap::from([("resurrected".into(), SessionStatus::Exited)]);
+        let mut cache = HashMap::from([("resurrected".into(), HostClassification::NotHost)]);
+        let states = read_all_states_with_statuses(dir.path(), &HashSet::new(), &mut cache, Some(&statuses), false);
+        assert!(!states[0].needs_resurrection);
+        assert!(states[0].inventory.as_ref().unwrap().server_process.is_some());
+        // An old/reused PID's publication cannot acquire the new lifetime.
+        snapshot.inventory.as_mut().unwrap().exported_at_ms = 0;
+        std::fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        let states = read_all_states_with_statuses(dir.path(), &HashSet::new(), &mut cache, Some(&statuses), false);
+        assert!(states[0].needs_resurrection);
+        assert!(states[0].inventory.as_ref().unwrap().server_process.is_none());
     }
 
     #[test]

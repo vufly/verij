@@ -27,6 +27,8 @@ def main():
     parser.add_argument("--monitoring", choices=("both", "enabled", "disabled"), default="both")
     parser.add_argument("--agent-runtime", choices=("synthetic", "opencode"), default="synthetic")
     parser.add_argument("--quiet", action="store_true", help="Print summary; retain full JSON in --output")
+    parser.add_argument("--verify-p1-visits", action="store_true",
+                        help="Check idle RPC budgets, sidebar/other-pane suppression and manual inner visits")
     parser.add_argument("--status-plugin", type=Path,
                         help="Local status-bar WASM to load once per tab")
     parser.add_argument("--tabs", type=int, default=1)

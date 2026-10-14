@@ -383,17 +383,38 @@ pub fn acknowledge_visit_if_current(
         bail!("visit superseded locally");
     }
     let instance = AgentInstanceId(args.instance);
-    let (identity, state) = agent_store::inspect(&instance)?;
+    let (_, state) = agent_store::inspect(&instance)?;
     if args.revision == 0 || args.revision > state.completion_revision {
         bail!("completion revision was not observed");
     }
     let root = crate::navigation::resolve_control_dir();
-    let (result, verified_at_ms) = crate::navigation::verified_visit(&root, &args.host)
+    let visit = crate::navigation::verified_visit_if_current(&root, &args.host, &is_current)
         .context("fresh whole-host visit unavailable")?;
-    let observation = result
-        .observation
+    commit_verified_visit(AckArgs { instance: instance.0, ..args }, visit, None, is_current)
+}
+
+/// Consume the one fresh proof already obtained by a passive acknowledgement job.
+pub(crate) fn acknowledge_verified_visit_if_current(
+    args: AckArgs, visit: crate::navigation::VerifiedVisit,
+    expected_identity: &verij_types::agent::AgentIdentity, is_current: impl Fn() -> bool,
+) -> Result<verij_types::agent::InstanceAck> {
+    commit_verified_visit(args, visit, Some(expected_identity), is_current)
+}
+
+fn commit_verified_visit(
+    args: AckArgs, visit: crate::navigation::VerifiedVisit,
+    expected_identity: Option<&verij_types::agent::AgentIdentity>, is_current: impl Fn() -> bool,
+) -> Result<verij_types::agent::InstanceAck> {
+    let root = crate::navigation::resolve_control_dir();
+    let instance = AgentInstanceId(args.instance);
+    let (identity, _) = agent_store::inspect(&instance)?;
+    if expected_identity.is_some_and(|expected| expected != &identity) {
+        bail!("passive visit target identity changed during proof");
+    }
+    let result = visit.result();
+    let observation = result.observation.as_ref()
         .context("inner focus observation missing")?;
-    let binding = crate::navigation::load_binding(&root, &args.host)?;
+    let binding = visit.binding();
     if observation.terminal != Some(identity.pane_key.terminal)
         || SessionInstanceId::from_process(&binding.server_process) != identity.pane_key.session
     {
@@ -418,23 +439,32 @@ pub fn acknowledge_visit_if_current(
         .find(|pane| pane.terminal_id == identity.pane_key.terminal)
         .and_then(|pane| pane.pane_process.as_ref())
         .context("visited terminal process unavailable")?;
+    if observation.queried_terminal != Some(identity.pane_key.terminal)
+        || observation.pane_pid != Some(pane.pid) {
+        bail!("visited terminal process changed after native observation");
+    }
     if !identity.is_synthetic {
         crate::magy::verify_owner(&identity, server, pane)?;
     }
     let proof = verij_types::agent::VisitProof {
         host_key: HostKey(args.host),
         agent_instance_id: instance,
-        pane_key: identity.pane_key,
+        pane_key: identity.pane_key.clone(),
         observed_completion_revision: args.revision,
-        request_id: result.request.request_id,
+        request_id: result.request.request_id.clone(),
         whole_host_focused: result.whole_host_verified,
         inner_focus_verified: true,
-        verified_at_ms,
+        verified_at_ms: visit.verified_at_ms(),
     };
-    if !is_current() {
+    let current = || is_current() && visit.is_current(&root, &proof.host_key.0)
+        && crate::process::is_alive(server) && crate::process::is_alive(pane)
+        && crate::process::is_alive(&identity.process)
+        && (identity.is_synthetic || crate::magy::verify_owner(&identity, server, pane).is_ok());
+    if !current() {
         bail!("visit superseded locally before acknowledgement");
     }
-    let ack = agent_store::acknowledge_if_current(&proof, is_current)?;
+    let ack = if let Some(identity) = expected_identity { agent_store::acknowledge_current_if_current(&proof, identity, current)? }
+        else { agent_store::acknowledge_if_current(&proof, current)? };
     Ok(ack)
 }
 

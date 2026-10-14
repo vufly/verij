@@ -75,3 +75,61 @@ The default 512 MiB RSS abort guard applies to each private process. Actual Open
 has a larger startup footprint; `--max-agent-rss-mib` overrides only its server/TUI
 guard, leaving Zellij's 512 MiB guard intact. Every convergence wait and workload
 checks RSS. Cleanup targets only private sessions and birth-qualified retained PIDs.
+
+## Initial P2 scheduler milestone
+
+`p2-synthetic-start.json` and `p2-opencode-start.json` are post-P0 development
+measurements of the scheduler foundation, not replacements for the P0 controls.
+They use the globally built CLI/exporter and checkout bridge/core; every report
+records those asset hashes. Installed bridge/core still identify the P0 assets.
+
+The synthetic one-member case measured 0.8 API calls/sec and 0.2 native writes/sec
+while idle. Both 20- and 100-event/sec stream phases measured 8.0 API calls/sec;
+unchanged working snapshots renewed their source lease instead of writing per event.
+The actual OpenCode pair also passed completion acknowledgement, detachment, and
+cleanup. Its five-second windows are too short to estimate a ten-second idle
+recovery rate precisely; deterministic scheduler tests check that interval.
+
+P2 remains in progress: family caching, resumable traversal within the endpoint
+budget, and metadata-only outcome recovery are still pending. Existing full message
+retrieval is throttled but not yet removed. Verify these milestone reports explicitly:
+
+```bash
+python prototypes/resource-usage/verify_evidence.py \
+  docs/resource-baselines/p2-synthetic-start.json \
+  docs/resource-baselines/p2-opencode-start.json
+```
+
+## P1 passive proof scheduling
+
+`p1-1host-4tabs.json` and `p1-2hosts-8tabs.json` retain matched controls and nine enabled
+workload phases. They check idle/working without proofs, completion on the sidebar,
+another inner pane, actual keyboard navigation back to the agent, a second outer
+display, failed proof backoff, focus-triggered recovery, and display detachment.
+Both hosts retain independent acknowledgements for two completion revisions.
+
+Each successful passive visit consumes one fresh five-command proof. A second outer
+display fails the fresh `list-clients` check: three attempts in ten seconds, without
+pipe calls or acknowledgement for that host. Removing the display and changing focus
+resets backoff and obtains one new proof. Idle CLI traffic is 0.1 calls/sec per host,
+with zero visit RPCs: approximately 98% below P0's 5.5 calls/sec per host.
+
+No-exporter discovery now has a ten-second fallback. Filesystem-driven exporter
+topology remains prompt and does not inherit ten seconds of stale discovery
+authority. `p1-opencode-1host-4tabs.json` also verifies actual OpenCode runtime.
+These runs include the P2 scheduler foundation and newer installed exporter; hashes
+are retained. CLI/proof budgets isolate P1, while total CPU/RSS includes those other
+paths. Short checks do not replace the later combined four-hour soak.
+
+`p1-navigation.json` passed H1's ownership, fullscreen/float/stack focus, explicit
+host-local acknowledgement, old-revision races, and sidebar-refusal gates, then hit
+the already recorded cross-session registration failure. Cleanup passed.
+
+```bash
+python prototypes/resource-usage/verify.py \
+  --cli target/release/verij --plugin /path/to/installed/verij_plugin.wasm \
+  --status-plugin /path/to/zjstatus.wasm --tabs 8 --hosts 2 \
+  --warmup 5 --seconds 10 --verify-p1-visits --quiet \
+  --output /tmp/opencode/p1-visits.json
+python prototypes/resource-usage/verify_evidence.py /tmp/opencode/p1-visits.json
+```

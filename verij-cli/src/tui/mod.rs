@@ -89,6 +89,7 @@ async fn event_loop(
         .and_then(|host| visits::read_acknowledgements(host).ok())
         .unwrap_or_default();
     let mut focus = None;
+    let mut visit_error = None;
     let mut presentation_cache = agent_view::PresentationCache::default();
     let mut last_model_refresh = Instant::now();
     let mut focus_monitor = host_key.clone().map(visits::Monitor::start);
@@ -104,7 +105,7 @@ async fn event_loop(
     let mut records_ready = false;
     let mut ready_reported = false;
     let mut last_persisted = saved.clone();
-    let mut last_focus_poll = Instant::now() - Duration::from_secs(2);
+    let mut last_focus_hint = Instant::now() - Duration::from_secs(1);
     let mut workspace_presentation = workspace::Presentation::start();
     let mut recovered_workspace_title = None;
     let mut workspace_title_error = None;
@@ -164,15 +165,45 @@ async fn event_loop(
             model_changed = true;
             needs_render = true;
         }
+        if last_focus_hint.elapsed() >= Duration::from_millis(500)
+            && !state.activation.as_ref().is_some_and(|queue| queue.pending)
+        {
+            if let Some(monitor) = focus_monitor.as_mut() {
+                let (hint, inner_hint, acks) = monitor.observe();
+                if focus != hint || state.workspace_focus != inner_hint {
+                    focus = hint;
+                    state.apply_focus(focus.clone());
+                    state.workspace_focus = inner_hint; // Presentation only; never a VisitProof.
+                    model_changed = true;
+                    needs_render = true;
+                }
+                if let Some(acks) = acks {
+                    if acks.iter().any(|(id, ack)| acknowledgements.get(id) != Some(ack)) {
+                        merge_acknowledgements(&mut acknowledgements, acks);
+                        model_changed = true;
+                        needs_render = true;
+                    }
+                }
+            }
+            last_focus_hint = Instant::now();
+        }
         if let Some(monitor) = focus_monitor.as_mut() {
             if let Some(update) = monitor.take_update() {
-                focus = update.focus;
-                state.apply_focus(focus.clone());
+                if let Some(visited) = update.focus {
+                    focus = Some(visited);
+                    state.apply_focus(focus.clone());
+                }
                 if let Some(acks) = update.acknowledgements {
                     merge_acknowledgements(&mut acknowledgements, acks);
                 }
                 if let Some(error) = update.error {
+                    visit_error = Some(error.clone());
                     state.error = Some(error);
+                } else if update.successful {
+                    if state.error == visit_error {
+                        state.error = None;
+                    }
+                    visit_error = None;
                 }
                 model_changed = true;
                 needs_render = true;
@@ -391,16 +422,19 @@ async fn event_loop(
             saved_selection_restored = true;
             needs_render = true;
         }
-        if last_focus_poll.elapsed() >= Duration::from_secs(1)
-            && !state.agent_views.is_empty()
-            && !state.activation.as_ref().is_some_and(|queue| queue.pending)
-        {
-            if let Some(monitor) = focus_monitor.as_mut() {
-                let candidates = state
+        if let Some(monitor) = focus_monitor.as_mut() {
+            let candidates = if state.activation.as_ref().is_some_and(|queue| queue.pending) {
+                Vec::new()
+            } else {
+                state
                     .agent_views
                     .iter()
                     .filter(|view| {
                         view.navigable && view.status == verij_types::agent::AgentStatus::Done
+                            && monitor.eligible_pane() == Some(&view.pane)
+                            && view.completion_revision > 0
+                            && acknowledgements.get(&view.instance.0).is_none_or(|ack|
+                                ack.acknowledged_revision < view.completion_revision)
                     })
                     .map(|view| {
                         (
@@ -409,11 +443,11 @@ async fn event_loop(
                             view.completion_revision,
                         )
                     })
-                    .collect();
-                if monitor.request(candidates) {
-                    last_focus_poll = Instant::now();
-                }
-            }
+                    .collect()
+            };
+            // Empty/current candidate changes invalidate old jobs immediately;
+            // scheduling/retry limits live in the per-host coalesced monitor.
+            monitor.request(candidates);
         }
 
         // Tick counter for animations (e.g. connecting spinner)

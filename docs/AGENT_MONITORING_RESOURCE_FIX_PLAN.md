@@ -2,7 +2,7 @@
 
 Date: **2026-10-13**
 
-Status: **P0 baseline complete (2026-10-14). Resource remediation phases P1–P6 remain pending.**
+Status: **P0 and P1 complete (2026-10-14). P2 scheduler foundation started; P2 remains in progress. P3–P6 remain pending.**
 
 ## 1. Objective
 
@@ -78,37 +78,81 @@ cleaned up successfully; a shorter guarded run retained every workload phase.
 
 **Files:** `verij-cli/src/tui/mod.rs`, `verij-cli/src/tui/visits.rs`, `verij-cli/src/navigation.rs`, `verij-cli/src/agent_cli.rs`, `verij-cli/src/fs_watcher.rs`.
 
-- [ ] Schedule acknowledgement verification only for current, navigable, unread completions. Do not invoke `verified_visit` for an empty candidate set.
-- [ ] Use existing focus heartbeats to update routine presentation conservatively and to invalidate pending work. Keep presentation hints separate from verified visits.
-- [ ] Filter acknowledgement candidates against the current bound session and likely focused terminal before starting expensive proof work.
-- [ ] Give each host one coalesced acknowledgement job, a minimum retry interval, and failure backoff. Invalidate it on navigation, binding replacement, process exit, or candidate revision change.
-- [ ] Produce one fresh, internally validated proof per acknowledgement operation. Pass that proof to the native acknowledgement path instead of invoking the five-command visit sequence twice.
-- [ ] Recheck target instance, host/binding generation, process lifetimes, completion revision, and local request currency before committing acknowledgement. Reject superseded proof results.
-- [ ] Slow periodic `list-sessions` discovery to the proposed ten-second interval. Keep filesystem-driven topology reads and explicit user actions responsive. Document the longer fallback discovery window for sessions with no exporter.
-- [ ] Do not replace fresh single-display checks with indefinitely cached client counts.
+- [x] Schedule acknowledgement verification only for current, navigable, unread completions. Do not invoke `verified_visit` for an empty candidate set.
+- [x] Use existing focus heartbeats to update routine presentation conservatively and to invalidate pending work. Keep presentation hints separate from verified visits.
+- [x] Filter acknowledgement candidates against the current bound session and likely focused terminal before starting expensive proof work.
+- [x] Give each host one coalesced acknowledgement job, a minimum retry interval, and failure backoff. Invalidate it on navigation, binding replacement, process exit, or candidate revision change.
+- [x] Produce one fresh, internally validated proof per acknowledgement operation. Pass that proof to the native acknowledgement path instead of invoking the five-command visit sequence twice.
+- [x] Recheck target instance, host/binding generation, process lifetimes, completion revision, and local request currency before committing acknowledgement. Reject superseded proof results.
+- [x] Slow periodic `list-sessions` discovery to the proposed ten-second interval. Keep filesystem-driven topology reads and explicit user actions responsive. Document the longer fallback discovery window for sessions with no exporter.
+- [x] Do not replace fresh single-display checks with indefinitely cached client counts.
 
 **Exit criteria:** no idle visit RPCs; one proof sequence per successful passive acknowledgement; bounded retries; manual inner navigation still acknowledges eligible Done; another host cannot consume the badge.
+
+**Evidence:** `resource-baselines/p1-1host-4tabs.json`,
+`resource-baselines/p1-2hosts-8tabs.json`, and
+`resource-baselines/p1-opencode-1host-4tabs.json`. Idle/working agents issue no
+passive visit RPCs. Idle CLI traffic is 0.1 calls/second per host, entirely ten-second
+discovery: approximately 98% below P0's 5.5 calls/second per host. Actual inner
+keyboard navigation uses exactly one five-call proof. Hosts acknowledge independently;
+sidebar/other-pane focus preserves Done. A real second outer display rejects
+acknowledgement, with three one-command attempts in ten seconds, and a meaningful
+focus change restores one successful proof after the extra display leaves.
+
+Each monitor has one running job, one replaceable pending job, one-slot notification
+ingress, and one replaceable result. Minimum two-second spacing survives cancellation
+and candidate/focus churn; failed work backs off through 2/4/8/16/30 seconds. Cached
+hints contain no proof. The non-cloneable operation proof is consumed once and checks
+binding/journal/ownership/focus, process lifetimes, and freshness again at commit.
+Passive identity/current-completion checks run under persistence locks; explicit
+navigation retains older-observed-revision semantics. Validity starts at the earliest
+native observation, so the final outer reply cannot refresh an old inner proof.
+
+No-exporter fallback discovery can take up to ten seconds. Exporter filesystem
+events remain prompt; cached discovery authority still expires after 2.5 seconds,
+and live producer lifetime evidence can overturn cached Exited data. The existing
+H1 cross-session registration failure is retained in `resource-baselines/p1-navigation.json`;
+all preceding ownership, focus, and acknowledgement gates passed, and the failure
+was already reproduced without this implementation.
 
 ### P2 — Budget OpenCode observation work
 
 **Files:** `integrations/opencode/bridge.mjs`, `integrations/opencode/core.mjs`, `integrations/opencode/core.test.mjs`, `verij-cli/src/opencode.rs`, and `verij-cli/tests/opencode_setup.rs`.
 
-- [ ] Replace event-triggered full collection with a dirty-state scheduler. Track the next eligible refresh, one in-flight collection, and one pending invalidation.
-- [ ] Ensure an event arriving during collection invalidates the sampled generation and schedules one later retry. Do not lose the dirty flag on a rejected snapshot.
+- [x] Replace event-triggered full collection with a dirty-state scheduler. Track the next eligible refresh, one in-flight collection, and one pending invalidation.
+- [x] Ensure an event arriving during collection invalidates the sampled generation and schedules one later retry. Do not lose the dirty flag on a rejected snapshot.
 - [ ] Preserve immediate bounded event projection for validated permission/question and activity edges. Reconcile terminal outcomes conservatively when current evidence is incomplete.
-- [ ] Avoid allocating a microtask or request graph for every streaming update. Repeated activity and part updates should only set an already-pending flag.
+- [x] Avoid allocating a microtask or request graph for every streaming update. Repeated activity and part updates should only set an already-pending flag.
 - [ ] Cache validated root/family ancestry for the current route and producer generation. Invalidate it on relevant create/delete/reparent events, route changes, reconnect, or inconsistent responses.
 - [ ] Separate cheap current-status recovery from full ancestry/history recovery. Charge every endpoint invocation to the per-bridge request budget.
 - [ ] Inspect the installed OpenCode API/cache contract for metadata-only or incremental outcome recovery. Use local structured message metadata where verified. Do not repeatedly fetch full tool-output bodies to rediscover unchanged completion metadata.
 - [ ] If startup recovery requires message retrieval, use the narrowest supported query and explicit allocation limits where the API permits them. A message-count limit alone must not be presented as a byte bound.
 - [ ] Keep family-size, response-time, and concurrency bounds. When a complete family cannot be verified within the budget, retain conservative state and retry later rather than increasing request rate or manufacturing Done.
-- [ ] Back off failed API recovery and reporter reconnects independently. Reset backoff on meaningful ownership changes or explicit new work.
-- [ ] Deduplicate against the last successfully delivered semantic observation, not only the current queue tail. Distinct state edges must remain ordered.
-- [ ] Renew unchanged source health every five seconds without a full API reconciliation. Initially reuse the existing snapshot protocol; add a dedicated renewal frame only if compatibility and measured write cost justify it.
-- [ ] On reconnect, publish conservative presence and recover current state before restoring semantic authority. Keep the native source epoch and completion ledger rules.
-- [ ] Dispose timers, listeners, queued work, and in-flight requests on reload/exit.
+- [x] Back off failed API recovery and reporter reconnects independently. Reset backoff on meaningful ownership changes or explicit new work.
+- [x] Deduplicate against the last successfully delivered semantic observation, not only the current queue tail. Distinct state edges must remain ordered.
+- [x] Renew unchanged source health every five seconds without a full API reconciliation. Initially reuse the existing snapshot protocol; add a dedicated renewal frame only if compatibility and measured write cost justify it.
+- [x] On reconnect, publish conservative presence and recover current state before restoring semantic authority. Keep the native source epoch and completion ledger rules.
+- [x] Dispose timers, listeners, queued work, and in-flight requests on reload/exit.
 
 **Exit criteria:** streaming frequency no longer determines full-query frequency; idle recovery and lease renewals have independent rates; supported input/completion/error transitions remain correct; native writes for unchanged state are limited to lease renewal.
+
+**Initial P2 milestone (in progress):** active/dirty collection starts are separated
+by at least one second; quiet idle recovery uses ten seconds; unchanged lease renewal
+uses five seconds after a native receipt. A shared endpoint token bucket permits
+32 invocations/second with an eight-call burst, four physical requests in flight,
+and four pending requests. Cancellation does not prematurely free a physical slot.
+Tests cover timer/dirty coalescing, generation rejection, backoff, endpoint accounting,
+lease renewal without queries, ordered input edges, reconnect, and disposal.
+
+Retained initial results: `resource-baselines/p2-synthetic-start.json` and
+`resource-baselines/p2-opencode-start.json`. One-member synthetic streaming at 20 and
+100 owned events/second both measured 8.0 API calls/second. Quiet synthetic idle
+measured 0.8 calls/second and 0.2 committed native writes/second. Existing ancestry
+and bulk-message reconciliation is still used behind the scheduler; verified family
+caching, resumable large-family recovery, and metadata-only outcome recovery remain
+required before P2 can be marked complete. Budget exhaustion yields conservative
+state; the current three-second collection deadline cannot finish every 64-member
+full scan at the request ceiling.
 
 ### P3 — Bound watcher ingress and directory work
 
@@ -196,8 +240,8 @@ Keep each change independently verifiable. Do not increase WSL memory or navigat
 
 ## 6. Completion checklist
 
-- [ ] Idle monitoring has no recurring whole-host visit proofs.
-- [ ] Successful acknowledgement does not repeat the same proof sequence.
+- [x] Idle monitoring has no recurring whole-host visit proofs.
+- [x] Successful acknowledgement does not repeat the same proof sequence.
 - [ ] OpenCode query rate is independent of streaming event rate.
 - [ ] Unchanged semantic snapshots only renew their lease at the bounded interval.
 - [ ] Watcher ingress, record reads, background scans, and retained journals are bounded.

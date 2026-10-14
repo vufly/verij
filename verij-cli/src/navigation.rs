@@ -1898,7 +1898,7 @@ fn direct_request(
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct OuterOwnership {
     server: ProcessIdentity,
     pane: ProcessIdentity,
@@ -2498,28 +2498,178 @@ pub fn rebind_with_intent(
     register_if_current(control_dir, &args, &|| true, intent)
 }
 
-/// Optional whole-host visit verification helper.
-/// Stock focus alone cannot prove whole-host visits. Stays None when unsupported; never fabricates ack flags.
-#[allow(dead_code)]
-pub fn verified_visit(control_dir: &Path, host_key: &str) -> Option<(ControlResult, u64)> {
+fn read_control<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+    let mut bytes = Vec::new();
+    fs::File::open(path).ok()?.take(262_145).read_to_end(&mut bytes).ok()?;
+    (bytes.len() <= 262_144).then(|| serde_json::from_slice(&bytes).ok()).flatten()
+}
+
+fn focus_path(root: &Path, context: &PluginContext) -> PathBuf {
+    root.join(format!("focus-{}-{}-{}-{}.json", context.server_pid,
+        context.plugin_id, context.client_id, context.epoch))
+}
+
+fn fresh_hint(observation: &FocusObservation, now: u64) -> bool {
+    observation.observed_at_ms <= now.saturating_add(1000)
+        && now.saturating_sub(observation.observed_at_ms) <= 2000
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct BindingGeneration {
+    modified: Option<std::time::SystemTime>,
+    length: u64,
+    #[cfg(unix)]
+    incarnation: (u64, u64, i64, i64),
+}
+
+fn binding_generation(root: &Path, host: &str) -> Option<BindingGeneration> {
+    if !valid_record_key(host) { return None; }
+    let metadata = fs::metadata(root.join(format!("binding-host-{host}.json"))).ok()?;
+    if !metadata.is_file() { return None; }
+    Some(BindingGeneration {
+        modified: metadata.modified().ok(), length: metadata.len(),
+        #[cfg(unix)]
+        incarnation: {
+            use std::os::unix::fs::MetadataExt;
+            (metadata.dev(), metadata.ino(), metadata.ctime(), metadata.ctime_nsec())
+        },
+    })
+}
+
+/// Presentation and negative/eligibility hints only. Never acknowledgement authority.
+/// Timestamps/sequences are deliberately excluded so heartbeats cannot reset retry backoff.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct CachedFocus {
+    pub binding: HostBinding,
+    pub pane: Option<PaneKey>,
+    pub outer_context: Option<PluginContext>,
+    pub workspace_focused: bool,
+    owner: OuterOwnership,
+    binding_generation: BindingGeneration,
+}
+
+impl CachedFocus {
+    pub fn eligible_pane(&self) -> Option<&PaneKey> {
+        self.workspace_focused.then_some(self.pane.as_ref()).flatten()
+    }
+}
+
+pub(crate) fn cached_focus(root: &Path, host: &str) -> Option<CachedFocus> {
+    let generation = binding_generation(root, host)?;
+    let binding = load_binding(root, host).ok()?;
+    let now = now_ms();
+    let inner: FocusObservation = read_control(&focus_path(root, &binding.context))?;
+    if inner.context != binding.context || !fresh_hint(&inner, now) { return None; }
+    let owner: OuterOwnership = read_control(&root.join(format!("outer-owner-{host}.json")))?;
+    if owner.terminal != binding.workspace_pane
+        || crate::process::verify_foreground(&owner.server, &owner.pane, &binding.attachment_process).is_err() { return None; }
+    let outer: Option<FocusObservation> = fs::read_dir(root).ok()?.flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("focus-"))
+        .filter_map(|entry| read_control(&entry.path()))
+        .filter(|observation: &FocusObservation| observation.context.server_pid == owner.server.pid
+            && observation.session_name.as_deref() == Some(&binding.host_session)
+            && fresh_hint(observation, now))
+        // A detached client may leave a short-lived negative observation. Prefer
+        // a current Workspace hint; the proof still queries actual display scope
+        // twice and never treats cached client IDs as a single-display check.
+        .min_by(|a, b| (a.terminal != Some(binding.workspace_pane), a.context.client_id, a.context.plugin_id)
+            .cmp(&(b.terminal != Some(binding.workspace_pane), b.context.client_id, b.context.plugin_id))
+            .then_with(|| b.observed_at_ms.cmp(&a.observed_at_ms)));
+    if binding_generation(root, host).as_ref() != Some(&generation) { return None; }
+    Some(CachedFocus {
+        pane: inner.terminal.map(|terminal| PaneKey {
+            session: SessionInstanceId::from_process(&binding.server_process), terminal,
+        }),
+        outer_context: outer.as_ref().map(|o| o.context.clone()),
+        workspace_focused: outer.as_ref().is_some_and(|o| o.terminal == Some(binding.workspace_pane)),
+        owner,
+        binding_generation: generation,
+        binding,
+    })
+}
+
+/// Non-cloneable, non-serializable proof owned by one bounded acknowledgement operation.
+/// Only the fresh, bracketed native protocol can construct it; caches hold no such value.
+pub(crate) struct VerifiedVisit {
+    binding: HostBinding,
+    result: ControlResult,
+    verified_at_ms: u64,
+    outer_context: PluginContext,
+    owner: OuterOwnership,
+    journal: HostJournal,
+    binding_generation: BindingGeneration,
+}
+
+impl VerifiedVisit {
+    pub fn pane(&self) -> PaneKey {
+        PaneKey { session: SessionInstanceId::from_process(&self.binding.server_process),
+            terminal: self.result.observation.as_ref().unwrap().terminal.unwrap() }
+    }
+    pub fn binding(&self) -> &HostBinding { &self.binding }
+    pub fn result(&self) -> &ControlResult { &self.result }
+    pub fn verified_at_ms(&self) -> u64 { self.verified_at_ms }
+
+    /// Rejection checks only: these cached reads cannot create or extend a proof.
+    pub fn is_current(&self, root: &Path, host: &str) -> bool {
+        self.records_are_current(root, host)
+            && crate::process::verify_foreground(&self.owner.server, &self.owner.pane,
+                &self.binding.attachment_process).is_ok()
+    }
+
+    fn records_are_current(&self, root: &Path, host: &str) -> bool {
+        let now = now_ms();
+        if self.binding.host.0 != host || now.saturating_sub(self.verified_at_ms) > 2000
+            || self.verified_at_ms > now.saturating_add(1000)
+            || load_binding(root, host).ok().as_ref() != Some(&self.binding)
+            || binding_generation(root, host).as_ref() != Some(&self.binding_generation)
+            || read_control::<HostJournal>(&root.join(format!("journal-{host}.json"))).as_ref() != Some(&self.journal)
+            || read_control::<OuterOwnership>(&root.join(format!("outer-owner-{host}.json"))).as_ref() != Some(&self.owner)
+        { return false; }
+        let inner: Option<FocusObservation> = read_control(&focus_path(root, &self.binding.context));
+        let outer: Option<FocusObservation> = read_control(&focus_path(root, &self.outer_context));
+        inner.is_some_and(|o| o.context == self.binding.context && fresh_hint(&o, now)
+            && o.terminal == Some(self.pane().terminal)
+            && o.session_name == self.result.observation.as_ref().unwrap().session_name)
+            && outer.is_some_and(|o| o.context == self.outer_context && fresh_hint(&o, now)
+                && o.terminal == Some(self.binding.workspace_pane)
+                && o.session_name.as_deref() == Some(&self.binding.host_session))
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn verified_visit(control_dir: &Path, host_key: &str) -> Option<VerifiedVisit> {
+    verified_visit_if_current(control_dir, host_key, &|| true)
+}
+
+pub(crate) fn verified_visit_if_current(
+    control_dir: &Path, host_key: &str, is_current: &dyn Fn() -> bool,
+) -> Option<VerifiedVisit> {
+    if !is_current() { return None; }
     crate::resource_metrics::proof();
     // Bracket a fresh inner query with passive outer native observations.
     // Single-display scope is checked by outer_operation on every query.
+    let generation = binding_generation(control_dir, host_key)?;
     let binding = load_binding(control_dir, host_key).ok()?;
+    let journal: HostJournal = read_control(&control_dir.join(format!("journal-{host_key}.json")))?;
+    let owner: OuterOwnership = read_control(&control_dir.join(format!("outer-owner-{host_key}.json")))?;
+    if journal.context != binding.context { return None; }
     let before = outer_operation(control_dir, &binding, ControlOperation::Query).ok()?;
-    if before.observation?.terminal != Some(binding.workspace_pane) {
+    if before.status != ControlStatus::Observed { return None; }
+    let before = before.observation?;
+    if before.terminal != Some(binding.workspace_pane) || !is_current() {
         return None;
     }
     let mut inner = request(control_dir, host_key, ControlOperation::Query, None).ok()?;
-    if inner.status != ControlStatus::Observed
+    if !is_current() || inner.status != ControlStatus::Observed
         || inner.observation.as_ref()?.context != binding.context
     {
         return None;
     }
     let focused = inner.observation.as_ref()?.terminal?;
     let after = outer_operation(control_dir, &binding, ControlOperation::Query).ok()?;
+    if after.status != ControlStatus::Observed { return None; }
     let after = after.observation?;
-    if after.terminal != Some(binding.workspace_pane)
+    if !is_current() || after.context != before.context || after.terminal != Some(binding.workspace_pane)
         || !crate::process::is_alive(&binding.attachment_process)
         || !crate::process::is_alive(&binding.server_process)
         || focused.0 == u32::MAX
@@ -2528,7 +2678,12 @@ pub fn verified_visit(control_dir: &Path, host_key: &str) -> Option<(ControlResu
     }
     inner.whole_host_verified = true;
     inner.acknowledge_done = false;
-    Some((inner, after.observed_at_ms))
+    // The final outer reply cannot refresh an old inner/initial observation.
+    let verified_at_ms = before.observed_at_ms.min(after.observed_at_ms)
+        .min(inner.observation.as_ref()?.observed_at_ms);
+    let proof = VerifiedVisit { binding, result: inner, verified_at_ms,
+        outer_context: after.context, owner, journal, binding_generation: generation };
+    proof.is_current(control_dir, host_key).then_some(proof)
 }
 
 // ---------------------------------------------------------------------------
@@ -3316,6 +3471,95 @@ exit 0
         assert!(res_future.unwrap_err().to_string().contains("future"));
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn operation_proof_rejects_rebinding_new_requests_focus_changes_and_expiry() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let process = crate::process::identity(std::process::id()).unwrap();
+        let inner_context = test_context(process.pid, 11, 1, "inner-proof");
+        let outer_context = test_context(process.pid, 12, 2, "outer-proof");
+        let binding = HostBinding { schema_version: SCHEMA_VERSION, host: HostKey("proof-host".into()),
+            host_session: "host-session".into(), workspace_pane: TerminalPaneId(1),
+            attachment_process: process.clone(), server_process: process.clone(),
+            context: inner_context.clone(), pane: None };
+        let mut inner = FocusObservation { context: inner_context.clone(), session_name: Some("inner-session".into()),
+            terminal: Some(TerminalPaneId(0)), focused_plugin: None, queried_terminal: None, pane_pid: None,
+            observed_at_ms: now_ms(), application_sequence: 7, registration_surface: true,
+            registration_request_id: None };
+        let mut outer = FocusObservation { context: outer_context.clone(), session_name: Some("host-session".into()),
+            terminal: Some(TerminalPaneId(1)), ..inner.clone() };
+        let journal = HostJournal { context: inner_context.clone(), sequence: 7 };
+        let owner = OuterOwnership { server: process.clone(), pane: process, terminal: TerminalPaneId(1) };
+        atomic_write_json(&root.join("binding-host-proof-host.json"), &binding).unwrap();
+        atomic_write_json(&root.join("journal-proof-host.json"), &journal).unwrap();
+        atomic_write_json(&root.join("outer-owner-proof-host.json"), &owner).unwrap();
+        atomic_write_json(&focus_path(root, &inner_context), &inner).unwrap();
+        atomic_write_json(&focus_path(root, &outer_context), &outer).unwrap();
+        let mut proof = VerifiedVisit { binding: binding.clone(), verified_at_ms: now_ms(),
+            outer_context: outer_context.clone(), owner, journal: journal.clone(),
+            binding_generation: binding_generation(root, "proof-host").unwrap(),
+            result: ControlResult { request: ControlRequest { schema_version: SCHEMA_VERSION,
+                request_id: "proof-request".into(), context: inner_context.clone(), sequence: 0,
+                operation: ControlOperation::Query }, status: ControlStatus::Observed,
+                observation: Some(inner.clone()), whole_host_verified: true, acknowledge_done: false } };
+        let mut hint = CachedFocus { binding: binding.clone(), pane: Some(proof.pane()),
+            outer_context: Some(outer_context.clone()), workspace_focused: false,
+            owner: proof.owner.clone(), binding_generation: proof.binding_generation.clone() };
+        assert!(hint.eligible_pane().is_none()); // Sidebar focus with the agent still focused inside.
+        hint.workspace_focused = true;
+        assert_eq!(hint.eligible_pane(), Some(&proof.pane()));
+        assert!(proof.records_are_current(root, "proof-host"));
+        assert!(!proof.records_are_current(root, "peer-host"));
+        // Matching serialized fields cannot revive a stale pane process lifetime.
+        let live_owner = proof.owner.clone();
+        proof.owner.pane.start_jiffies += 1;
+        atomic_write_json(&root.join("outer-owner-proof-host.json"), &proof.owner).unwrap();
+        assert!(proof.records_are_current(root, "proof-host"));
+        assert!(!proof.is_current(root, "proof-host"));
+        proof.owner = live_owner;
+        atomic_write_json(&root.join("outer-owner-proof-host.json"), &proof.owner).unwrap();
+
+        let newer = HostJournal { sequence: 8, ..journal.clone() };
+        atomic_write_json(&root.join("journal-proof-host.json"), &newer).unwrap();
+        assert!(!proof.records_are_current(root, "proof-host"));
+        atomic_write_json(&root.join("journal-proof-host.json"), &journal).unwrap();
+        let replacement = HostBinding { context: test_context(binding.server_process.pid, 11, 1, "replacement"), ..binding.clone() };
+        atomic_write_json(&root.join("binding-host-proof-host.json"), &replacement).unwrap();
+        atomic_write_json(&focus_path(root, &replacement.context),
+            &FocusObservation { context: replacement.context.clone(), ..inner.clone() }).unwrap();
+        assert!(load_binding(root, "proof-host").is_ok());
+        assert!(!proof.records_are_current(root, "proof-host"));
+        atomic_write_json(&root.join("binding-host-proof-host.json"), &binding).unwrap();
+        proof.binding_generation = binding_generation(root, "proof-host").unwrap();
+
+        inner.terminal = Some(TerminalPaneId(9));
+        atomic_write_json(&focus_path(root, &inner_context), &inner).unwrap();
+        assert!(!proof.records_are_current(root, "proof-host"));
+        inner.terminal = Some(TerminalPaneId(0));
+        atomic_write_json(&focus_path(root, &inner_context), &inner).unwrap();
+        outer.terminal = Some(TerminalPaneId(0));
+        atomic_write_json(&focus_path(root, &outer_context), &outer).unwrap();
+        assert!(!proof.records_are_current(root, "proof-host"));
+        outer.terminal = Some(TerminalPaneId(1));
+        atomic_write_json(&focus_path(root, &outer_context), &outer).unwrap();
+        proof.verified_at_ms = now_ms().saturating_sub(2001);
+        assert!(!proof.records_are_current(root, "proof-host"));
+        proof.verified_at_ms = now_ms();
+        inner.observed_at_ms = now_ms().saturating_sub(3000);
+        atomic_write_json(&focus_path(root, &inner_context), &inner).unwrap();
+        assert!(!proof.records_are_current(root, "proof-host"));
+        inner.observed_at_ms = now_ms().saturating_add(2000);
+        atomic_write_json(&focus_path(root, &inner_context), &inner).unwrap();
+        assert!(!proof.records_are_current(root, "proof-host"));
+        inner.observed_at_ms = now_ms();
+        atomic_write_json(&focus_path(root, &inner_context), &inner).unwrap();
+        assert!(proof.records_are_current(root, "proof-host"));
+        // Even an identical re-registration replaces the operation's generation.
+        atomic_write_json(&root.join("binding-host-proof-host.json"), &binding).unwrap();
+        assert_eq!(load_binding(root, "proof-host").unwrap(), binding);
+        assert!(!proof.records_are_current(root, "proof-host"));
     }
 
     #[test]

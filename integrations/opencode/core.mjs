@@ -105,10 +105,15 @@ export async function reconcile(api, signal) {
 // Bounded FIFO: no asynchronous reporter per event, no shell interpolation.
 // Overload invalidates semantic authority until a fresh reconciliation arrives.
 export class SnapshotQueue {
-  constructor(limit = 128) { this.limit = limit; this.items = []; this.overflow = false }
-  push(value) {
+  constructor(limit = 128) {
+    this.limit = limit; this.items = []; this.overflow = false
+    this.inFlight = undefined; this.delivered = undefined
+  }
+  push(value, renew = false) {
     const encoded = JSON.stringify(value)
-    if (encoded === this.items.at(-1)) return
+    // Compare the effective tail, including the frame awaiting a native receipt.
+    // A -> B -> A remains ordered even when the first A was already delivered.
+    if (!renew && encoded === (this.items.at(-1) ?? this.inFlight ?? this.delivered)) return
     if (this.items.length >= this.limit) {
       this.items.length = 0
       this.overflow = true
@@ -117,5 +122,150 @@ export class SnapshotQueue {
     }
     this.items.push(encoded)
   }
-  shift() { return this.items.shift() }
+  shift() {
+    const item = this.items.shift()
+    if (item) this.inFlight = item
+    return item
+  }
+  acknowledge() { this.delivered = this.inFlight; this.inFlight = undefined }
+  reset() {
+    this.items.length = 0; this.inFlight = undefined; this.delivered = undefined
+    this.overflow = false
+  }
+}
+
+export const observationBudget = Object.freeze({
+  activeMs: 1000, idleMs: 10000, leaseMs: 5000, maxBackoffMs: 30000,
+  requestsPerSecond: 32, requestBurst: 8, concurrency: 4, pendingRequests: 4,
+})
+
+const runtimeClock = {
+  now: () => performance.now(),
+  setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: timer => clearTimeout(timer),
+}
+
+// One in-flight refresh, one dirty bit and one timer. Events during a refresh
+// reject that generation and retain one later retry, regardless of event rate.
+export class ReconcileScheduler {
+  constructor(collect, active, clock = runtimeClock) {
+    this.collect = collect; this.active = active; this.clock = clock
+    this.dirty = false; this.inFlight = false; this.closed = false
+    this.generation = 0; this.lastStart = -Infinity; this.retryAt = 0; this.failures = 0
+    this.timer = undefined; this.due = Infinity
+  }
+  invalidate({ resetBackoff = false } = {}) {
+    if (this.closed) return
+    this.generation++; this.dirty = true
+    if (resetBackoff) { this.failures = 0; this.retryAt = 0 }
+    this.arm()
+  }
+  arm() {
+    if (this.closed || this.inFlight) return
+    const interval = this.dirty || this.active() ? observationBudget.activeMs : observationBudget.idleMs
+    const due = Math.max(this.clock.now(), this.lastStart + interval, this.retryAt)
+    // Repeated invalidations must not allocate another timer/microtask.
+    if (this.timer !== undefined && this.due <= due) return
+    if (this.timer !== undefined) this.clock.clearTimeout(this.timer)
+    this.due = due
+    this.timer = this.clock.setTimeout(() => { this.timer = undefined; void this.run() }, Math.max(0, due - this.clock.now()))
+  }
+  async run() {
+    if (this.closed || this.inFlight) return
+    this.inFlight = true; this.dirty = false; this.lastStart = this.clock.now()
+    const generation = this.generation
+    try {
+      const accepted = await this.collect()
+      if (accepted === false || generation !== this.generation) this.dirty = true
+      this.failures = 0; this.retryAt = 0
+    } catch {
+      this.dirty = true
+      this.failures = Math.min(this.failures + 1, 6)
+      this.retryAt = this.clock.now() + Math.min(observationBudget.maxBackoffMs,
+        observationBudget.activeMs * 2 ** (this.failures - 1))
+    } finally {
+      this.inFlight = false
+      this.arm()
+    }
+  }
+  dispose() {
+    this.closed = true; this.dirty = false
+    if (this.timer !== undefined) this.clock.clearTimeout(this.timer)
+    this.timer = undefined
+  }
+}
+
+// Charge actual endpoint invocations, not refresh function entries. Token bucket
+// bounds bursts; one dispatcher timer and fixed pending/concurrency limits bound
+// waiting work. Aborting a caller does not free its physical request slot early.
+export class RequestBudget {
+  constructor(clock = runtimeClock) {
+    this.clock = clock; this.tokens = observationBudget.requestBurst; this.refilledAt = clock.now()
+    this.waiting = []; this.active = 0; this.calls = 0; this.timer = undefined
+    this.disposal = new AbortController()
+  }
+  call(invoke, signal) {
+    const combined = signal ? AbortSignal.any([signal, this.disposal.signal]) : this.disposal.signal
+    if (combined.aborted) return Promise.reject(new Error("Observation cancelled"))
+    if (this.waiting.length >= observationBudget.pendingRequests) return Promise.reject(new Error("Request budget queue full"))
+    return new Promise((resolve, reject) => {
+      const job = { invoke, signal: combined, resolve, reject }
+      job.cancel = () => {
+        const index = this.waiting.indexOf(job)
+        if (index >= 0) { this.waiting.splice(index, 1); combined.removeEventListener("abort", job.cancel) }
+        reject(new Error("Observation cancelled"))
+        this.drain()
+      }
+      combined.addEventListener("abort", job.cancel, { once: true })
+      this.waiting.push(job)
+      this.drain()
+    })
+  }
+  drain() {
+    if (this.timer !== undefined) { this.clock.clearTimeout(this.timer); this.timer = undefined }
+    if (this.disposal.signal.aborted) return
+    const now = this.clock.now()
+    this.tokens = Math.min(observationBudget.requestBurst,
+      this.tokens + (now - this.refilledAt) * observationBudget.requestsPerSecond / 1000)
+    this.refilledAt = now
+    while (this.waiting.length && this.active < observationBudget.concurrency && this.tokens >= 1) {
+      const job = this.waiting.shift()
+      if (job.signal.aborted) {
+        job.signal.removeEventListener("abort", job.cancel)
+        job.reject(new Error("Observation cancelled"))
+        continue
+      }
+      this.tokens--; this.active++; this.calls++
+      let response
+      try { response = Promise.resolve(job.invoke(job.signal)) } catch (error) { response = Promise.reject(error) }
+      response.then(job.resolve, job.reject).finally(() => {
+        job.signal.removeEventListener("abort", job.cancel)
+        this.active--
+        this.drain()
+      })
+    }
+    if (this.waiting.length && this.active < observationBudget.concurrency) {
+      this.timer = this.clock.setTimeout(() => { this.timer = undefined; this.drain() },
+        Math.max(1, (1 - this.tokens) * 1000 / observationBudget.requestsPerSecond))
+    }
+  }
+  dispose() {
+    if (this.timer !== undefined) this.clock.clearTimeout(this.timer)
+    this.timer = undefined
+    this.disposal.abort()
+  }
+}
+
+export function budgetedAPI(api, budget) {
+  const client = {}
+  for (const [namespace, methods] of Object.entries({ session: ["status", "get", "children", "messages"],
+    permission: ["list"], question: ["list"] })) {
+    client[namespace] = {}
+    for (const method of methods) {
+      client[namespace][method] = (args, options = {}) => budget.call(signal =>
+        api.client[namespace][method](args, { ...options, signal }), options.signal)
+    }
+  }
+  const observed = Object.create(api)
+  Object.defineProperty(observed, "client", { value: client })
+  return observed
 }

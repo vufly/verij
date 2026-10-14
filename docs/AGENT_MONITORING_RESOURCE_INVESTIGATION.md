@@ -2,7 +2,7 @@
 
 Date: **2026-10-13**
 
-Status: **Investigation and P0 baseline completed. Resource amplification reproduced; remediation phases P1–P6 remain pending.**
+Status: **Investigation, P0 baseline, and P1 passive-proof scheduling completed. P2 scheduler foundation is in progress; P3–P6 remain pending.**
 
 Implementation follow-up: [Agent Monitoring Resource Fix Plan](AGENT_MONITORING_RESOURCE_FIX_PLAN.md).
 
@@ -277,3 +277,54 @@ bridge/core hashes match the repository. The private H1 harness passed every gat
 with this globally installed CLI/exporter pair, including cross-session rebind,
 plugin reload, rename, ownership, and host-local acknowledgement. All private
 processes exited. The result is `/tmp/opencode/verij-global-build-navigation.json`.
+
+## P1 follow-up (2026-10-14)
+
+Passive monitoring now schedules only current, navigable, unread Done candidates in
+the requesting host's bound and likely focused terminal. Cached SDK focus heartbeats
+update presentation but never establish acknowledgement authority. One running job,
+one replaceable pending job, and one replaceable update bound each host's work.
+Minimum spacing is two seconds; failures back off to 30 seconds. Meaningful focus,
+binding, or completion changes reset failure backoff without erasing minimum spacing.
+
+The native visit helper returns an opaque, non-cloneable operation proof consumed
+by acknowledgement. It brackets an inner observation with two fresh outer native
+observations, retaining both actual single-display checks. Its two-second validity
+starts at the earliest observation, not the final reply. Commit rechecks binding,
+journal currency, outer ownership, negative focus invalidations, and terminal/agent
+process lifetimes. Passive identity/current-completion checks run under persistence
+locks; new turns and replacement identities reject old passive work. Explicit
+navigation still acknowledges only its captured revision, not a newer completion.
+
+| Scenario | P0 idle CLI calls/sec | P1 idle CLI calls/sec | P1 idle proof attempts |
+|---|---:|---:|---:|
+| One host, four status-bar tabs | 5.50 | 0.10 | 0 |
+| Two hosts, eight status-bar tabs | 10.99 (short guarded P0 pair) | 0.20 | 0 |
+| Actual OpenCode, one host/four tabs | 5.00 | 0.10 | 0 |
+
+Remaining idle calls are `list-sessions` discovery at ten-second intervals. Exporter
+filesystem updates remain prompt, including live publications that overturn cached
+Exited data. No-exporter fallback discovery can now take up to ten seconds. This is
+approximately a 98% reduction in passive CLI traffic.
+
+Retained synthetic pairs check two completion revisions with real SDK/process
+observations. Sidebar focus and another inner pane preserve Done; actual inner
+keyboard navigation acknowledges through exactly one five-call proof. Hosts
+acknowledge independently. Adding a second outer display rejects acknowledgement:
+three failures in ten seconds each use only fresh `list-clients`. Removing that
+display and changing focus resets backoff and obtains one new successful proof.
+All private processes exited; Zellij's 512 MiB RSS guard remained unchanged.
+
+Reports are `resource-baselines/p1-1host-4tabs.json`,
+`resource-baselines/p1-2hosts-8tabs.json`, and
+`resource-baselines/p1-opencode-1host-4tabs.json`. They include the P2 scheduler
+foundation and installed topology-validation exporter; hashes distinguish them
+from P0 assets. Total CPU/RSS includes those paths; CLI/proof counts isolate P1.
+The larger pair completed every phase within the existing RSS guard.
+
+Regression coverage includes empty/missing/conflicting candidates, bounded job
+replacement, cancellation/drop, retry deadlines, binding/journal/focus/process
+invalidation, stale/future proofs, superseding completion/new turn, and prompt
+filesystem topology despite slower discovery. H1 again passed its earlier
+ownership/visit gates and hit the pre-existing cross-session rebind failure;
+that result is retained in `resource-baselines/p1-navigation.json`.

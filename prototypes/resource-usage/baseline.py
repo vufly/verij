@@ -189,16 +189,16 @@ class Experiment:
                 self.known[value["pid"]]["role"] = "opencode_tui"
         return totals
 
-    def set_workload(self, rate, complete=False):
+    def set_workload(self, rate, complete=False, turn=1):
         path = self.root / "workload.json"
         temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps({"events_per_second": rate, "complete": complete}))
+        temporary.write_text(json.dumps({"events_per_second": rate, "complete": complete, "turn": turn}))
         temporary.replace(path)
 
-    def measure(self, phase, seconds, retain=True):
+    def measure(self, phase, seconds, retain=True, initial_counters=None):
         self.metrics()
         first = self.resources()
-        counters = self.metrics()
+        counters = self.metrics() if initial_counters is None else initial_counters
         start, previous_at = time.monotonic(), time.monotonic()
         previous = counters
         intervals = deque(maxlen=60)
@@ -354,8 +354,11 @@ class Experiment:
                 self.runtime.prompt()
             workload = "provider_chunks" if self.runtime else "owned_events"
             self.measure(f"{rate}_{workload}_per_second", self.args.seconds)
-        self.set_workload(0, complete=True)
-        self.measure("completion_visit", max(3, self.args.seconds))
+        if self.args.verify_p1_visits and self.mode == "enabled":
+            self.verify_passive_visits()
+        else:
+            self.set_workload(0, complete=True)
+            self.measure("completion_visit", max(3, self.args.seconds))
         if self.mode == "enabled":
             states = list((self.root / "agents/agents/v1").glob("*/state.json"))
             revisions = {}
@@ -379,6 +382,87 @@ class Experiment:
         self.report["detachment"] = "PASS"
         self.measure("idle_detached", self.args.seconds)
         self.report["status"] = "PASS"
+
+    def verify_passive_visits(self):
+        assert self.args.agent_runtime == "synthetic"
+        self.report["p1_visits"] = True
+        host = self.hosts[0]
+        self.set_workload(0)
+        binding = json.loads((self.root / f"control/binding-host-{host}.json").read_text())
+        context = binding["context"]
+        path = self.root / ("control/focus-" + "-".join(str(context[k])
+                           for k in ("server_pid", "plugin_id", "client_id", "epoch")) + ".json")
+        def inner_terminal():
+            return json.loads(path.read_text()).get("terminal")
+        def acked(observer):
+            path = self.root / f"state/verij/agent-monitoring/hosts/{observer}.json"
+            return json.loads(path.read_text())["acknowledgements"] if path.exists() else {}
+        def proof_calls(measurement):
+            return sum(v for k, v in measurement["counters"].items()
+                       if k.startswith("cli/") and k.endswith((":pipe", ":list-clients")))
+        # Actual keyboard navigation in the requesting host's owned inner client.
+        self.mux("send-keys", "-t", f"host-{host}", "C-t", "2")
+        self.wait(lambda: inner_terminal() == 1)
+        self.action(f"resource-host-{host}", "focus-pane-id", "terminal_0")
+        self.set_workload(0, complete=True)
+        self.measure("completion_sidebar", max(3, self.args.seconds))
+        assert not acked(host), "sidebar focus consumed Done"
+        assert all(acked(peer) for peer in self.hosts[1:]), "independent focused peer did not acknowledge"
+        sidebar = self.report["measurements"][-1]
+        assert sidebar["counters"].get("proof_attempts", 0) == len(self.hosts) - 1
+        assert proof_calls(sidebar) == 5 * (len(self.hosts) - 1)
+
+        self.action(f"resource-host-{host}", "focus-pane-id", "terminal_1")
+        self.measure("completion_other_pane", max(3, self.args.seconds))
+        other = self.report["measurements"][-1]
+        assert not acked(host), "another inner pane consumed Done"
+        assert other["counters"].get("proof_attempts", 0) == proof_calls(other) == 0
+
+        manual_start = self.metrics()
+        self.mux("send-keys", "-t", f"host-{host}", "C-t", "1")
+        self.wait(lambda: inner_terminal() == 0)
+        self.measure("manual_completion_visit", max(3, self.args.seconds), initial_counters=manual_start)
+        manual = self.report["measurements"][-1]
+        assert acked(host), "manual inner navigation did not acknowledge"
+        assert manual["counters"].get("proof_attempts", 0) == 1
+        assert proof_calls(manual) == 5, "successful passive acknowledgement repeated native proof"
+        # A second actual outer display must invalidate native proof authority.
+        # Passive failures stay coalesced/backed off; cached hints cannot replace
+        # the fresh single-display list-clients checks.
+        command = [self.binary, "--config", self.root / "outer.kdl", "attach", f"resource-host-{host}"]
+        self.mux("new-session", "-d", "-s", "second-display", "-x", "180", "-y", "55", "-c", str(self.root), *map(str, command))
+        self.remember(int(self.mux("display-message", "-p", "-t", "second-display", "#{pane_pid}")), "second_outer_client")
+        self.set_workload(0, complete=True, turn=2)
+        self.measure("completion_multiple_displays", max(8, self.args.seconds))
+        multiple = self.report["measurements"][-1]
+        failed = multiple["counters"].get(f"cli/resource-host-{host}:list-clients", 0)
+        assert 1 <= failed <= 3, "failed proof attempts escaped exponential backoff"
+        assert multiple["counters"].get(f"cli/resource-host-{host}:pipe", 0) == 0
+        assert multiple["counters"].get("proof_attempts", 0) == failed + len(self.hosts) - 1
+        assert all(ack["acknowledged_revision"] == 1 for ack in acked(host).values())
+        assert all(all(ack["acknowledged_revision"] == 2 for ack in acked(peer).values()) for peer in self.hosts[1:])
+        self.report["failed_proof_attempts"] = failed
+        self.mux("kill-session", "-t", "second-display")
+        outer_context = json.loads((self.root / f"control/outer-journal-{host}.json").read_text())["context"]
+        outer_path = self.root / ("control/focus-" + "-".join(str(outer_context[k])
+                              for k in ("server_pid", "plugin_id", "client_id", "epoch")) + ".json")
+        self.action(f"resource-host-{host}", "focus-pane-id", "terminal_0")
+        self.wait(lambda: json.loads(outer_path.read_text()).get("terminal") == 0)
+        self.measure("focus_backoff_reset", 1, retain=False)
+        recovery_start = self.metrics()
+        self.action(f"resource-host-{host}", "focus-pane-id", "terminal_1")
+        self.measure("single_display_recovery", max(3, self.args.seconds), initial_counters=recovery_start)
+        recovery = self.report["measurements"][-1]
+        assert all(ack["acknowledged_revision"] == 2 for ack in acked(host).values())
+        assert recovery["counters"].get("proof_attempts", 0) == 1 and proof_calls(recovery) == 5
+        for measurement in self.report["measurements"][:3]:
+            assert measurement["counters"].get("proof_attempts", 0) == 0
+            assert proof_calls(measurement) == 0
+        self.report["passive_visit_checks"] = {"idle_and_working_no_proofs": True,
+            "sidebar_does_not_acknowledge": True, "other_pane_no_proofs": True,
+            "peer_acknowledgements_independent": True, "manual_inner_navigation_acknowledges": True,
+            "one_five_call_proof_per_host": True, "multiple_displays_reject_acknowledgement": True,
+            "failed_proofs_back_off": True, "meaningful_focus_resets_backoff": True}
 
     def close(self):
         # Also discover children when an early setup abort precedes exporter/metric
@@ -427,6 +511,8 @@ class Experiment:
 
 
 def run_baseline(args):
+    if args.verify_p1_visits and (args.agent_runtime != "synthetic" or args.tabs < 2):
+        raise ValueError("P1 visit verification needs synthetic producer and at least two tabs")
     if not (args.seconds > 0 and args.warmup >= 0 and args.tabs > 0 and args.max_rss_mib > 0
             and all(math.isfinite(v) for v in (args.seconds, args.warmup, args.max_rss_mib))
             and (args.max_agent_rss_mib is None or (args.max_agent_rss_mib > 0 and math.isfinite(args.max_agent_rss_mib)))):
