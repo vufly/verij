@@ -32,6 +32,7 @@ pub(crate) mod navigation_diagnostics;
 mod opencode;
 mod process;
 mod registry;
+mod resource_metrics;
 mod session;
 mod tui;
 mod workspace;
@@ -353,6 +354,11 @@ mod tests {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let _metrics = matches!(
+        cli.command,
+        Commands::Ui | Commands::Agent(agent_cli::AgentCommand::Opencode { .. })
+    )
+    .then(resource_metrics::start);
 
     match cli.command {
         Commands::Start(args) => handle_start(args),

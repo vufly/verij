@@ -1,0 +1,159 @@
+{
+  "status": "PASS",
+  "measurement_kind": "synthetic API scheduling; exiting reporter stub; no native writes",
+  "node_version": "v24.21.0",
+  "asset_sha256": {
+    "bridge.mjs": "eaa241ea2ed7b35e7185e27723b1566fab8a92d3b2a73db6427b81dbca78df3b",
+    "core.mjs": "98c53fbd31670dbd60fe11f4bc2cc363dfe12a3183a4278f575249a4f6bda8e7"
+  },
+  "warmup_seconds": 1,
+  "workload_seconds": 3,
+  "familyCosts": [
+    {
+      "members": 1,
+      "requests_per_reconciliation": 8,
+      "endpoints": {
+        "session.status": 2,
+        "session.get": 1,
+        "session.children": 2,
+        "session.messages": 1,
+        "permission.list": 1,
+        "question.list": 1
+      }
+    },
+    {
+      "members": 16,
+      "requests_per_reconciliation": 38,
+      "endpoints": {
+        "session.status": 2,
+        "session.get": 1,
+        "session.children": 32,
+        "session.messages": 1,
+        "permission.list": 1,
+        "question.list": 1
+      }
+    },
+    {
+      "members": 64,
+      "requests_per_reconciliation": 134,
+      "endpoints": {
+        "session.status": 2,
+        "session.get": 1,
+        "session.children": 128,
+        "session.messages": 1,
+        "permission.list": 1,
+        "question.list": 1
+      }
+    }
+  ],
+  "measurements": [
+    {
+      "monitoring": false,
+      "owned_events_per_second": 0,
+      "events": 0,
+      "elapsed_seconds": 3.000422398,
+      "endpoints": {
+        "session.status": 0,
+        "session.get": 0,
+        "session.children": 0,
+        "session.messages": 0,
+        "permission.list": 0,
+        "question.list": 0
+      },
+      "requests": 0,
+      "requests_per_second": 0,
+      "rss_mib": 53.34765625,
+      "peak_rss_mib": 53.34765625
+    },
+    {
+      "monitoring": false,
+      "owned_events_per_second": 20,
+      "events": 59,
+      "elapsed_seconds": 3.00010427,
+      "endpoints": {
+        "session.status": 0,
+        "session.get": 0,
+        "session.children": 0,
+        "session.messages": 0,
+        "permission.list": 0,
+        "question.list": 0
+      },
+      "requests": 0,
+      "requests_per_second": 0,
+      "rss_mib": 53.34765625,
+      "peak_rss_mib": 53.34765625
+    },
+    {
+      "monitoring": false,
+      "owned_events_per_second": 100,
+      "events": 293,
+      "elapsed_seconds": 2.9997454109999997,
+      "endpoints": {
+        "session.status": 0,
+        "session.get": 0,
+        "session.children": 0,
+        "session.messages": 0,
+        "permission.list": 0,
+        "question.list": 0
+      },
+      "requests": 0,
+      "requests_per_second": 0,
+      "rss_mib": 53.47265625,
+      "peak_rss_mib": 53.47265625
+    },
+    {
+      "monitoring": true,
+      "owned_events_per_second": 0,
+      "events": 0,
+      "elapsed_seconds": 2.999600096,
+      "endpoints": {
+        "session.status": 6,
+        "session.get": 3,
+        "session.children": 6,
+        "session.messages": 3,
+        "permission.list": 3,
+        "question.list": 3
+      },
+      "requests": 24,
+      "requests_per_second": 8.001066552839582,
+      "rss_mib": 53.84765625,
+      "peak_rss_mib": 53.84765625
+    },
+    {
+      "monitoring": true,
+      "owned_events_per_second": 20,
+      "events": 59,
+      "elapsed_seconds": 2.9997710429999986,
+      "endpoints": {
+        "session.status": 124,
+        "session.get": 62,
+        "session.children": 124,
+        "session.messages": 62,
+        "permission.list": 62,
+        "question.list": 62
+      },
+      "requests": 496,
+      "requests_per_second": 165.34595237107243,
+      "rss_mib": 54.84765625,
+      "peak_rss_mib": 54.84765625
+    },
+    {
+      "monitoring": true,
+      "owned_events_per_second": 100,
+      "events": 293,
+      "elapsed_seconds": 3.0000418680000003,
+      "endpoints": {
+        "session.status": 592,
+        "session.get": 296,
+        "session.children": 592,
+        "session.messages": 296,
+        "permission.list": 296,
+        "question.list": 296
+      },
+      "requests": 2368,
+      "requests_per_second": 789.3223175510695,
+      "rss_mib": 54.84765625,
+      "peak_rss_mib": 54.84765625
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "status": "FAIL",
+  "experiments": [
+    {
+      "status": "FAIL",
+      "root": "/tmp/opencode/verij-baseline-4utvy1ji",
+      "monitoring": "disabled",
+      "measurement_kind": "real stock Zellij, sidebars, visit protocol and native reporter; synthetic API/events",
+      "control_definition": "exporters/status bars/attachments retained; sidebar replaced by sleep and bridge disabled",
+      "hosts": 1,
+      "tabs": 4,
+      "warmup_seconds": 0.0,
+      "workload_seconds": 1.0,
+      "max_rss_mib": 32.0,
+      "max_agent_rss_mib": null,
+      "stock_binary": "/home/vudinhn/.local/share/mise/installs/zellij/0.45.1/zellij",
+      "stock_version": "zellij 0.45.1",
+      "stock_sha256": "d006c521dcb475a6005d741e9dd7c5758e5a23b28dd60a5c10cebfa4876319dd",
+      "process_scope": "long-lived private servers, clients, pane processes and reporters; transient CLI work counted separately",
+      "assets": {
+        "cli": {
+          "path": "/home/vudinhn/repos/verij/target/release/verij",
+          "sha256": "816ffd65e8912fd46ea6875238bd12ebf757fdc333a9c7b0c4ec2d4e254fa187"
+        },
+        "exporter_tested": {
+          "path": "/home/vudinhn/.local/share/verij/verij_plugin.wasm",
+          "sha256": "196e133595a0c87e7ec3c6ea98748dace5d1f06bbe58675e00b3777adb0fde34"
+        },
+        "bridge": {
+          "path": "/home/vudinhn/repos/verij/integrations/opencode/bridge.mjs",
+          "sha256": "eaa241ea2ed7b35e7185e27723b1566fab8a92d3b2a73db6427b81dbca78df3b"
+        },
+        "core": {
+          "path": "/home/vudinhn/repos/verij/integrations/opencode/core.mjs",
+          "sha256": "98c53fbd31670dbd60fe11f4bc2cc363dfe12a3183a4278f575249a4f6bda8e7"
+        },
+        "status_bar": {
+          "path": "/home/vudinhn/.cache/zellij/11443609859275959894305566542538288992",
+          "sha256": "282ceab219e56e1908c9fac33907241fe6c3e1ef7d85faab3e5f438cef87b8fe"
+        },
+        "installed_cli": {
+          "path": "/home/vudinhn/.cargo/bin/verij",
+          "sha256": "b7e83bd8ed20fa9e1e2d354431d2ec401c29ccde9ca363e4512d07651dc0467e"
+        },
+        "installed_exporter": {
+          "path": "/home/vudinhn/.local/share/verij/verij_plugin.wasm",
+          "sha256": "196e133595a0c87e7ec3c6ea98748dace5d1f06bbe58675e00b3777adb0fde34"
+        },
+        "installed_bridge": {
+          "path": "/home/vudinhn/.config/opencode/verij-monitoring/bridge.mjs",
+          "sha256": "eaa241ea2ed7b35e7185e27723b1566fab8a92d3b2a73db6427b81dbca78df3b"
+        },
+        "installed_core": {
+          "path": "/home/vudinhn/.config/opencode/verij-monitoring/core.mjs",
+          "sha256": "98c53fbd31670dbd60fe11f4bc2cc363dfe12a3183a4278f575249a4f6bda8e7"
+        }
+      },
+      "measurements": [],
+      "rss_abort": {
+        "pid": 185613,
+        "role": "inner_server",
+        "rss_mib": 50.16796875,
+        "limit_mib": 32.0
+      },
+      "error": "RSS abort: inner_server 185613 exceeds 32.0 MiB",
+      "failure_screens": {
+        "seed": "RESOURCE AGENT READY (synthetic API; real foreground process)\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n resource-shared"
+      },
+      "cleanup": {
+        "known_processes_exited": true,
+        "remaining_pids": []
+      },
+      "harness_cli_calls": {}
+    }
+  ]
+}

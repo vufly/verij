@@ -75,8 +75,12 @@ def main():
     sockets = Path(tempfile.mkdtemp(prefix="vj-h1-sock-")).resolve()
     env = environment(root, sockets)
     sessions = ["h1-shared", "h1-other", "h1-host-a", "h1-host-b"]
+    started = time.monotonic()
     report = {"status": "PASS", "root": str(root), "stock_binary": str(binary),
+              "stock_version": subprocess.check_output([str(binary), "--version"], env=env, cwd=root, text=True).strip(),
               "stock_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+              "cli": str(cli), "cli_sha256": hashlib.sha256(cli.read_bytes()).hexdigest(),
+              "plugin": str(plugin), "plugin_sha256": hashlib.sha256(plugin.read_bytes()).hexdigest(),
               "checks": [], "human_gate_approved": False}
     known = {}
     tmux = ["tmux", "-f", "/dev/null", "-S", str(sockets / "terminal")]
@@ -296,6 +300,7 @@ def main():
                 pass
         controller.atomic(root / "failure-screens.json", screens)
     finally:
+        report["elapsed_seconds"] = round(time.monotonic() - started, 3)
         if args.keep_live and report["status"] == "PASS":
             report["review_live"] = True
             report["host_a_attach"] = f"tmux -S {sockets / 'terminal'} attach -t host-a"

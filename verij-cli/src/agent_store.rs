@@ -224,6 +224,7 @@ pub fn atomic_write_json<T: Serialize>(target_path: &Path, value: &T) -> Result<
             temp_path, target_path
         )
     })?;
+    crate::resource_metrics::record_write();
 
     #[cfg(unix)]
     {

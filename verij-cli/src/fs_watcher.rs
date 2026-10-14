@@ -65,6 +65,7 @@ fn run_command_bounded(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
+    crate::resource_metrics::command(&cmd);
     let mut child = cmd.spawn().ok()?;
     let stdout_pipe = child.stdout.take()?;
     let stderr_pipe = child.stderr.take()?;
@@ -486,6 +487,7 @@ pub fn spawn_fs_watcher_inner(
             let watcher_result = RecommendedWatcher::new(
                 move |res: Result<Event, notify::Error>| {
                     if let Ok(event) = res {
+                        crate::resource_metrics::fs_incoming(false);
                         let _ = fs_tx.send(event);
                     }
                 },
@@ -646,6 +648,7 @@ pub fn spawn_fs_watcher_inner(
                                     if fs_rx.recv_timeout(Duration::from_millis(10)).is_err() {
                                         break;
                                     }
+                                    crate::resource_metrics::fs_coalesced(false);
                                 }
                                 if tx.is_closed() || stop_thread.load(Ordering::Relaxed) {
                                     break;

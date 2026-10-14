@@ -305,6 +305,7 @@ pub(crate) fn query_zellij(command: &mut Command) -> Result<Output> {
     let _startup = query_guard_until(Instant::now() + Duration::from_secs(15), None)?;
     let description = format!("{command:?}");
     let deadline = Instant::now() + QUERY_TIMEOUT;
+    crate::resource_metrics::command(command);
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

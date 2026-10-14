@@ -356,6 +356,7 @@ fn run_zellij_action_with_receipt(
         cmd.env("TERM", "xterm-256color");
     }
 
+    crate::resource_metrics::command(&cmd);
     let mut child = cmd
         .spawn()
         .with_context(|| format!("Failed to spawn {} action", zellij_bin))?;
@@ -2501,6 +2502,7 @@ pub fn rebind_with_intent(
 /// Stock focus alone cannot prove whole-host visits. Stays None when unsupported; never fabricates ack flags.
 #[allow(dead_code)]
 pub fn verified_visit(control_dir: &Path, host_key: &str) -> Option<(ControlResult, u64)> {
+    crate::resource_metrics::proof();
     // Bracket a fresh inner query with passive outer native observations.
     // Single-display scope is checked by outer_operation on every query.
     let binding = load_binding(control_dir, host_key).ok()?;

@@ -119,6 +119,9 @@ pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
             let (events, receiver) = std::sync::mpsc::channel();
             let mut watcher =
                 notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                    if event.is_ok() {
+                        crate::resource_metrics::fs_incoming(true);
+                    }
                     if event.is_ok_and(|event| {
                         matches!(
                             event.kind,
@@ -188,6 +191,7 @@ pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
                             if receiver.recv_timeout(Duration::from_millis(10)).is_err() {
                                 break;
                             }
+                            crate::resource_metrics::fs_coalesced(true);
                         }
                         should_read = true;
                     }

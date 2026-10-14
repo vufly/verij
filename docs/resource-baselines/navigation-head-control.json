@@ -1,0 +1,30 @@
+{
+  "status": "FAIL",
+  "source_commit": "dd0302f",
+  "control_definition": "Unmodified HEAD native CLI built in temporary detached worktree; P0 instrumentation absent",
+  "root": "/tmp/opencode/vj-h1-tlqipzgg",
+  "stock_binary": "/home/vudinhn/.local/share/mise/installs/zellij/0.45.1/zellij",
+  "stock_version": "zellij 0.45.1",
+  "stock_sha256": "d006c521dcb475a6005d741e9dd7c5758e5a23b28dd60a5c10cebfa4876319dd",
+  "cli": "/home/vudinhn/repos/verij/target/release/verij",
+  "cli_sha256": "b7e83bd8ed20fa9e1e2d354431d2ec401c29ccde9ca363e4512d07651dc0467e",
+  "plugin": "/home/vudinhn/.local/share/verij/verij_plugin.wasm",
+  "plugin_sha256": "196e133595a0c87e7ec3c6ea98748dace5d1f06bbe58675e00b3777adb0fde34",
+  "checks": [
+    "full_terminal_inventory_native_births_hidden_float_stack_unknown",
+    "two_owned_workspace_wrappers_exact_keyboard_registration",
+    "tiled_float_stack_actual_outer_keyboard",
+    "fullscreen_other_target_revealed_and_accepts_outer_input",
+    "passive_query_does_not_allocate_sequence_or_ack",
+    "actual_foreground_tty_verified_redirected_same_family_child_rejected",
+    "synthetic_reducer_real_native_visit_host_local_ack_race_and_wrong_pane_refusal",
+    "sidebar_focus_not_visit_and_initial_attachment_not_reinjected"
+  ],
+  "human_gate_approved": false,
+  "error": "([PosixPath('/home/vudinhn/repos/verij/target/release/verij'), 'navigate', 'switch', '--host'], 1, \"Error: Rebind to session 'h1-other' failed (precondition failed); retry registration.\\n\\nCaused by:\\n    0: Failed to rebind host a to destination session h1-other after switch\\n    1: No fresh Verij registration surface for server 179996 clients {1, 2}; available contexts []. Reload the session's current Verij exporter, then retry.\\n\", '')",
+  "elapsed_seconds": 17.002,
+  "cleanup": {
+    "private_socket_removed": true,
+    "known_processes_exited": true
+  }
+}
