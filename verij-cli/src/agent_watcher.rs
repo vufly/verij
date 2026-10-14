@@ -1461,6 +1461,277 @@ mod tests {
         handle.join().unwrap();
     }
 
+    /// Synthetic live process identity with deliberately stale presentation fields.
+    fn write_test_pi(
+        root: &Path,
+        id: &str,
+        status: AgentStatus,
+        observed_at_ms: u64,
+    ) -> AgentState {
+        write_test_agent(root, id, None, 7, status);
+        let dir = root.join(id);
+        let mut identity: AgentIdentity = crate::agent_store::read_bounded_json(
+            &dir.join("identity.json"),
+            crate::agent_store::IDENTITY_MAX_BYTES,
+        )
+        .unwrap();
+        identity.kind = verij_types::agent::AgentKind::Pi;
+        crate::agent_store::atomic_write_json(&dir.join("identity.json"), &identity).unwrap();
+        let mut state: AgentState = crate::agent_store::read_bounded_json(
+            &dir.join("state.json"),
+            crate::agent_store::STATE_MAX_BYTES,
+        )
+        .unwrap();
+        let completion = verij_types::agent::SuccessfulCompletion {
+            turn_id: Some(verij_types::agent::TurnId("run-1".into())),
+            turn_epoch: 1,
+            turn_revision: 1,
+            completed_at_ms: 1000,
+            summary: None,
+        };
+        let request = verij_types::agent::PendingRequest {
+            id: "req-1".into(),
+            kind: verij_types::agent::RequestKind::Confirmation,
+            detail: None,
+        };
+        let error = verij_types::agent::ExecutionError {
+            turn_id: completion.turn_id.clone(),
+            turn_epoch: 1,
+            turn_revision: 1,
+            message: "terminal execution failure".into(),
+            is_terminal: true,
+        };
+        state.sources.insert(
+            "pi".into(),
+            verij_types::agent::NormalizedSourceRecord {
+                schema_version: AGENT_SCHEMA_VERSION,
+                agent_instance_id: identity.agent_instance_id,
+                source_id: "pi".into(),
+                source_epoch: 1,
+                source_revision: 7,
+                observed_at_ms,
+                conversation_id: Some(verij_types::agent::ConversationId("conv-1".into())),
+                conversation_title: None,
+                turn_id: completion.turn_id.clone(),
+                turn_epoch: 1,
+                turn_revision: 1,
+                activity: Some(verij_types::agent::ActivityKind::Working),
+                pending_requests: vec![request.clone()],
+                background_task_count: 2,
+                successful_completion: Some(completion.clone()),
+                execution_error: Some(error.clone()),
+                capabilities: vec!["lease".into()],
+            },
+        );
+        state.reduced.pending_requests = vec![request];
+        state.reduced.background_task_count = 2;
+        state.reduced.latest_completion = Some(completion);
+        state.reduced.latest_error = Some(error);
+        state.reduced.detail = Some("stale presentation".into());
+        state.completion_revision = 3;
+        state.reduced.completion_revision = 3;
+        state.completed_turn = Some(verij_types::agent::TurnId("run-1".into()));
+        state.completed_turn_epoch = 1;
+        state.completed_turn_revision = 1;
+        state.adapter_state.insert(
+            "pi".into(),
+            serde_json::json!({
+                "runtime_id": "rt-1", "latest_snapshot": {"run_id": "run-1"},
+                "completions": {"dedup-key": 3}
+            }),
+        );
+        crate::agent_store::atomic_write_json(&dir.join("state.json"), &state).unwrap();
+        state
+    }
+
+    fn assert_pi_projection_only(projected: &AgentState, original: &AgentState) {
+        let mut expected = original.clone();
+        expected.reduced.status = AgentStatus::Unknown;
+        expected.reduced.pending_requests.clear();
+        expected.reduced.background_task_count = 0;
+        expected.reduced.latest_completion = None;
+        expected.reduced.latest_error = None;
+        expected.reduced.detail = Some("Pi reporter unavailable".into());
+        assert_eq!(
+            projected, &expected,
+            "only unavailable presentation may change"
+        );
+    }
+
+    #[test]
+    fn pi_expiry_is_idempotent_for_all_presentations_and_preserves_ledger() {
+        let dir = tempfile::tempdir().unwrap();
+        for status in [
+            AgentStatus::Working,
+            AgentStatus::Done,
+            AgentStatus::NeedsInput,
+            AgentStatus::Unknown,
+        ] {
+            let original = write_test_pi(dir.path(), "agent-pi-projection", status, 1000);
+            let mut state = original.clone();
+            assert!(
+                !degrade_expired_pi_lease(&mut state, 16_000),
+                "lease boundary is inclusive"
+            );
+            assert_eq!(state, original);
+            assert!(degrade_expired_pi_lease(&mut state, 16_001));
+            assert_pi_projection_only(&state, &original);
+            assert!(
+                !degrade_expired_pi_lease(&mut state, 16_002),
+                "expired rows must not republish"
+            );
+        }
+    }
+
+    #[test]
+    fn pi_incremental_expiry_then_heartbeat_restores_without_historical_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = AgentInstanceId("agent-pi-incremental".into());
+        let original = write_test_pi(dir.path(), &id.0, AgentStatus::Done, 1000);
+        let path = dir.path().join(&id.0).join("state.json");
+        let bytes = std::fs::read(&path).unwrap();
+        let mut cache = HashMap::new();
+        let expired = read_single_agent(dir.path(), &id, &mut cache).unwrap();
+        assert_eq!(expired.identity.kind, verij_types::agent::AgentKind::Pi);
+        assert_pi_projection_only(&expired.state, &original);
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "expiry cannot write source state"
+        );
+
+        // A committed fresh native snapshot is authoritative, not the cached projection.
+        let mut fresh = original.clone();
+        fresh.sources.get_mut("pi").unwrap().observed_at_ms = crate::agent_store::now_ms();
+        crate::agent_store::atomic_write_json(&path, &fresh).unwrap();
+        let restored = read_single_agent(dir.path(), &id, &mut cache).unwrap();
+        assert_eq!(restored.state, fresh);
+        assert_eq!(
+            restored.state.completion_revision,
+            expired.state.completion_revision
+        );
+        assert_eq!(restored.state.adapter_state, expired.state.adapter_state);
+    }
+
+    #[test]
+    fn pi_quiet_cached_sweep_expires_all_statuses_across_32_record_slices() {
+        let dir = tempfile::tempdir().unwrap();
+        let statuses = [
+            AgentStatus::Working,
+            AgentStatus::Done,
+            AgentStatus::NeedsInput,
+            AgentStatus::Unknown,
+        ];
+        let observed = crate::agent_store::now_ms().saturating_sub(12_000);
+        let mut originals = BTreeMap::new();
+        let mut disk_bytes = BTreeMap::new();
+        for i in 0..40 {
+            let id = AgentInstanceId(format!("agent-pi-quiet-{i:03}"));
+            let state = write_test_pi(dir.path(), &id.0, statuses[i % 4], observed);
+            disk_bytes.insert(
+                id.clone(),
+                std::fs::read(dir.path().join(&id.0).join("state.json")).unwrap(),
+            );
+            originals.insert(id, state);
+        }
+        let (tx, mut rx) = mpsc::channel(16);
+        let handle = spawn_inner(dir.path().to_path_buf(), tx).unwrap();
+        let start = Instant::now();
+        let mut initial = false;
+        let mut expired = false;
+        // No disk writes/notifications after startup; fallback rescan is ten seconds away.
+        while start.elapsed() < Duration::from_secs(7) {
+            if let Ok(records) = rx.try_recv() {
+                if records.len() == 40 {
+                    initial |= records
+                        .iter()
+                        .all(|r| r.state == originals[&r.identity.agent_instance_id]);
+                    if records.iter().all(|r| {
+                        r.state.reduced.detail.as_deref() == Some("Pi reporter unavailable")
+                    }) {
+                        for record in &records {
+                            assert_pi_projection_only(
+                                &record.state,
+                                &originals[&record.identity.agent_instance_id],
+                            );
+                        }
+                        expired = true;
+                        break;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(initial, "live snapshots must arrive before expiry");
+        assert!(
+            expired,
+            "quiet expiry must reach records beyond first 32 without rescan"
+        );
+        for (id, bytes) in disk_bytes {
+            assert_eq!(
+                std::fs::read(dir.path().join(id.0).join("state.json")).unwrap(),
+                bytes
+            );
+        }
+        // Another periodic sweep is a no-op, not a repeated UI publication.
+        std::thread::sleep(Duration::from_millis(1200));
+        assert!(rx.try_recv().is_err());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn pi_overflow_and_full_ui_channel_deliver_latest_completion_and_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let now = crate::agent_store::now_ms();
+        for i in 0..150 {
+            write_test_pi(
+                dir.path(),
+                &format!("agent-pi-overflow-{i:03}"),
+                AgentStatus::Working,
+                now,
+            );
+        }
+        let (tx, mut rx) = mpsc::channel(1);
+        tx.try_send(vec![]).unwrap();
+        let handle = spawn_inner(dir.path().to_path_buf(), tx).unwrap();
+        // Wait for the initial sweep, then replace its target while publication is blocked.
+        std::thread::sleep(Duration::from_millis(150));
+        let target = "agent-pi-overflow-149";
+        let mut latest = write_test_pi(dir.path(), target, AgentStatus::Done, now);
+        latest.record_revision = 9;
+        latest.completion_revision = 4;
+        latest.reduced.completion_revision = 4;
+        crate::agent_store::atomic_write_json(&dir.path().join(target).join("state.json"), &latest)
+            .unwrap();
+        let ids: Vec<_> = (0..150)
+            .map(|i| AgentInstanceId(format!("agent-pi-overflow-{i:03}")))
+            .collect();
+        handle.signal.notify_ids(&ids);
+        std::thread::sleep(Duration::from_millis(150));
+        assert!(rx.try_recv().unwrap().is_empty());
+        let start = Instant::now();
+        let mut delivered = false;
+        while start.elapsed() < Duration::from_secs(3) {
+            if let Ok(records) = rx.try_recv() {
+                delivered |= records.len() == 150
+                    && records
+                        .iter()
+                        .any(|r| r.identity.agent_instance_id.0 == target && r.state == latest);
+                if delivered {
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            delivered,
+            "overflow and saturation must retain newest Pi state/completion"
+        );
+        let start = Instant::now();
+        handle.join().unwrap();
+        assert!(start.elapsed() < Duration::from_millis(500));
+    }
+
     #[test]
     fn test_read_records_expired_pi_lease_degrades_to_unknown_while_preserving_row() {
         let dir = tempfile::tempdir().unwrap();
