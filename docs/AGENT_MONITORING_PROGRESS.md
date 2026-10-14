@@ -30,6 +30,46 @@ Source of truth for product behavior: [approved design](AGENT_MONITORING.md). En
 
 ## Gate evidence and blockers
 
+### Pi monitoring P0–P4 local automated qualification — 2026-10-14
+
+Work in workflow `personal/verij/pi-monitoring` on branch `pi-monitoring`. Scope: P0–P3 and documented P4 local automated acceptance completed. Full release qualification remains limited as recorded below. No global installations or master commits.
+
+- **P0 Trace qualification**: 112 real-TUI scenario runs across Bun and Node distributions of Pi 1.2.0, establishing baseline lifecycle contracts.
+- **P1 Native kinds, protocol & reducer**:
+  - `AgentKind::Pi` and explicit `pi` source authority (priority 10) in `verij-types/src/agent.rs`, preserving wire compatibility.
+  - Hidden CLI dispatcher `verij agent pi` in `verij-cli/src/agent_cli.rs`, guarded by `.pi.lock` single-producer nonblocking fencing.
+  - Strict metadata-only whitelist and closed enums in `verij-cli/src/pi.rs`, enforcing zero unknown fields, max 1 pending request, no permission provenance or dialog content, and quiescent terminal idle outcomes.
+  - Turn receipts, monotonic ordering, and bounded completions deduplication ledger scoped by `(conversation_id, run_id)`.
+  - Observer lease degradation in `agent_watcher.rs` clears background tasks and pending requests, retaining live process row as Unknown.
+- **P2 Extension bindings & bounded transport**:
+  - Thin typed event bindings in `integrations/pi/index.ts` and pure projection in `integrations/pi/core.mjs`.
+  - 128-item FIFO queue, rate limiter (<= 10 writes/s), 5-second lease heartbeat, exponential backoff (2s–30s), and bounded nonblocking teardown flush (500ms grace) with SIGTERM/SIGKILL escalation.
+  - Outcome qualification strictly at `agent_settled` with `aborted === false` and complete quiescence.
+- **P3 Lifecycle management, CLI commands & doctor diagnostics**:
+  - Embedded owned assets: `index.ts` and `core.mjs` embedded in CLI binary; written atomically into `<agent_dir>/extensions/verij-monitoring/`.
+  - Sibling configuration & manifest: `<agent_dir>/verij-monitoring/{adapter.json, installed.json}` outside `extensions/` discovery.
+  - Typed manifest `installed.json` (`schema_version: 1`, `adapter_id: "verij-monitoring-v1"`, version `"1.2.0"`, 16-hex lowercase noncryptographic FNV-1a 64-bit ownership fingerprints, bounded absolute reporter path, `deny_unknown_fields`). Byte-idempotent reinstallation preserves initial timestamp.
+  - Preflight adoption guards: unowned directories, missing/invalid manifests, foreign files, or corrupt manifests refuse adoption and preserve existing files.
+  - Symlink safety: rejects symlinks, broken symlinks, non-regular files, and FIFOs across ancestor and child trees.
+  - Conservative preservation: code modification or extra user files/dotfiles retain entire code and configuration group intact (`uninstalled: false`); modified configuration only removes clean code while retaining custom config and manifest (`uninstalled: true`); clean state removes all files and prunes empty owned directories.
+  - Path resolution: `--config-dir` > `PI_CODING_AGENT_DIR` > `~/.pi/agent` with canonical absolute paths, resolving existing prefixes while forbidding symlinks in owned extension and configuration subtrees; Pi launch uses `PI_CODING_AGENT_DIR`, while Verij CLI supports `--config-dir` and `PI_CODING_AGENT_DIR`; explicit local filesystem paths required; `file:` URLs rejected before writes.
+  - Doctor diagnostics: distinguishes structural installation readiness from live loaded adapter; verifies live foreground terminal job ownership against hydrated inventory using exact session incarnation; checks active observer lease; mirrors supported subset of Pi 1.2.0 discovery overrides contract (`!`, `+`, `-`, order-independent, `-` runs last and wins, literal string `-` patterns, bracket pattern uncertainty).
+  - Bounded version probe: nonblocking pipe with validated `fcntl` flags, 4 KiB cap, dedicated process group cleanup (`setpgid`), and 3-second deadline.
+- **Verification evidence**:
+  - 16 isolated integration tests pass in `verij-cli/tests/pi_setup.rs`.
+  - 3 unit tests pass in `pi_setup::tests`.
+  - 35 deterministic Node.js tests and full 112-run P0 trace replay pass in `integrations/pi/core.test.mjs`.
+  - Strict TypeScript check passes against private `@earendil-works/pi-coding-agent@1.2.0` declarations (exit 0).
+  - 8 isolated reporter tests pass in `verij-cli/tests/pi_reporter.rs`.
+  - All workspace crate unit and integration tests pass (234 CLI unit tests, 29 `verij-types` tests, 15 `host_cli` tests, 20 `codex_setup` tests, 1 `opencode_setup` test). Note: baseline navigation test `stale_workspace_attachment_recovers_only_exact_foreground_connected_client` checks kernel AF_UNIX socket peers; when executed in environments where the parent process inherits non-cloexec test-runner descriptors, closing leaked file descriptors ensures clean isolation. Unrelated navigation test source was kept strictly unmodified.
+  - `make check` (`cargo check -p verij-cli` and `cargo check -p verij-plugin --target wasm32-wasip1`) passes.
+- **P4 actual stock-Zellij acceptance**:
+  - [Private harness and scoped evidence](../prototypes/pi-acceptance/README.md): 37 live checks per distribution, 74 total, compiled and Node Pi 1.2.0 in stock Zellij 0.45.1 with actual exporter inventory, owned autoload and two production sidebars.
+  - Aggregate completion/error/abort, nested tools/dialogs, retries/compaction/queued continuation, metadata/session replacement, host-local visits, reporter outage/reconnect, idle reload, native pane targeting and same-pane process replacement pass. Detached real TUI is rejected; print/JSON/RPC/help/version/export and disabled discovery spawn no reporter.
+  - Four short resource phases retain CPU/RSS and positive reporter write counters. Each of two burst aggregates executes 160 nested tools and completes once; idle phases issue no visit proofs. Pi dispatch now enables existing opt-in metrics, covered by a reporter regression test.
+  - Thirteen independent evidence/privacy/budget tests accompany sanitized results and hashes. All 333 Rust tests, 35 Pi tests, 22 OpenCode tests, native/WASM release builds, `make check`, strict P4 fixture TypeScript and diff checks pass. Both providers, private processes and scratch directories clean up with zero forced kills.
+  - Forced PID/server reuse, serialized session resurrection, sidebar keyboard selection stability, active-run/dialog reload continuity and long-duration/many-tab/status-bar stress are not qualified. Existing native tests remain separate supporting evidence. No full release readiness or deployment approval is inferred.
+
 ### Master integration and global installation — 2026-10-11
 
 Committed H4 and its separate acceptance record as **`9254976`** (`Implemented H4 Agy and Magy monitoring and recorded acceptance`) and pushed `agent-monitoring`. The clean master checkout at `/home/vudinhn/repos/verij` fast-forwarded from `854ecb1` to that commit, bringing in the entire monitoring branch, and was pushed to `origin/master`. Both remote heads were confirmed at `9254976799c63a33865bea393133515d3eb29ef1` before this documentation follow-up.

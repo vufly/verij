@@ -212,7 +212,7 @@ pi = "󰏿"
 - **Missing/blank fallback**: If an agent kind key is omitted or configured with a blank string, it falls back to the raw kind name (`opencode`, `agy`).
 - **Literal display text**: Values are treated as literal text (trimmed, control characters replaced with spaces, and limited to 256 characters) and are never parsed as format or styling codes. Text labels work as well as icons.
 - **Restart requirement**: Changes to `[tui.tree.agent_names]` take effect after restarting the sidebar TUI.
-- **Future placeholders**: `codex`, `claude`, and `pi` entries are accepted for future agent integrations; configuring them does not activate monitoring for those tools.
+- **Future placeholders**: `claude` entry is accepted for future agent integrations; configuring it does not activate monitoring for that tool.
 
 Labels affect only `#{agent_name}`. Agent titles, title-source precedence, identities, and navigation targets retain their existing meaning.
 
@@ -290,6 +290,9 @@ New inner sessions receive a fake-PTY attach while their initial layout is creat
 - [Agy/Magy monitoring setup](integrations/agy/README.md) — callback composition, neutral hooks, pane-backed watches and capability limits
 - [Codex monitoring setup](integrations/codex/README.md) — lifecycle hooks adapter, non-gating callback, doctor diagnostics and supported behavior
 - [Codex monitoring implementation & qualification](docs/CODEX_MONITORING_IMPLEMENTATION.md) — architecture, review history, verification matrix, and qualification scope
+- [Pi monitoring setup](integrations/pi/README.md) — pane-local extension adapter installation, diagnostics and supported behavior (P4 local automated acceptance complete; remaining coverage limits documented)
+- [Pi end-to-end acceptance](prototypes/pi-acceptance/README.md) — real Pi/stock-Zellij/two-host evidence, measured budgets and explicit qualification gaps
+- [Pi monitoring support plan](docs/PI_MONITORING_PLAN.md) — extension adapter design, lifecycle mapping, setup, and qualification gates
 - [Agent monitoring implementation guide](docs/AGENT_MONITORING_IMPLEMENTATION.md) — contracts, implementation sequence, and acceptance checks
 - [Continue agent monitoring on another computer](docs/AGENT_MONITORING_SETUP.md) — portable setup, local-only artifacts, verification and handoff
 - [Progress and roadmap](progress.md)

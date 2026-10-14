@@ -380,6 +380,7 @@ pub struct AgentsConfig {
     pub opencode: AgentOverride,
     pub agy: AgentOverride,
     pub codex: AgentOverride,
+    pub pi: AgentOverride,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -395,6 +396,7 @@ impl Default for AgentsConfig {
             opencode: AgentOverride::default(),
             agy: AgentOverride::default(),
             codex: AgentOverride::default(),
+            pi: AgentOverride::default(),
         }
     }
 }
@@ -423,6 +425,7 @@ impl AgentsConfig {
             AgentKind::Opencode => &self.opencode.title_sources,
             AgentKind::Agy => &self.agy.title_sources,
             AgentKind::Codex => &self.codex.title_sources,
+            AgentKind::Pi => &self.pi.title_sources,
             AgentKind::Unknown => &None,
         };
 
@@ -474,6 +477,7 @@ fn agent_display_name(kind: AgentKind) -> String {
         AgentKind::Opencode => "opencode".to_string(),
         AgentKind::Agy => "agy".to_string(),
         AgentKind::Codex => "codex".to_string(),
+        AgentKind::Pi => "pi".to_string(),
         AgentKind::Unknown => "agent".to_string(),
     }
 }
@@ -1015,6 +1019,23 @@ pi = "󰏿"
             "codex-conv"
         );
         assert_eq!(cfg.title_for(AgentKind::Codex, "   ", "   "), "codex");
+
+        // Default Pi resolution
+        assert_eq!(
+            cfg.title_for(AgentKind::Pi, "pi-pane", "pi-conv"),
+            "pi-pane"
+        );
+        assert_eq!(cfg.title_for(AgentKind::Pi, "", "pi-conv"), "pi-conv");
+        assert_eq!(cfg.title_for(AgentKind::Pi, "   ", "   "), "pi");
+
+        // Custom Pi override
+        let mut custom_pi = AgentsConfig::default();
+        custom_pi.pi.title_sources = Some(vec!["conversation".into(), "agent".into()]);
+        assert_eq!(
+            custom_pi.title_for(AgentKind::Pi, "pi-pane", "pi-conv"),
+            "pi-conv"
+        );
+        assert_eq!(custom_pi.title_for(AgentKind::Pi, "pi-pane", ""), "pi");
 
         // Invalid source name in override falls back to inherited
         let mut invalid_override = AgentsConfig::default();

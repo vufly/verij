@@ -1,0 +1,32 @@
+{
+  "qualified": true,
+  "scope": "P4 local two-host acceptance within explicit limitations; no global deployment approval",
+  "runs": [
+    {
+      "runtime": "compiled",
+      "checks": 37,
+      "successful_aggregate_runs": 13,
+      "idle_writes": 2,
+      "burst_writes": 5,
+      "max_rss_mib": 180.09,
+      "private_cleanup": true
+    },
+    {
+      "runtime": "node",
+      "checks": 37,
+      "successful_aggregate_runs": 13,
+      "idle_writes": 2,
+      "burst_writes": 5,
+      "max_rss_mib": 166.652,
+      "private_cleanup": true
+    }
+  ],
+  "limitations": [
+    "No forced PID/server reuse or serialized session resurrection",
+    "No keyboard sidebar stable-selection qualification",
+    "No other-release runtime",
+    "No status-bar amplification or long-duration stress acceptance; broad resource roadmap remains pending",
+    "Queue/timer bounds are deterministic tests, not runtime telemetry",
+    "No remote hosts; hosts are two local Verij outer sessions"
+  ]
+}

@@ -1,0 +1,2270 @@
+{
+  "schema_version": 1,
+  "scope": "P4 actual stock Zellij/Pi/exporter/two sidebars; loopback provider and active test extension",
+  "assets": {
+    "target/release/verij": "da33b7cd53f210092dc4b1ba4dcc9802ebdbfe6795856b2ec3ecad2a0571dfaf",
+    "target/wasm32-wasip1/release/verij-plugin.wasm": "9d90d07ef57f257a460a59ecb9df4b0b8d1f3f629c2481d0a957f75ae85fca66",
+    "prototypes/pi-acceptance/burst_provider.py": "31920e1b296efa65cbdd60dbf76d1a2da1f6a25f04241d4ff9806662aded9a3e",
+    "prototypes/pi-acceptance/detached.py": "89f53ea0f0673969ff874910f9f1303bbbcb096cce99a6da3e60eb42da298ade",
+    "prototypes/pi-acceptance/launch.py": "493506d4d07d0ec15ca217e5f16015175be39e91f3dad225ee94a499cb269eb0",
+    "prototypes/pi-acceptance/runtime.py": "78e8c6dde6efb5f141a0f596805a3a75c72a4dbd778cd30990b773339c633c66",
+    "prototypes/pi-acceptance/test_evidence.py": "346b3ec0ac197a1143f705cadc1898fa02fd040efacaff2123a91d1daca9c8b1",
+    "prototypes/pi-acceptance/verify.py": "73a906aa816070319b6b3f932d18f92dfdf57fca188bec6b603b682f1c5bb7f0",
+    "prototypes/pi-acceptance/verify_evidence.py": "fb6c7961c36a85c19177a743f6a53394c261be1f2abf2920da076ba490ecf03a",
+    "prototypes/pi-acceptance/fixture.ts": "86f069910bef8e7757275c1fcd6a09087c549635582132286b5aa5c894d9e952",
+    "integrations/pi/index.ts": "8e4c1ae677e05a22bdc9f3b0144ec19895ab1dadce3fb4ade6046f49da18dce8",
+    "integrations/pi/core.mjs": "2c7f510252ff66ff3d27524712c4e65b0543e687f4233398c2fd0e7807f2d502",
+    "prototypes/pi-runtime/provider.py": "91ef7601450645755121a5a1e22549b643805352ccddea56f3ff3ebd63a544ec",
+    "prototypes/pi-runtime/fixture.ts": "a4de33028b517e50017c8544c1f47048f274f7ba1704f2f2829775dc69492fe1",
+    "prototypes/pi-runtime/observer.ts": "a6c6c73116ba1fdaa90901f50db19a31283f8078dcd75a315034fb044778bca3",
+    "prototypes/pi-runtime/trace.mjs": "38ce1fc573eeeeb6e610174e6695f95b3a5f7340bab21189c5e1e02114373458"
+  },
+  "runs": [
+    {
+      "cases": [
+        {
+          "case": "startup",
+          "facts": {
+            "owned_autoload": true,
+            "real_exporter": true,
+            "foreground_verified": true,
+            "completion_revision": 0,
+            "row_count": 1
+          },
+          "samples": []
+        },
+        {
+          "case": "late_sidebars",
+          "facts": {
+            "one_pi_row": true,
+            "doctor_loaded": true,
+            "two_sidebar_displays": true
+          },
+          "samples": []
+        },
+        {
+          "case": "parallel",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 0,
+            "completion_after": 1,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 2,
+              "message_start": 6,
+              "message_end": 6,
+              "tool_execution_start": 2,
+              "tool_execution_end": 2,
+              "turn_end": 2,
+              "agent_end": 1,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 0,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "parallel",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "parallel",
+                "attempt": 2,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 5,
+              "completion_revision": 0,
+              "source_epoch": 1,
+              "source_revision": 4,
+              "pending_count": 0,
+              "observed_settlements": 0,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 6,
+              "completion_revision": 1,
+              "source_epoch": 1,
+              "source_revision": 5,
+              "pending_count": 0,
+              "observed_settlements": 1,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "two_hosts",
+          "facts": {
+            "host_local_acknowledgements": true,
+            "observed_revision_only": true,
+            "completion_revision": 1,
+            "unvisited_peer_preserved": true
+          },
+          "samples": []
+        },
+        {
+          "case": "reconnect",
+          "facts": {
+            "no_replayed_done": true,
+            "same_completed_at": true,
+            "reconnect_seconds": 2.039,
+            "epoch_advanced": true
+          },
+          "samples": []
+        },
+        {
+          "case": "reload",
+          "facts": {
+            "stable_process_row": true,
+            "no_historical_done": true,
+            "completion_revision": 1,
+            "conversation": "c126cec847070caf26e3",
+            "epoch_advanced": true
+          },
+          "samples": []
+        },
+        {
+          "case": "success",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 1,
+            "completion_after": 2,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 1,
+              "message_start": 2,
+              "message_end": 2,
+              "turn_end": 1,
+              "agent_end": 1,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 1,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "success",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 13,
+              "completion_revision": 1,
+              "source_epoch": 3,
+              "source_revision": 4,
+              "pending_count": 0,
+              "observed_settlements": 1,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 13,
+              "completion_revision": 1,
+              "source_epoch": 3,
+              "source_revision": 4,
+              "pending_count": 0,
+              "observed_settlements": 2,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 14,
+              "completion_revision": 2,
+              "source_epoch": 3,
+              "source_revision": 5,
+              "pending_count": 0,
+              "observed_settlements": 2,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "parallel",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 2,
+            "completion_after": 3,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 2,
+              "message_start": 5,
+              "message_end": 5,
+              "tool_execution_start": 2,
+              "tool_execution_end": 2,
+              "turn_end": 2,
+              "agent_end": 1,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 2,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "parallel",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "parallel",
+                "attempt": 2,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 15,
+              "completion_revision": 2,
+              "source_epoch": 3,
+              "source_revision": 6,
+              "pending_count": 0,
+              "observed_settlements": 2,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 16,
+              "completion_revision": 3,
+              "source_epoch": 3,
+              "source_revision": 7,
+              "pending_count": 0,
+              "observed_settlements": 3,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "nested",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 3,
+            "completion_after": 4,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 2,
+              "message_start": 4,
+              "message_end": 4,
+              "tool_execution_start": 3,
+              "tool_execution_end": 3,
+              "turn_end": 2,
+              "agent_end": 1,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 3,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "nested",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "nested",
+                "attempt": 2,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 17,
+              "completion_revision": 3,
+              "source_epoch": 3,
+              "source_revision": 8,
+              "pending_count": 0,
+              "observed_settlements": 3,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 17,
+              "completion_revision": 3,
+              "source_epoch": 3,
+              "source_revision": 8,
+              "pending_count": 0,
+              "observed_settlements": 4,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 18,
+              "completion_revision": 4,
+              "source_epoch": 3,
+              "source_revision": 9,
+              "pending_count": 0,
+              "observed_settlements": 4,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "tool_error",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 4,
+            "completion_after": 5,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 2,
+              "message_start": 4,
+              "message_end": 4,
+              "tool_execution_start": 1,
+              "tool_execution_end": 1,
+              "turn_end": 2,
+              "agent_end": 1,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 4,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "tool_error",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "tool_error",
+                "attempt": 2,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 19,
+              "completion_revision": 4,
+              "source_epoch": 3,
+              "source_revision": 10,
+              "pending_count": 0,
+              "observed_settlements": 4,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 20,
+              "completion_revision": 5,
+              "source_epoch": 3,
+              "source_revision": 11,
+              "pending_count": 0,
+              "observed_settlements": 5,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "provider_error",
+          "facts": {
+            "expected_status": "error",
+            "completion_before": 5,
+            "completion_after": 5,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 1,
+              "message_start": 2,
+              "message_end": 2,
+              "turn_end": 1,
+              "agent_end": 1,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 5,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "provider_error",
+                "attempt": 1,
+                "status": 400,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 21,
+              "completion_revision": 5,
+              "source_epoch": 3,
+              "source_revision": 12,
+              "pending_count": 0,
+              "observed_settlements": 5,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 21,
+              "completion_revision": 5,
+              "source_epoch": 3,
+              "source_revision": 12,
+              "pending_count": 0,
+              "observed_settlements": 6,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "error",
+              "record_revision": 22,
+              "completion_revision": 5,
+              "source_epoch": 3,
+              "source_revision": 13,
+              "pending_count": 0,
+              "observed_settlements": 6,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "retry_success",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 5,
+            "completion_after": 6,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 2,
+              "turn_start": 2,
+              "message_start": 3,
+              "message_end": 3,
+              "turn_end": 2,
+              "agent_end": 2,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 6,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "retry_success",
+                "attempt": 1,
+                "status": 503,
+                "summary": false
+              },
+              {
+                "model": "retry_success",
+                "attempt": 2,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 23,
+              "completion_revision": 5,
+              "source_epoch": 3,
+              "source_revision": 14,
+              "pending_count": 0,
+              "observed_settlements": 6,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 24,
+              "completion_revision": 6,
+              "source_epoch": 3,
+              "source_revision": 15,
+              "pending_count": 0,
+              "observed_settlements": 7,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "retry_exhausted",
+          "facts": {
+            "expected_status": "error",
+            "completion_before": 6,
+            "completion_after": 6,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 2,
+              "turn_start": 2,
+              "message_start": 3,
+              "message_end": 3,
+              "turn_end": 2,
+              "agent_end": 2,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 7,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "retry_exhausted",
+                "attempt": 1,
+                "status": 503,
+                "summary": false
+              },
+              {
+                "model": "retry_exhausted",
+                "attempt": 2,
+                "status": 503,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 25,
+              "completion_revision": 6,
+              "source_epoch": 3,
+              "source_revision": 16,
+              "pending_count": 0,
+              "observed_settlements": 7,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "error",
+              "record_revision": 26,
+              "completion_revision": 6,
+              "source_epoch": 3,
+              "source_revision": 17,
+              "pending_count": 0,
+              "observed_settlements": 8,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "cancel",
+          "facts": {
+            "expected_status": "idle",
+            "completion_before": 6,
+            "completion_after": 6,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 1,
+              "message_start": 2,
+              "message_end": 2,
+              "turn_end": 1,
+              "agent_end": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 8,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "cancel",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 27,
+              "completion_revision": 6,
+              "source_epoch": 3,
+              "source_revision": 18,
+              "pending_count": 0,
+              "observed_settlements": 8,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "idle",
+              "record_revision": 28,
+              "completion_revision": 6,
+              "source_epoch": 3,
+              "source_revision": 19,
+              "pending_count": 0,
+              "observed_settlements": 9,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "queued",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 6,
+            "completion_after": 7,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 3,
+              "message_start": 7,
+              "message_end": 7,
+              "tool_execution_start": 1,
+              "tool_execution_end": 1,
+              "turn_end": 3,
+              "agent_end": 1,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 9,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "queued",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "queued",
+                "attempt": 2,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "queued",
+                "attempt": 3,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 29,
+              "completion_revision": 6,
+              "source_epoch": 3,
+              "source_revision": 20,
+              "pending_count": 0,
+              "observed_settlements": 9,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 30,
+              "completion_revision": 7,
+              "source_epoch": 3,
+              "source_revision": 21,
+              "pending_count": 0,
+              "observed_settlements": 10,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "late_queued",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 7,
+            "completion_after": 8,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 2,
+              "turn_start": 2,
+              "message_start": 4,
+              "message_end": 4,
+              "turn_end": 2,
+              "agent_end": 2,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 10,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "late_queued",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "late_queued",
+                "attempt": 2,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 31,
+              "completion_revision": 7,
+              "source_epoch": 3,
+              "source_revision": 22,
+              "pending_count": 0,
+              "observed_settlements": 10,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 31,
+              "completion_revision": 7,
+              "source_epoch": 3,
+              "source_revision": 22,
+              "pending_count": 0,
+              "observed_settlements": 11,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 32,
+              "completion_revision": 8,
+              "source_epoch": 3,
+              "source_revision": 23,
+              "pending_count": 0,
+              "observed_settlements": 11,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "continuation",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 8,
+            "completion_after": 9,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 2,
+              "turn_start": 2,
+              "message_start": 3,
+              "message_end": 3,
+              "turn_end": 2,
+              "agent_end": 2,
+              "agent_before_settle": 2,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 11,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "continuation",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "continuation",
+                "attempt": 2,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 33,
+              "completion_revision": 8,
+              "source_epoch": 3,
+              "source_revision": 24,
+              "pending_count": 0,
+              "observed_settlements": 11,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 33,
+              "completion_revision": 8,
+              "source_epoch": 3,
+              "source_revision": 24,
+              "pending_count": 0,
+              "observed_settlements": 12,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 34,
+              "completion_revision": 9,
+              "source_epoch": 3,
+              "source_revision": 25,
+              "pending_count": 0,
+              "observed_settlements": 12,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "auto_compact",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 9,
+            "completion_after": 10,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 2,
+              "message_start": 4,
+              "message_end": 4,
+              "tool_execution_start": 1,
+              "tool_execution_end": 1,
+              "turn_end": 2,
+              "session_before_compact": 1,
+              "session_compact": 1,
+              "agent_end": 1,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 12,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "auto_compact",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "auto_compact",
+                "attempt": 2,
+                "status": 200,
+                "summary": true
+              },
+              {
+                "model": "auto_compact",
+                "attempt": 3,
+                "status": 200,
+                "summary": true
+              },
+              {
+                "model": "auto_compact",
+                "attempt": 4,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 35,
+              "completion_revision": 9,
+              "source_epoch": 3,
+              "source_revision": 26,
+              "pending_count": 0,
+              "observed_settlements": 12,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 36,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 27,
+              "pending_count": 0,
+              "observed_settlements": 13,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "ui",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 10,
+            "completion_after": 11,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 2,
+              "message_start": 4,
+              "message_end": 4,
+              "tool_execution_start": 1,
+              "ui_prompt_start": 5,
+              "ui_prompt_end": 5,
+              "tool_execution_end": 1,
+              "turn_end": 2,
+              "agent_end": 1,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 13,
+            "native_dialogs_observed_before_reply": 5,
+            "provider_requests": [
+              {
+                "model": "ui",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "ui",
+                "attempt": 2,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 37,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 28,
+              "pending_count": 0,
+              "observed_settlements": 13,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "needs_input",
+              "record_revision": 38,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 29,
+              "pending_count": 1,
+              "observed_settlements": 13,
+              "request_kinds": [
+                "question"
+              ]
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 39,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 30,
+              "pending_count": 0,
+              "observed_settlements": 13,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "needs_input",
+              "record_revision": 40,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 31,
+              "pending_count": 1,
+              "observed_settlements": 13,
+              "request_kinds": [
+                "confirmation"
+              ]
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 41,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 32,
+              "pending_count": 0,
+              "observed_settlements": 13,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "needs_input",
+              "record_revision": 42,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 33,
+              "pending_count": 1,
+              "observed_settlements": 13,
+              "request_kinds": [
+                "question"
+              ]
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 43,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 34,
+              "pending_count": 0,
+              "observed_settlements": 13,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "needs_input",
+              "record_revision": 44,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 35,
+              "pending_count": 1,
+              "observed_settlements": 13,
+              "request_kinds": [
+                "ui"
+              ]
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 45,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 36,
+              "pending_count": 0,
+              "observed_settlements": 13,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "needs_input",
+              "record_revision": 46,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 37,
+              "pending_count": 1,
+              "observed_settlements": 13,
+              "request_kinds": [
+                "ui"
+              ]
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 47,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 38,
+              "pending_count": 0,
+              "observed_settlements": 13,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 47,
+              "completion_revision": 10,
+              "source_epoch": 3,
+              "source_revision": 38,
+              "pending_count": 0,
+              "observed_settlements": 14,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 48,
+              "completion_revision": 11,
+              "source_epoch": 3,
+              "source_revision": 39,
+              "pending_count": 0,
+              "observed_settlements": 14,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "ui_nested",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 11,
+            "completion_after": 12,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 2,
+              "message_start": 4,
+              "message_end": 4,
+              "tool_execution_start": 1,
+              "ui_prompt_start": 1,
+              "ui_prompt_end": 1,
+              "tool_execution_end": 1,
+              "turn_end": 2,
+              "agent_end": 1,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 14,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "ui_nested",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "ui_nested",
+                "attempt": 2,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 49,
+              "completion_revision": 11,
+              "source_epoch": 3,
+              "source_revision": 40,
+              "pending_count": 0,
+              "observed_settlements": 14,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "needs_input",
+              "record_revision": 50,
+              "completion_revision": 11,
+              "source_epoch": 3,
+              "source_revision": 41,
+              "pending_count": 1,
+              "observed_settlements": 14,
+              "request_kinds": [
+                "ui"
+              ]
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 51,
+              "completion_revision": 11,
+              "source_epoch": 3,
+              "source_revision": 42,
+              "pending_count": 0,
+              "observed_settlements": 14,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 51,
+              "completion_revision": 11,
+              "source_epoch": 3,
+              "source_revision": 42,
+              "pending_count": 0,
+              "observed_settlements": 15,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 52,
+              "completion_revision": 12,
+              "source_epoch": 3,
+              "source_revision": 43,
+              "pending_count": 0,
+              "observed_settlements": 15,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "postrun_error",
+          "facts": {
+            "expected_status": "unknown",
+            "completion_before": 12,
+            "completion_after": 12,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 1,
+              "message_start": 2,
+              "message_end": 2,
+              "turn_end": 1,
+              "agent_end": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 15,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "postrun_error",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 53,
+              "completion_revision": 12,
+              "source_epoch": 3,
+              "source_revision": 44,
+              "pending_count": 0,
+              "observed_settlements": 16,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "unknown",
+              "record_revision": 54,
+              "completion_revision": 12,
+              "source_epoch": 3,
+              "source_revision": 45,
+              "pending_count": 0,
+              "observed_settlements": 16,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "continuation_error",
+          "facts": {
+            "expected_status": "unknown",
+            "completion_before": 12,
+            "completion_after": 12,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 2,
+              "turn_start": 2,
+              "message_start": 3,
+              "message_end": 3,
+              "turn_end": 2,
+              "agent_end": 2,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 16,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "continuation_error",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              },
+              {
+                "model": "continuation_error",
+                "attempt": 2,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 55,
+              "completion_revision": 12,
+              "source_epoch": 3,
+              "source_revision": 46,
+              "pending_count": 0,
+              "observed_settlements": 16,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 55,
+              "completion_revision": 12,
+              "source_epoch": 3,
+              "source_revision": 46,
+              "pending_count": 0,
+              "observed_settlements": 17,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "unknown",
+              "record_revision": 56,
+              "completion_revision": 12,
+              "source_epoch": 3,
+              "source_revision": 47,
+              "pending_count": 0,
+              "observed_settlements": 17,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "success",
+          "facts": {
+            "expected_status": "done",
+            "completion_before": 12,
+            "completion_after": 13,
+            "no_premature_completion": true,
+            "event_counts": {
+              "before_agent_start": 1,
+              "agent_start": 1,
+              "turn_start": 1,
+              "message_start": 2,
+              "message_end": 2,
+              "turn_end": 1,
+              "agent_end": 1,
+              "agent_before_settle": 1,
+              "agent_settled": 1
+            },
+            "pane": 0,
+            "settlements_before": 17,
+            "native_dialogs_observed_before_reply": 0,
+            "provider_requests": [
+              {
+                "model": "success",
+                "attempt": 1,
+                "status": 200,
+                "summary": false
+              }
+            ]
+          },
+          "samples": [
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 57,
+              "completion_revision": 12,
+              "source_epoch": 3,
+              "source_revision": 48,
+              "pending_count": 0,
+              "observed_settlements": 17,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "working",
+              "record_revision": 57,
+              "completion_revision": 12,
+              "source_epoch": 3,
+              "source_revision": 48,
+              "pending_count": 0,
+              "observed_settlements": 18,
+              "request_kinds": []
+            },
+            {
+              "pane": 0,
+              "instance": "99fd0676a1d6339fa9a4",
+              "status": "done",
+              "record_revision": 58,
+              "completion_revision": 13,
+              "source_epoch": 3,
+              "source_revision": 49,
+              "pending_count": 0,
+              "observed_settlements": 18,
+              "request_kinds": []
+            }
+          ]
+        },
+        {
+          "case": "manual_compact",
+          "facts": {
+            "no_completion": true
+          },
+          "samples": []
+        },
+        {
+          "case": "name",
+          "facts": {
+            "stable_process_row": true,
+            "no_historical_done": true,
+            "completion_revision": 13,
+            "conversation": "c126cec847070caf26e3",
+            "epoch_advanced": false
+          },
+          "samples": []
+        },
+        {
+          "case": "input_visit",
+          "facts": {
+            "visit_preserves_request": true,
+            "no_permission_provenance": true,
+            "closing_dialog_does_not_complete": true
+          },
+          "samples": []
+        },
+        {
+          "case": "tree",
+          "facts": {
+            "stable_process_row": true,
+            "no_historical_done": true,
+            "completion_revision": 13,
+            "conversation": "c126cec847070caf26e3",
+            "epoch_advanced": false
+          },
+          "samples": []
+        },
+        {
+          "case": "new",
+          "facts": {
+            "stable_process_row": true,
+            "no_historical_done": true,
+            "completion_revision": 13,
+            "conversation": "218b15f2af0e4ab37745",
+            "epoch_advanced": true
+          },
+          "samples": []
+        },
+        {
+          "case": "resume",
+          "facts": {
+            "stable_process_row": true,
+            "no_historical_done": true,
+            "completion_revision": 13,
+            "conversation": "c126cec847070caf26e3",
+            "epoch_advanced": true
+          },
+          "samples": []
+        },
+        {
+          "case": "fork",
+          "facts": {
+            "stable_process_row": true,
+            "no_historical_done": true,
+            "completion_revision": 13,
+            "conversation": "f017dd33487345e7931f",
+            "epoch_advanced": true
+          },
+          "samples": []
+        },
+        {
+          "case": "reporter_loss",
+          "facts": {
+            "pi_kept_working": true,
+            "live_row_unknown": true,
+            "lease_degradation_seconds": 15.325,
+            "recovered_new_run_once": true
+          },
+          "samples": []
+        },
+        {
+          "case": "two_processes",
+          "facts": {
+            "same_cwd": true,
+            "separate_verified_rows": true,
+            "separate_conversations": true,
+            "panes": [
+              0,
+              2
+            ],
+            "synthetic_inventory": false
+          },
+          "samples": []
+        },
+        {
+          "case": "inherited_background",
+          "facts": {
+            "actual_pi_tui": true,
+            "inherited_pane_hint": true,
+            "foreground_binding_rejected": true,
+            "no_extra_row": true
+          },
+          "samples": []
+        },
+        {
+          "case": "pane_targeting",
+          "facts": {
+            "rename": true,
+            "move": true,
+            "floating": true,
+            "stacked": true,
+            "background_tab_activation": true,
+            "immutable_instance_preserved": true,
+            "sidebar_selection": "native activation verified; keyboard selection not qualified"
+          },
+          "samples": []
+        },
+        {
+          "case": "non_tui",
+          "facts": {
+            "modes": [
+              "print",
+              "json",
+              "rpc",
+              "help",
+              "version",
+              "export"
+            ],
+            "no_rows": true,
+            "no_protocol_contamination": true,
+            "disabled_discovery_no_reporter": true,
+            "unsupported_versions": "guard tests only; no other release runtime qualification",
+            "no_reporter_invocations": true
+          },
+          "samples": []
+        },
+        {
+          "case": "burst_budget",
+          "facts": {
+            "nested_tools_per_pane": 160,
+            "exactly_one_aggregate_completion": true,
+            "event_counts_by_pane": {
+              "0": {
+                "before_agent_start": 1,
+                "agent_start": 1,
+                "turn_start": 2,
+                "message_start": 4,
+                "message_end": 4,
+                "tool_execution_start": 161,
+                "tool_execution_end": 161,
+                "turn_end": 2,
+                "agent_end": 1,
+                "agent_before_settle": 1,
+                "agent_settled": 1
+              },
+              "2": {
+                "before_agent_start": 1,
+                "agent_start": 1,
+                "turn_start": 2,
+                "message_start": 5,
+                "message_end": 5,
+                "tool_execution_start": 161,
+                "tool_execution_end": 161,
+                "turn_end": 2,
+                "agent_end": 1,
+                "agent_before_settle": 1,
+                "agent_settled": 1
+              }
+            },
+            "writes_within_two_reporter_budget": true,
+            "queue_and_timer_bounds": "deterministic transport tests; no runtime introspection"
+          },
+          "samples": []
+        },
+        {
+          "case": "lifetimes",
+          "facts": {
+            "kill_removed_row": true,
+            "quit_removed_row": true,
+            "pane_close_removed_row": true,
+            "same_pane_new_process_new_identity": true,
+            "no_ack_transfer": true,
+            "forced_pid_reuse_and_session_resurrection": "not exercised"
+          },
+          "samples": []
+        }
+      ],
+      "measurements": [
+        {
+          "phase": "acknowledged_heartbeat",
+          "seconds": 6.006,
+          "processes": [
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.777,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.777
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 12.321,
+              "rss_mib": 131.059,
+              "rss_delta_mib": 0.02,
+              "peak_rss_mib": 131.078
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.844,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.844
+            },
+            {
+              "role": "pi",
+              "cpu_percent": 1.332,
+              "rss_mib": 161.641,
+              "rss_delta_mib": -0.309,
+              "peak_rss_mib": 161.949
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.848,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.848
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 0.0,
+              "rss_mib": 18.016,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 18.016
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 1.832,
+              "rss_mib": 67.879,
+              "rss_delta_mib": 0.184,
+              "peak_rss_mib": 67.879
+            },
+            {
+              "role": "sidebar",
+              "cpu_percent": 1.166,
+              "rss_mib": 6.23,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 6.23
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.695,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.695
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.984,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.984
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 1.998,
+              "rss_mib": 67.73,
+              "rss_delta_mib": 0.352,
+              "peak_rss_mib": 67.73
+            },
+            {
+              "role": "sidebar",
+              "cpu_percent": 1.332,
+              "rss_mib": 5.855,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.855
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.461,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.461
+            },
+            {
+              "role": "reporter",
+              "cpu_percent": 0.167,
+              "rss_mib": 5.336,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.336
+            }
+          ],
+          "counters": {
+            "agent_fs_incoming": 12,
+            "native_record_writes": 1,
+            "cli/all-servers:list-sessions": 1
+          }
+        },
+        {
+          "phase": "idle",
+          "seconds": 6.003,
+          "processes": [
+            {
+              "role": "other",
+              "cpu_percent": 0.167,
+              "rss_mib": 1.777,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.777
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 17.659,
+              "rss_mib": 131.094,
+              "rss_delta_mib": 0.18,
+              "peak_rss_mib": 131.914
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.844,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.844
+            },
+            {
+              "role": "pi",
+              "cpu_percent": 0.833,
+              "rss_mib": 164.887,
+              "rss_delta_mib": -0.422,
+              "peak_rss_mib": 165.309
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.848,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.848
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 0.0,
+              "rss_mib": 18.016,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 18.016
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 2.166,
+              "rss_mib": 67.645,
+              "rss_delta_mib": 0.098,
+              "peak_rss_mib": 67.645
+            },
+            {
+              "role": "sidebar",
+              "cpu_percent": 1.333,
+              "rss_mib": 6.23,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 6.23
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.167,
+              "rss_mib": 17.695,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.695
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.984,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.984
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 2.332,
+              "rss_mib": 67.793,
+              "rss_delta_mib": 0.258,
+              "peak_rss_mib": 68.141
+            },
+            {
+              "role": "sidebar",
+              "cpu_percent": 1.833,
+              "rss_mib": 5.855,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.855
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.586,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.586
+            },
+            {
+              "role": "reporter",
+              "cpu_percent": 0.333,
+              "rss_mib": 5.164,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.164
+            }
+          ],
+          "counters": {
+            "cli/all-servers:list-sessions": 1,
+            "agent_fs_incoming": 17,
+            "native_record_writes": 3
+          }
+        },
+        {
+          "phase": "two_panes_two_hosts_idle",
+          "seconds": 6.014,
+          "processes": [
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.777,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.777
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 13.802,
+              "rss_mib": 131.586,
+              "rss_delta_mib": -0.133,
+              "peak_rss_mib": 131.723
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.844,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.844
+            },
+            {
+              "role": "pi",
+              "cpu_percent": 1.164,
+              "rss_mib": 177.129,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 177.129
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.848,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.848
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 0.0,
+              "rss_mib": 18.016,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 18.016
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 1.996,
+              "rss_mib": 67.637,
+              "rss_delta_mib": -0.035,
+              "peak_rss_mib": 67.691
+            },
+            {
+              "role": "sidebar",
+              "cpu_percent": 1.497,
+              "rss_mib": 6.23,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 6.23
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.695,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.695
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.984,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.984
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 1.829,
+              "rss_mib": 67.969,
+              "rss_delta_mib": -0.066,
+              "peak_rss_mib": 68.035
+            },
+            {
+              "role": "sidebar",
+              "cpu_percent": 1.829,
+              "rss_mib": 5.855,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.855
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.586,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.586
+            },
+            {
+              "role": "reporter",
+              "cpu_percent": 0.0,
+              "rss_mib": 5.523,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.523
+            },
+            {
+              "role": "pi",
+              "cpu_percent": 1.497,
+              "rss_mib": 133.262,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 133.262
+            },
+            {
+              "role": "reporter",
+              "cpu_percent": 0.0,
+              "rss_mib": 5.445,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.445
+            }
+          ],
+          "counters": {
+            "agent_fs_incoming": 12,
+            "native_record_writes": 2,
+            "cli/all-servers:list-sessions": 1
+          }
+        },
+        {
+          "phase": "two_panes_tool_burst",
+          "seconds": 6.031,
+          "processes": [
+            {
+              "role": "other",
+              "cpu_percent": 2.155,
+              "rss_mib": 1.777,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.777
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 25.533,
+              "rss_mib": 131.418,
+              "rss_delta_mib": 0.242,
+              "peak_rss_mib": 131.461
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.844,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.844
+            },
+            {
+              "role": "pi",
+              "cpu_percent": 25.202,
+              "rss_mib": 172.375,
+              "rss_delta_mib": 0.445,
+              "peak_rss_mib": 174.684
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.848,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.848
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 0.166,
+              "rss_mib": 18.141,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 18.141
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 7.958,
+              "rss_mib": 68.016,
+              "rss_delta_mib": 0.508,
+              "peak_rss_mib": 68.59
+            },
+            {
+              "role": "sidebar",
+              "cpu_percent": 4.145,
+              "rss_mib": 6.23,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 6.23
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.166,
+              "rss_mib": 17.695,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.695
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 0.332,
+              "rss_mib": 18.102,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 18.102
+            },
+            {
+              "role": "zellij",
+              "cpu_percent": 8.787,
+              "rss_mib": 68.043,
+              "rss_delta_mib": 0.43,
+              "peak_rss_mib": 68.043
+            },
+            {
+              "role": "sidebar",
+              "cpu_percent": 4.974,
+              "rss_mib": 5.98,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.98
+            },
+            {
+              "role": "other",
+              "cpu_percent": 0.332,
+              "rss_mib": 17.586,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.586
+            },
+            {
+              "role": "reporter",
+              "cpu_percent": 0.0,
+              "rss_mib": 5.523,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.523
+            },
+            {
+              "role": "pi",
+              "cpu_percent": 26.694,
+              "rss_mib": 143.738,
+              "rss_delta_mib": 10.641,
+              "peak_rss_mib": 144.75
+            },
+            {
+              "role": "reporter",
+              "cpu_percent": 0.166,
+              "rss_mib": 5.445,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.445
+            }
+          ],
+          "counters": {
+            "agent_fs_incoming": 22,
+            "native_record_writes": 5,
+            "proof_attempts": 1,
+            "topology_fs_coalesced": 91,
+            "topology_fs_incoming": 128,
+            "cli/all-servers:list-sessions": 1,
+            "cli/pi-acceptance:pipe": 1,
+            "cli/pi-host-b:list-clients": 2,
+            "cli/pi-host-b:list-panes": 2,
+            "cli/pi-host-b:pipe": 2,
+            "cli/pi-host-b:rename-pane": 2,
+            "cli/pi-host-a:list-panes": 3,
+            "cli/pi-host-a:rename-pane": 3
+          }
+        }
+      ],
+      "cleanup": {
+        "private_processes_exited": true,
+        "forced_kills": 0,
+        "provider_stopped": true,
+        "burst_provider_stopped": true,
+        "private_directory_removed": true
+      },
+      "runtime": "compiled",
+      "no_global_installation": true,
+      "pi_version": "1.2.0",
+      "executable_sha256": "0da162bafd73665b3c0d3bb7ba87f873b6c79dcd4887a4eb001cc4c81c3282b8",
+      "zellij_version": "zellij 0.45.1",
+      "zellij_sha256": "d006c521dcb475a6005d741e9dd7c5758e5a23b28dd60a5c10cebfa4876319dd",
+      "environment_allowlist": [
+        "HOME",
+        "LANG",
+        "PATH",
+        "PI_CODING_AGENT_DIR",
+        "PI_OFFLINE",
+        "PI_SKIP_VERSION_CHECK",
+        "PI_TELEMETRY",
+        "SHELL",
+        "TERM",
+        "TMPDIR",
+        "VERIJ_AGENT_STATE_DIR",
+        "VERIJ_BIN",
+        "VERIJ_CONTROL_DIR",
+        "VERIJ_RESOURCE_METRICS_DIR",
+        "VERIJ_STATES_DIR",
+        "VERIJ_WASI_CONTROL_DIR",
+        "VERIJ_WASI_STATES_DIR",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_RUNTIME_DIR",
+        "XDG_STATE_HOME",
+        "ZELLIJ_SOCKET_DIR"
+      ],
+      "passed": true,
+      "harness_cli_calls": {
+        "write-chars": 33,
+        "write": 40,
+        "new-tab": 3,
+        "close-pane": 5,
+        "dump-screen": 15,
+        "new-pane": 2,
+        "rename-pane": 1,
+        "move-pane": 1,
+        "toggle-pane-embed-or-floating": 2,
+        "stack-panes": 1
+      }
+    },
+    {
+      "cases": [
+        {
+          "case": "startup",
+          "facts": {
+            "owned_autoload": true,
+            "real_exporter": true,
+            "foreground_verified": true,
+            "completion_revision": 0,
+            "row_count": 1
+          },
+          "samples": []
+        }
+      ],
+      "measurements": [],
+      "cleanup": {
+        "private_processes_exited": true,
+        "forced_kills": 0,
+        "provider_stopped": true,
+        "burst_provider_stopped": true,
+        "private_directory_removed": true
+      },
+      "runtime": "node",
+      "no_global_installation": true,
+      "pi_version": "1.2.0",
+      "executable_sha256": "8189b66abc4f9f431dbb70941dcba690d76d040de1fbfff212886be35a53639d",
+      "zellij_version": "zellij 0.45.1",
+      "zellij_sha256": "d006c521dcb475a6005d741e9dd7c5758e5a23b28dd60a5c10cebfa4876319dd",
+      "environment_allowlist": [
+        "HOME",
+        "LANG",
+        "PATH",
+        "PI_CODING_AGENT_DIR",
+        "PI_OFFLINE",
+        "PI_SKIP_VERSION_CHECK",
+        "PI_TELEMETRY",
+        "SHELL",
+        "TERM",
+        "TMPDIR",
+        "VERIJ_AGENT_STATE_DIR",
+        "VERIJ_BIN",
+        "VERIJ_CONTROL_DIR",
+        "VERIJ_RESOURCE_METRICS_DIR",
+        "VERIJ_STATES_DIR",
+        "VERIJ_WASI_CONTROL_DIR",
+        "VERIJ_WASI_STATES_DIR",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_RUNTIME_DIR",
+        "XDG_STATE_HOME",
+        "ZELLIJ_SOCKET_DIR"
+      ],
+      "passed": false,
+      "failure": "RuntimeError",
+      "harness_cli_calls": {
+        "write-chars": 1,
+        "write": 1,
+        "new-tab": 3,
+        "close-pane": 2
+      }
+    }
+  ],
+  "limitations": [
+    "No forced PID/server reuse or serialized session resurrection",
+    "No keyboard sidebar stable-selection qualification",
+    "No other-release runtime",
+    "No status-bar amplification or long-duration stress acceptance; broad resource roadmap remains pending",
+    "Queue/timer bounds are deterministic tests, not runtime telemetry",
+    "No remote hosts; hosts are two local Verij outer sessions"
+  ],
+  "complete": false
+}

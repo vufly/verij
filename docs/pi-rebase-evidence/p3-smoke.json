@@ -1,0 +1,752 @@
+{
+  "status": "PASS",
+  "experiments": [
+    {
+      "status": "PASS",
+      "root": "/tmp/vpr-cpjicn/verij-baseline-qynyslcd",
+      "monitoring": "enabled",
+      "measurement_kind": "real stock Zellij, sidebars, visit protocol and native reporter; synthetic API/events",
+      "control_definition": "exporters/status bars/attachments retained; sidebar replaced by sleep and bridge disabled",
+      "hosts": 1,
+      "tabs": 4,
+      "warmup_seconds": 2.0,
+      "workload_seconds": 3.0,
+      "max_rss_mib": 512,
+      "max_agent_rss_mib": null,
+      "stock_binary": "/home/vudinhn/.local/share/mise/installs/zellij/0.45.1/zellij",
+      "stock_version": "zellij 0.45.1",
+      "stock_sha256": "d006c521dcb475a6005d741e9dd7c5758e5a23b28dd60a5c10cebfa4876319dd",
+      "process_scope": "long-lived private servers, clients, pane processes and reporters; transient CLI work counted separately",
+      "assets": {
+        "cli": {
+          "path": "/home/vudinhn/repos/workspaces/verij/pi-monitoring/pi-monitoring/target/release/verij",
+          "sha256": "da33b7cd53f210092dc4b1ba4dcc9802ebdbfe6795856b2ec3ecad2a0571dfaf"
+        },
+        "exporter_tested": {
+          "path": "/home/vudinhn/repos/workspaces/verij/pi-monitoring/pi-monitoring/target/wasm32-wasip1/release/verij-plugin.wasm",
+          "sha256": "9d90d07ef57f257a460a59ecb9df4b0b8d1f3f629c2481d0a957f75ae85fca66"
+        },
+        "bridge": {
+          "path": "/home/vudinhn/repos/workspaces/verij/pi-monitoring/pi-monitoring/integrations/opencode/bridge.mjs",
+          "sha256": "0f4ed4635cba4c2ed958f0d4d0a1675d3abddea4295e88077047056a5f5131c8"
+        },
+        "core": {
+          "path": "/home/vudinhn/repos/workspaces/verij/pi-monitoring/pi-monitoring/integrations/opencode/core.mjs",
+          "sha256": "da2898c87c4216b4d95d31649c998601d8bcde4e351d7ca6ca7c4d933f54b536"
+        },
+        "installed_cli": {
+          "path": "/home/vudinhn/.cargo/bin/verij",
+          "sha256": "a4490ceab26ce67b206b2c7cf47a180d272ccce7ea65c30b94734c870867f07a"
+        },
+        "installed_exporter": {
+          "path": "/home/vudinhn/.local/share/verij/verij_plugin.wasm",
+          "sha256": "d5c3564ffa4004aacfc7187e0224fa29af493242f0bf3615405dde5dd20683e5"
+        },
+        "installed_bridge": {
+          "path": "/home/vudinhn/.config/opencode/verij-monitoring/bridge.mjs",
+          "sha256": "eaa241ea2ed7b35e7185e27723b1566fab8a92d3b2a73db6427b81dbca78df3b"
+        },
+        "installed_core": {
+          "path": "/home/vudinhn/.config/opencode/verij-monitoring/core.mjs",
+          "sha256": "98c53fbd31670dbd60fe11f4bc2cc363dfe12a3183a4278f575249a4f6bda8e7"
+        }
+      },
+      "measurements": [
+        {
+          "phase": "idle_agent",
+          "elapsed_seconds": 3.002,
+          "aborted": null,
+          "processes": [
+            {
+              "pid": 1053256,
+              "role": "tmux_server",
+              "cpu_percent": 0.33,
+              "rss_mib": 1.79,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.79
+            },
+            {
+              "pid": 1053313,
+              "role": "inner_server",
+              "cpu_percent": 4.66,
+              "rss_mib": 42.36,
+              "rss_delta_mib": 0.25,
+              "peak_rss_mib": 42.36
+            },
+            {
+              "pid": 1053371,
+              "role": "synthetic_api_agent",
+              "cpu_percent": 1.0,
+              "rss_mib": 60.23,
+              "rss_delta_mib": 0.25,
+              "peak_rss_mib": 60.23
+            },
+            {
+              "pid": 1054114,
+              "role": "outer_client",
+              "cpu_percent": 0.0,
+              "rss_mib": 18.09,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 18.09
+            },
+            {
+              "pid": 1054158,
+              "role": "host_server",
+              "cpu_percent": 1.33,
+              "rss_mib": 27.07,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 27.07
+            },
+            {
+              "pid": 1054218,
+              "role": "inner_attachment",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.88,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.88
+            },
+            {
+              "pid": 1053373,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.97,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.97
+            },
+            {
+              "pid": 1053376,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.85,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.85
+            },
+            {
+              "pid": 1053378,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.97,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.97
+            },
+            {
+              "pid": 1054216,
+              "role": "sidebar",
+              "cpu_percent": 1.0,
+              "rss_mib": 6.01,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 6.01
+            },
+            {
+              "pid": 1053942,
+              "role": "native_reporter",
+              "cpu_percent": 0.33,
+              "rss_mib": 5.27,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.27
+            }
+          ],
+          "total_cpu_percent": 8.65,
+          "total_rss_mib": 184.49,
+          "counters": {
+            "agent_fs_incoming": 1
+          },
+          "rates_per_second": {
+            "agent_fs_incoming": 0.333
+          },
+          "intervals": [
+            {
+              "offset_seconds": 1.0,
+              "seconds": 1.0,
+              "counters": {
+                "agent_fs_incoming": 1
+              },
+              "total_rss_mib": 184.12
+            },
+            {
+              "offset_seconds": 2.01,
+              "seconds": 1.0,
+              "counters": {},
+              "total_rss_mib": 184.25
+            }
+          ],
+          "interval_capacity": 60,
+          "counter_snapshot_resolution_seconds": 1
+        },
+        {
+          "phase": "20_owned_events_per_second",
+          "elapsed_seconds": 3.002,
+          "aborted": null,
+          "processes": [
+            {
+              "pid": 1053256,
+              "role": "tmux_server",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.79,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.79
+            },
+            {
+              "pid": 1053313,
+              "role": "inner_server",
+              "cpu_percent": 5.0,
+              "rss_mib": 42.38,
+              "rss_delta_mib": 0.02,
+              "peak_rss_mib": 42.48
+            },
+            {
+              "pid": 1053371,
+              "role": "synthetic_api_agent",
+              "cpu_percent": 1.0,
+              "rss_mib": 60.86,
+              "rss_delta_mib": 0.62,
+              "peak_rss_mib": 60.86
+            },
+            {
+              "pid": 1054114,
+              "role": "outer_client",
+              "cpu_percent": 0.33,
+              "rss_mib": 18.21,
+              "rss_delta_mib": 0.12,
+              "peak_rss_mib": 18.21
+            },
+            {
+              "pid": 1054158,
+              "role": "host_server",
+              "cpu_percent": 3.33,
+              "rss_mib": 26.78,
+              "rss_delta_mib": -0.29,
+              "peak_rss_mib": 27.08
+            },
+            {
+              "pid": 1054218,
+              "role": "inner_attachment",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.88,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.88
+            },
+            {
+              "pid": 1053373,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.97,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.97
+            },
+            {
+              "pid": 1053376,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.85,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.85
+            },
+            {
+              "pid": 1053378,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.97,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.97
+            },
+            {
+              "pid": 1054216,
+              "role": "sidebar",
+              "cpu_percent": 1.33,
+              "rss_mib": 6.01,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 6.01
+            },
+            {
+              "pid": 1053942,
+              "role": "native_reporter",
+              "cpu_percent": 0.0,
+              "rss_mib": 5.27,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.27
+            }
+          ],
+          "total_cpu_percent": 10.99,
+          "total_rss_mib": 184.97,
+          "counters": {
+            "agent_fs_incoming": 3,
+            "native_record_writes": 2,
+            "topology_fs_coalesced": 3,
+            "topology_fs_incoming": 4,
+            "cli/all-servers:list-sessions": 1,
+            "cli/resource-host-a:list-panes": 1,
+            "cli/resource-host-a:rename-pane": 1,
+            "api/session.status": 8,
+            "api/session.get": 2,
+            "api/session.children": 2,
+            "api/session.messages": 1,
+            "api/permission.list": 4,
+            "api/question.list": 4,
+            "owned_events": 56
+          },
+          "rates_per_second": {
+            "agent_fs_incoming": 0.999,
+            "native_record_writes": 0.666,
+            "topology_fs_coalesced": 0.999,
+            "topology_fs_incoming": 1.333,
+            "cli/all-servers:list-sessions": 0.333,
+            "cli/resource-host-a:list-panes": 0.333,
+            "cli/resource-host-a:rename-pane": 0.333,
+            "api/session.status": 2.665,
+            "api/session.get": 0.666,
+            "api/session.children": 0.666,
+            "api/session.messages": 0.333,
+            "api/permission.list": 1.333,
+            "api/question.list": 1.333,
+            "owned_events": 18.656
+          },
+          "intervals": [
+            {
+              "offset_seconds": 1.0,
+              "seconds": 1.0,
+              "counters": {
+                "agent_fs_incoming": 1,
+                "native_record_writes": 1,
+                "api/session.status": 2,
+                "api/session.get": 2,
+                "api/session.children": 2,
+                "api/session.messages": 1,
+                "api/permission.list": 1,
+                "api/question.list": 1,
+                "owned_events": 16
+              },
+              "total_rss_mib": 184.75
+            },
+            {
+              "offset_seconds": 2.01,
+              "seconds": 1.0,
+              "counters": {
+                "agent_fs_incoming": 2,
+                "native_record_writes": 1,
+                "api/session.status": 4,
+                "api/permission.list": 2,
+                "api/question.list": 2,
+                "owned_events": 20
+              },
+              "total_rss_mib": 184.85
+            }
+          ],
+          "interval_capacity": 60,
+          "counter_snapshot_resolution_seconds": 1
+        },
+        {
+          "phase": "100_owned_events_per_second",
+          "elapsed_seconds": 3.002,
+          "aborted": null,
+          "processes": [
+            {
+              "pid": 1053256,
+              "role": "tmux_server",
+              "cpu_percent": 0.33,
+              "rss_mib": 1.79,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.79
+            },
+            {
+              "pid": 1053313,
+              "role": "inner_server",
+              "cpu_percent": 4.66,
+              "rss_mib": 42.38,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 42.38
+            },
+            {
+              "pid": 1053371,
+              "role": "synthetic_api_agent",
+              "cpu_percent": 3.33,
+              "rss_mib": 61.98,
+              "rss_delta_mib": 1.12,
+              "peak_rss_mib": 61.98
+            },
+            {
+              "pid": 1054114,
+              "role": "outer_client",
+              "cpu_percent": 0.0,
+              "rss_mib": 18.21,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 18.21
+            },
+            {
+              "pid": 1054158,
+              "role": "host_server",
+              "cpu_percent": 2.33,
+              "rss_mib": 26.78,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 26.78
+            },
+            {
+              "pid": 1054218,
+              "role": "inner_attachment",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.88,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.88
+            },
+            {
+              "pid": 1053373,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.97,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.97
+            },
+            {
+              "pid": 1053376,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.85,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.85
+            },
+            {
+              "pid": 1053378,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.97,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.97
+            },
+            {
+              "pid": 1054216,
+              "role": "sidebar",
+              "cpu_percent": 1.0,
+              "rss_mib": 6.01,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 6.01
+            },
+            {
+              "pid": 1053942,
+              "role": "native_reporter",
+              "cpu_percent": 0.0,
+              "rss_mib": 5.27,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.27
+            }
+          ],
+          "total_cpu_percent": 11.65,
+          "total_rss_mib": 186.09,
+          "counters": {
+            "api/session.status": 6,
+            "api/permission.list": 3,
+            "api/question.list": 3,
+            "owned_events": 285
+          },
+          "rates_per_second": {
+            "api/session.status": 1.999,
+            "api/permission.list": 0.999,
+            "api/question.list": 0.999,
+            "owned_events": 94.944
+          },
+          "intervals": [
+            {
+              "offset_seconds": 1.0,
+              "seconds": 1.0,
+              "counters": {
+                "api/session.status": 2,
+                "api/permission.list": 1,
+                "api/question.list": 1,
+                "owned_events": 88
+              },
+              "total_rss_mib": 185.97
+            },
+            {
+              "offset_seconds": 2.01,
+              "seconds": 1.01,
+              "counters": {
+                "api/session.status": 2,
+                "api/permission.list": 1,
+                "api/question.list": 1,
+                "owned_events": 99
+              },
+              "total_rss_mib": 186.1
+            }
+          ],
+          "interval_capacity": 60,
+          "counter_snapshot_resolution_seconds": 1
+        },
+        {
+          "phase": "completion_visit",
+          "elapsed_seconds": 3.002,
+          "aborted": null,
+          "processes": [
+            {
+              "pid": 1053256,
+              "role": "tmux_server",
+              "cpu_percent": 0.33,
+              "rss_mib": 1.79,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.79
+            },
+            {
+              "pid": 1053313,
+              "role": "inner_server",
+              "cpu_percent": 6.66,
+              "rss_mib": 42.21,
+              "rss_delta_mib": -0.16,
+              "peak_rss_mib": 42.38
+            },
+            {
+              "pid": 1053371,
+              "role": "synthetic_api_agent",
+              "cpu_percent": 1.0,
+              "rss_mib": 62.11,
+              "rss_delta_mib": 0.12,
+              "peak_rss_mib": 62.11
+            },
+            {
+              "pid": 1054114,
+              "role": "outer_client",
+              "cpu_percent": 0.0,
+              "rss_mib": 18.34,
+              "rss_delta_mib": 0.12,
+              "peak_rss_mib": 18.34
+            },
+            {
+              "pid": 1054158,
+              "role": "host_server",
+              "cpu_percent": 4.33,
+              "rss_mib": 27.0,
+              "rss_delta_mib": 0.21,
+              "peak_rss_mib": 27.0
+            },
+            {
+              "pid": 1054218,
+              "role": "inner_attachment",
+              "cpu_percent": 0.0,
+              "rss_mib": 17.88,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 17.88
+            },
+            {
+              "pid": 1053373,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.97,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.97
+            },
+            {
+              "pid": 1053376,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.85,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.85
+            },
+            {
+              "pid": 1053378,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.97,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.97
+            },
+            {
+              "pid": 1054216,
+              "role": "sidebar",
+              "cpu_percent": 2.67,
+              "rss_mib": 6.13,
+              "rss_delta_mib": 0.12,
+              "peak_rss_mib": 6.13
+            },
+            {
+              "pid": 1053942,
+              "role": "native_reporter",
+              "cpu_percent": 0.0,
+              "rss_mib": 5.27,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.27
+            }
+          ],
+          "total_cpu_percent": 14.99,
+          "total_rss_mib": 186.52,
+          "counters": {
+            "agent_fs_incoming": 9,
+            "native_record_writes": 4,
+            "proof_attempts": 1,
+            "cli/resource-host-a:list-clients": 2,
+            "cli/resource-host-a:pipe": 2,
+            "cli/resource-shared:pipe": 1,
+            "api/session.status": 2,
+            "api/session.messages": 3,
+            "api/permission.list": 1,
+            "api/question.list": 1,
+            "owned_events": 13
+          },
+          "rates_per_second": {
+            "agent_fs_incoming": 2.998,
+            "native_record_writes": 1.333,
+            "proof_attempts": 0.333,
+            "cli/resource-host-a:list-clients": 0.666,
+            "cli/resource-host-a:pipe": 0.666,
+            "cli/resource-shared:pipe": 0.333,
+            "api/session.status": 0.666,
+            "api/session.messages": 0.999,
+            "api/permission.list": 0.333,
+            "api/question.list": 0.333,
+            "owned_events": 4.331
+          },
+          "intervals": [
+            {
+              "offset_seconds": 1.0,
+              "seconds": 1.0,
+              "counters": {
+                "agent_fs_incoming": 4,
+                "native_record_writes": 2,
+                "api/session.status": 2,
+                "api/session.messages": 3,
+                "api/permission.list": 1,
+                "api/question.list": 1,
+                "owned_events": 13
+              },
+              "total_rss_mib": 186.22
+            },
+            {
+              "offset_seconds": 2.01,
+              "seconds": 1.0,
+              "counters": {
+                "agent_fs_incoming": 3,
+                "native_record_writes": 1,
+                "proof_attempts": 1,
+                "cli/resource-host-a:list-clients": 1,
+                "cli/resource-host-a:pipe": 1,
+                "cli/resource-shared:pipe": 1
+              },
+              "total_rss_mib": 186.4
+            }
+          ],
+          "interval_capacity": 60,
+          "counter_snapshot_resolution_seconds": 1
+        },
+        {
+          "phase": "idle_detached",
+          "elapsed_seconds": 3.001,
+          "aborted": null,
+          "processes": [
+            {
+              "pid": 1053313,
+              "role": "inner_server",
+              "cpu_percent": 3.66,
+              "rss_mib": 41.89,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 41.89
+            },
+            {
+              "pid": 1053371,
+              "role": "synthetic_api_agent",
+              "cpu_percent": 0.67,
+              "rss_mib": 62.98,
+              "rss_delta_mib": 0.88,
+              "peak_rss_mib": 62.98
+            },
+            {
+              "pid": 1053373,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.97,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.97
+            },
+            {
+              "pid": 1053376,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.85,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.85
+            },
+            {
+              "pid": 1053378,
+              "role": "pane_process",
+              "cpu_percent": 0.0,
+              "rss_mib": 1.97,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 1.97
+            },
+            {
+              "pid": 1053942,
+              "role": "native_reporter",
+              "cpu_percent": 0.0,
+              "rss_mib": 5.27,
+              "rss_delta_mib": 0.0,
+              "peak_rss_mib": 5.27
+            }
+          ],
+          "total_cpu_percent": 4.33,
+          "total_rss_mib": 115.93,
+          "counters": {},
+          "rates_per_second": {},
+          "intervals": [
+            {
+              "offset_seconds": 1.0,
+              "seconds": 1.0,
+              "counters": {},
+              "total_rss_mib": 115.06
+            },
+            {
+              "offset_seconds": 2.01,
+              "seconds": 1.0,
+              "counters": {},
+              "total_rss_mib": 115.06
+            }
+          ],
+          "interval_capacity": 60,
+          "counter_snapshot_resolution_seconds": 1
+        }
+      ],
+      "topology_refresh": "PASS",
+      "topology": {
+        "resource-shared": {
+          "server_pid": 1053313,
+          "terminal_panes": 4,
+          "plugin_panes": 2,
+          "status_bar_instances": 0,
+          "tabs": 4,
+          "clients": 1
+        },
+        "resource-host-a": {
+          "server_pid": 1054158,
+          "terminal_panes": 2,
+          "plugin_panes": 1,
+          "status_bar_instances": 0,
+          "tabs": 1,
+          "clients": 1
+        }
+      },
+      "completion_visit": {
+        "completion_revisions": {
+          "agent-64981bcf-e425-49ef-8d77-2dde5d696a4b": 1
+        },
+        "host_acknowledgements": {
+          "a": {
+            "agent-64981bcf-e425-49ef-8d77-2dde5d696a4b": {
+              "acknowledged_revision": 1,
+              "acknowledged_at_ms": 1792005178941,
+              "turn_id": "root/user-1",
+              "request_id": "5ddac0cb8bcd424e814640385ab3d65a"
+            }
+          }
+        }
+      },
+      "detachment": "PASS",
+      "cleanup": {
+        "known_processes_exited": true,
+        "remaining_pids": []
+      },
+      "harness_cli_calls": {
+        "resource-shared:new-pane": 1,
+        "resource-shared:close-pane": 1,
+        "resource-shared:list-panes": 1,
+        "resource-shared:list-clients": 1,
+        "resource-host-a:list-panes": 1,
+        "resource-host-a:list-clients": 1
+      }
+    }
+  ]
+}

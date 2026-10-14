@@ -1,0 +1,19 @@
+{
+  "target": "d1b58fb29a1cf67474a9d2323b151958789b2ec8",
+  "pre_rebase": "276d1943f86edfaa9311ddc2f4087ba4438a6729",
+  "rebased_code_revision": "fa6f5132cc93c494b6812a730e5417bafd9cef80",
+  "artifact_sha256": {
+    "rebased_cli": "da33b7cd53f210092dc4b1ba4dcc9802ebdbfe6795856b2ec3ecad2a0571dfaf",
+    "rebased_exporter": "9d90d07ef57f257a460a59ecb9df4b0b8d1f3f629c2481d0a957f75ae85fca66",
+    "master_cli": "2691d2fdfe4df8c0bd4df056ca67b806d0a56dfbd59171521d1e30d81b6b167b",
+    "master_exporter": "9d90d07ef57f257a460a59ecb9df4b0b8d1f3f629c2481d0a957f75ae85fca66"
+  },
+  "build_commands": [
+    "cargo build -p verij-cli --release",
+    "cargo build -p verij-plugin --target wasm32-wasip1 --release"
+  ],
+  "master_build": "git archive d1b58fb into private directory; same release build commands with private manifest/target paths",
+  "acceptance_manifest_note": "Final acceptance repeated with frozen harness inventory. Every recorded source/binary hash matches the final checkout; comparison harness hashes also match.",
+  "global_installation": false,
+  "push_performed": false
+}

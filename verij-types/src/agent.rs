@@ -19,6 +19,7 @@ pub enum AgentKind {
     Opencode,
     Agy,
     Codex,
+    Pi,
     #[serde(other)]
     Unknown,
 }
@@ -29,6 +30,7 @@ impl std::fmt::Display for AgentKind {
             Self::Opencode => write!(f, "opencode"),
             Self::Agy => write!(f, "agy"),
             Self::Codex => write!(f, "codex"),
+            Self::Pi => write!(f, "pi"),
             Self::Unknown => write!(f, "unknown"),
         }
     }
@@ -531,6 +533,7 @@ pub fn is_source_accepted(source_id: &str, kind: AgentKind, is_synthetic: bool) 
         "opencode" => kind == AgentKind::Opencode || is_synthetic,
         "agy-ui" | "agy-lifecycle" => kind == AgentKind::Agy || is_synthetic,
         "codex" => kind == AgentKind::Codex || is_synthetic,
+        "pi" => kind == AgentKind::Pi || is_synthetic,
         "magy-watch" => true,
         s if is_synthetic && s.starts_with("fixture-") => true,
         _ => false,
@@ -544,7 +547,7 @@ pub fn can_declare_terminal(source_id: &str, kind: AgentKind, is_synthetic: bool
     }
     match source_id {
         "agy-ui" => false, // UI source cannot declare terminal outcomes
-        "agy-lifecycle" | "opencode" | "codex" | "magy-watch" => true,
+        "agy-lifecycle" | "opencode" | "codex" | "pi" | "magy-watch" => true,
         s if is_synthetic && s.starts_with("fixture-") => true,
         _ => false,
     }
@@ -557,7 +560,7 @@ pub fn can_declare_pending_requests(source_id: &str, kind: AgentKind, is_synthet
     }
     match source_id {
         "agy-lifecycle" => false, // Lifecycle source cannot declare pending input requests
-        "agy-ui" | "opencode" | "codex" => true,
+        "agy-ui" | "opencode" | "codex" | "pi" => true,
         s if is_synthetic && s.starts_with("fixture-") => true,
         _ => false,
     }
@@ -578,6 +581,11 @@ fn source_family_priority(source_id: &str, kind: AgentKind) -> u8 {
         },
         AgentKind::Codex => match source_id {
             "codex" => 10,
+            "magy-watch" => 5,
+            _ => 1,
+        },
+        AgentKind::Pi => match source_id {
+            "pi" => 10,
             "magy-watch" => 5,
             _ => 1,
         },
@@ -2004,5 +2012,256 @@ mod tests {
             reduce_sources(&sources, AgentKind::Codex, false, 1, Some(&turn), 1, 1);
         assert_eq!(reduced.status, AgentStatus::Idle);
         assert_eq!(comp_rev, 1);
+    }
+
+    #[test]
+    fn test_pi_display_and_serde() {
+        assert_eq!(AgentKind::Pi.to_string(), "pi");
+        let serialized = serde_json::to_string(&AgentKind::Pi).unwrap();
+        assert_eq!(serialized, "\"pi\"");
+        let deserialized: AgentKind = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, AgentKind::Pi);
+
+        // Wire compatibility: unknown kind deserializes to Unknown
+        let unknown: AgentKind = serde_json::from_str("\"future_agent_v2\"").unwrap();
+        assert_eq!(unknown, AgentKind::Unknown);
+        assert_eq!(unknown.to_string(), "unknown");
+        assert_eq!(serde_json::to_string(&unknown).unwrap(), "\"unknown\"");
+
+        // Existing kinds unchanged
+        for (kind, expected) in [
+            (AgentKind::Opencode, "\"opencode\""),
+            (AgentKind::Agy, "\"agy\""),
+            (AgentKind::Codex, "\"codex\""),
+        ] {
+            assert_eq!(serde_json::to_string(&kind).unwrap(), expected);
+            let roundtrip: AgentKind = serde_json::from_str(expected).unwrap();
+            assert_eq!(roundtrip, kind);
+        }
+    }
+
+    #[test]
+    fn test_pi_source_authority_and_priority() {
+        // Pi source acceptance
+        assert!(is_source_accepted("pi", AgentKind::Pi, false));
+        assert!(is_source_accepted("pi", AgentKind::Pi, true));
+        assert!(!is_source_accepted("pi", AgentKind::Opencode, false));
+        assert!(!is_source_accepted("pi", AgentKind::Agy, false));
+        assert!(!is_source_accepted("pi", AgentKind::Codex, false));
+        assert!(!is_source_accepted("pi", AgentKind::Unknown, false));
+        assert!(is_source_accepted("pi", AgentKind::Unknown, true));
+
+        // Foreign sources rejected for Pi unless synthetic or magy-watch
+        assert!(!is_source_accepted("opencode", AgentKind::Pi, false));
+        assert!(!is_source_accepted("agy-ui", AgentKind::Pi, false));
+        assert!(!is_source_accepted("agy-lifecycle", AgentKind::Pi, false));
+        assert!(!is_source_accepted("codex", AgentKind::Pi, false));
+        assert!(is_source_accepted("magy-watch", AgentKind::Pi, false));
+        assert!(is_source_accepted("fixture-pi", AgentKind::Pi, true));
+
+        // Authority checks
+        assert!(can_declare_terminal("pi", AgentKind::Pi, false));
+        assert!(can_declare_pending_requests("pi", AgentKind::Pi, false));
+        assert!(!can_declare_terminal("opencode", AgentKind::Pi, false));
+        assert!(!can_declare_pending_requests(
+            "opencode",
+            AgentKind::Pi,
+            false
+        ));
+
+        // Priority
+        assert_eq!(source_family_priority("pi", AgentKind::Pi), 10);
+        assert_eq!(source_family_priority("magy-watch", AgentKind::Pi), 5);
+        assert_eq!(source_family_priority("other", AgentKind::Pi), 1);
+    }
+
+    #[test]
+    fn test_pi_reducer_transitions() {
+        let instance = AgentInstanceId("agent-pi-1".to_string());
+        let turn = TurnId("run-100".to_string());
+        let mut sources = BTreeMap::new();
+
+        // 1. Initial working
+        let working_src = NormalizedSourceRecord {
+            schema_version: 1,
+            agent_instance_id: instance.clone(),
+            source_id: "pi".to_string(),
+            source_epoch: 1,
+            source_revision: 1,
+            observed_at_ms: 1000,
+            conversation_id: Some(ConversationId("pi-session-1".to_string())),
+            conversation_title: Some("Pi Task".to_string()),
+            turn_id: Some(turn.clone()),
+            turn_epoch: 1,
+            turn_revision: 1,
+            activity: Some(ActivityKind::Working),
+            pending_requests: Vec::new(),
+            background_task_count: 0,
+            successful_completion: None,
+            execution_error: None,
+            capabilities: vec![],
+        };
+        sources.insert("pi".to_string(), working_src);
+        let (reduced, comp_rev, _, _, _) =
+            reduce_sources(&sources, AgentKind::Pi, false, 0, None, 0, 0);
+        assert_eq!(reduced.status, AgentStatus::Working);
+        assert_eq!(
+            reduced.conversation_id,
+            Some(ConversationId("pi-session-1".to_string()))
+        );
+        assert_eq!(reduced.conversation_title, Some("Pi Task".to_string()));
+        assert_eq!(comp_rev, 0);
+
+        // 2. NeedsInput transition
+        let needs_input_src = NormalizedSourceRecord {
+            schema_version: 1,
+            agent_instance_id: instance.clone(),
+            source_id: "pi".to_string(),
+            source_epoch: 1,
+            source_revision: 2,
+            observed_at_ms: 2000,
+            conversation_id: Some(ConversationId("pi-session-1".to_string())),
+            conversation_title: Some("Pi Task".to_string()),
+            turn_id: Some(turn.clone()),
+            turn_epoch: 1,
+            turn_revision: 1,
+            activity: Some(ActivityKind::Working),
+            pending_requests: vec![PendingRequest {
+                id: "req-pi-1".to_string(),
+                kind: RequestKind::Confirmation,
+                detail: Some("confirm command".to_string()),
+            }],
+            background_task_count: 0,
+            successful_completion: None,
+            execution_error: None,
+            capabilities: vec![],
+        };
+        sources.insert("pi".to_string(), needs_input_src);
+        let (reduced, comp_rev, _, _, _) =
+            reduce_sources(&sources, AgentKind::Pi, false, 0, None, 0, 0);
+        assert_eq!(reduced.status, AgentStatus::NeedsInput);
+        assert_eq!(reduced.detail, Some("confirmation pending".to_string()));
+        assert_eq!(comp_rev, 0);
+
+        // 3. Successful completion on qualified final aggregate outcome
+        let done_src = NormalizedSourceRecord {
+            schema_version: 1,
+            agent_instance_id: instance.clone(),
+            source_id: "pi".to_string(),
+            source_epoch: 1,
+            source_revision: 3,
+            observed_at_ms: 3000,
+            conversation_id: Some(ConversationId("pi-session-1".to_string())),
+            conversation_title: Some("Pi Task".to_string()),
+            turn_id: Some(turn.clone()),
+            turn_epoch: 1,
+            turn_revision: 1,
+            activity: Some(ActivityKind::Idle),
+            pending_requests: Vec::new(),
+            background_task_count: 0,
+            successful_completion: Some(SuccessfulCompletion {
+                turn_id: Some(turn.clone()),
+                turn_epoch: 1,
+                turn_revision: 1,
+                completed_at_ms: 3000,
+                summary: None,
+            }),
+            execution_error: None,
+            capabilities: vec![],
+        };
+        sources.insert("pi".to_string(), done_src);
+        let (reduced, comp_rev, completed_turn, _, _) =
+            reduce_sources(&sources, AgentKind::Pi, false, 0, None, 0, 0);
+        assert_eq!(reduced.status, AgentStatus::Done);
+        assert_eq!(comp_rev, 1);
+        assert_eq!(completed_turn, Some(turn.clone()));
+
+        // 4. Repeated Done for exact same turn does NOT increment completion revision
+        let (reduced_repeat, comp_rev_repeat, _, _, _) =
+            reduce_sources(&sources, AgentKind::Pi, false, 1, Some(&turn), 1, 1);
+        assert_eq!(reduced_repeat.status, AgentStatus::Done);
+        assert_eq!(comp_rev_repeat, 1);
+
+        // 5. Terminal error transition
+        let error_src = NormalizedSourceRecord {
+            schema_version: 1,
+            agent_instance_id: instance.clone(),
+            source_id: "pi".to_string(),
+            source_epoch: 1,
+            source_revision: 4,
+            observed_at_ms: 4000,
+            conversation_id: Some(ConversationId("pi-session-1".to_string())),
+            conversation_title: Some("Pi Task".to_string()),
+            turn_id: Some(turn.clone()),
+            turn_epoch: 1,
+            turn_revision: 1,
+            activity: Some(ActivityKind::Idle),
+            pending_requests: Vec::new(),
+            background_task_count: 0,
+            successful_completion: None,
+            execution_error: Some(ExecutionError {
+                turn_id: Some(turn.clone()),
+                turn_epoch: 1,
+                turn_revision: 1,
+                message: "provider quota exceeded".to_string(),
+                is_terminal: true,
+            }),
+            capabilities: vec![],
+        };
+        sources.insert("pi".to_string(), error_src);
+        let (reduced, comp_rev, _, _, _) =
+            reduce_sources(&sources, AgentKind::Pi, false, 1, Some(&turn), 1, 1);
+        assert_eq!(reduced.status, AgentStatus::Error);
+        assert_eq!(reduced.detail, Some("provider quota exceeded".to_string()));
+        assert_eq!(comp_rev, 1);
+
+        // 6. Source isolation: unaccepted source cannot declare terminal outcome for Pi
+        let mut isolated_sources = BTreeMap::new();
+        let foreign_done = NormalizedSourceRecord {
+            schema_version: 1,
+            agent_instance_id: instance.clone(),
+            source_id: "opencode".to_string(),
+            source_epoch: 1,
+            source_revision: 1,
+            observed_at_ms: 5000,
+            conversation_id: Some(ConversationId("pi-session-1".to_string())),
+            conversation_title: None,
+            turn_id: Some(turn),
+            turn_epoch: 1,
+            turn_revision: 1,
+            activity: Some(ActivityKind::Idle),
+            pending_requests: Vec::new(),
+            background_task_count: 0,
+            successful_completion: Some(SuccessfulCompletion {
+                turn_id: None,
+                turn_epoch: 1,
+                turn_revision: 1,
+                completed_at_ms: 5000,
+                summary: None,
+            }),
+            execution_error: None,
+            capabilities: vec![],
+        };
+        isolated_sources.insert("opencode".to_string(), foreign_done);
+        let (reduced_iso, _, _, _, _) =
+            reduce_sources(&isolated_sources, AgentKind::Pi, false, 0, None, 0, 0);
+        assert_eq!(reduced_iso.status, AgentStatus::Unknown);
+    }
+
+    #[test]
+    fn test_legacy_reader_enum_decodes_pi_as_unknown() {
+        #[derive(Debug, PartialEq, Eq, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum PriorAgentKind {
+            Opencode,
+            Agy,
+            Codex,
+            #[serde(other)]
+            Unknown,
+        }
+
+        assert_eq!(AGENT_SCHEMA_VERSION, 1);
+        let decoded: PriorAgentKind = serde_json::from_str("\"pi\"").expect("decode legacy");
+        assert_eq!(decoded, PriorAgentKind::Unknown);
     }
 }

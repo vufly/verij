@@ -49,6 +49,16 @@ pub enum AgentCommand {
         #[arg(long)]
         birth: u64,
     },
+    /// Internal Pi metadata-only snapshot reporter stream.
+    #[command(hide = true)]
+    Pi {
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        pane: u32,
+        #[arg(long)]
+        pid: u32,
+    },
     /// Observe pane-backed Magy watches (also runs with each sidebar).
     Magy {
         /// Reconcile once, rather than observing until interrupted.
@@ -170,6 +180,7 @@ pub fn execute(command: AgentCommand) -> Result<()> {
         AgentCommand::Opencode { session, pane, pid } => crate::opencode::run(session, pane, pid),
         AgentCommand::Agy { pane, pid, birth } => crate::agy::run(pane, pid, birth),
         AgentCommand::Codex { pane, pid, birth } => crate::codex::run(pane, pid, birth),
+        AgentCommand::Pi { session, pane, pid } => crate::pi::run(session, pane, pid),
         AgentCommand::Magy { once } => crate::magy::run(once),
         AgentCommand::Verify { session, pane, pid } => {
             let snapshots = crate::inventory::read_states(&crate::fs_watcher::resolve_states_dir());
@@ -225,8 +236,9 @@ pub fn register(args: RegisterArgs) -> Result<AgentInstanceId> {
         "opencode" => AgentKind::Opencode,
         "agy" => AgentKind::Agy,
         "codex" => AgentKind::Codex,
+        "pi" => AgentKind::Pi,
         other => bail!(
-            "unsupported agent kind {:?}, must be 'opencode', 'agy', or 'codex'",
+            "unsupported agent kind {:?}, must be 'opencode', 'agy', 'codex', or 'pi'",
             other
         ),
     };
@@ -488,6 +500,7 @@ fn execute_fixture(args: FixtureArgs) -> Result<()> {
         "opencode" => AgentKind::Opencode,
         "agy" => AgentKind::Agy,
         "codex" => AgentKind::Codex,
+        "pi" => AgentKind::Pi,
         _ => AgentKind::Opencode,
     };
     let pane_key = PaneKey {

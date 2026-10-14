@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "runtime_order_runs": 4,
+  "scenario_runs": 112,
+  "trace_events": 1608,
+  "p0_contract_gate": true,
+  "production_adapter_qualified": false
+}

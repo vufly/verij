@@ -1927,4 +1927,49 @@ mod tests {
         ));
         assert!(synth_row.contains("[fixture]"));
     }
+
+    #[test]
+    fn custom_agent_names_pi_renders_actual_pi_row() {
+        let snap = snapshot();
+        let agent_pi_meta = RowMeta {
+            key: NodeKey::Agent {
+                pane: PaneKey {
+                    session: SessionInstanceId("backend".to_string()),
+                    terminal: TerminalPaneId(42),
+                },
+                instance: AgentInstanceId("ag-pi".to_string()),
+            },
+            parent: None,
+            depth: 2,
+            sibling_index: 0,
+            sibling_count: 1,
+            ancestor_continuations: vec![false, true],
+        };
+        let agent_pi = TreeNode::AgentPane {
+            session_name: "backend".into(),
+            session_index: 0,
+            tab_name: "editor".into(),
+            tab_position: 0,
+            view: make_agent_view(
+                "ag-pi",
+                AgentKind::Pi,
+                AgentStatus::Working,
+                false,
+                false,
+            ),
+            meta: agent_pi_meta,
+        };
+
+        // Default formatter renders "pi"
+        let default_fmt = TreeFormatter::default();
+        let default_row = output(&default_fmt, &agent_pi, &snap, false, false, true, false);
+        assert_eq!(content(&default_row), "│ ⠋ pi pi-task");
+
+        // Custom agent_names override renders custom symbol
+        let mut custom_cfg = TreeConfig::default();
+        custom_cfg.agent_names.insert("pi".into(), "󰏿".into());
+        let custom_fmt = TreeFormatter::new(&custom_cfg, &ColorConfig::default());
+        let custom_row = output(&custom_fmt, &agent_pi, &snap, false, false, true, false);
+        assert_eq!(content(&custom_row), "│ ⠋ 󰏿 pi-task");
+    }
 }

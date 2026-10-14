@@ -1,0 +1,91 @@
+1:  805a6dc = 1:  8723d09 Qualified Pi 1.2.0 monitoring lifecycle
+2:  865275b ! 2:  46add8a Add native Pi monitoring support
+    @@ verij-cli/src/agent_cli.rs: fn execute_fixture(args: FixtureArgs) -> Result<()>
+          let pane_key = PaneKey {
+     
+      ## verij-cli/src/agent_store.rs ##
+    -@@ verij-cli/src/agent_store.rs: pub fn register(
+    +@@ verij-cli/src/agent_store.rs: fn register_inner(
+      
+      /// Report source observation, atomically updating `state.json`.
+      pub fn report(instance_id: &AgentInstanceId, partial: PartialSourceRecord) -> Result<AgentState> {
+    @@ verij-cli/src/agent_store.rs: pub fn register(
+      
+     
+      ## verij-cli/src/agent_watcher.rs ##
+    -@@ verij-cli/src/agent_watcher.rs: pub fn read_records(root: &Path) -> Vec<AgentRecord> {
+    -             state.reduced.latest_error = None;
+    -             state.reduced.detail = Some("OpenCode reporter unavailable".into());
+    -         }
+    -+        if crate::pi::lease_expired(&state, crate::agent_store::now_ms()) {
+    -+            state.reduced.status = verij_types::agent::AgentStatus::Unknown;
+    -+            state.reduced.pending_requests.clear();
+    -+            state.reduced.background_task_count = 0;
+    -+            state.reduced.latest_completion = None;
+    -+            state.reduced.latest_error = None;
+    -+            state.reduced.detail = Some("Pi reporter unavailable".into());
+    -+        }
+    -         records.push(AgentRecord { identity, state });
+    +@@ verij-cli/src/agent_watcher.rs: pub fn read_single_agent(
+    +         state.reduced.detail = Some("OpenCode reporter unavailable".into());
+          }
+    -     records.sort_by(|a, b| {
+    + 
+    ++    degrade_expired_pi_lease(&mut state, crate::agent_store::now_ms());
+    ++
+    +     Some(AgentRecord { identity, state })
+    + }
+    + 
+    ++/// Read-side projection only: preserve source snapshots and the completion ledger.
+    ++/// Idempotence avoids publishing the same expired cached row every sweep.
+    ++fn degrade_expired_pi_lease(state: &mut AgentState, now_ms: u64) -> bool {
+    ++    if !crate::pi::lease_expired(state, now_ms) {
+    ++        return false;
+    ++    }
+    ++    let reduced = &mut state.reduced;
+    ++    let changed = reduced.status != AgentStatus::Unknown
+    ++        || !reduced.pending_requests.is_empty()
+    ++        || reduced.background_task_count != 0
+    ++        || reduced.latest_completion.is_some()
+    ++        || reduced.latest_error.is_some()
+    ++        || reduced.detail.as_deref() != Some("Pi reporter unavailable");
+    ++    if changed {
+    ++        reduced.status = AgentStatus::Unknown;
+    ++        reduced.pending_requests.clear();
+    ++        reduced.background_task_count = 0;
+    ++        reduced.latest_completion = None;
+    ++        reduced.latest_error = None;
+    ++        reduced.detail = Some("Pi reporter unavailable".into());
+    ++    }
+    ++    changed
+    ++}
+    ++
+    + pub fn read_records(root: &Path) -> Vec<AgentRecord> {
+    +     let mut records = Vec::new();
+    +     let Ok(entries) = std::fs::read_dir(root) else {
+    +@@ verij-cli/src/agent_watcher.rs: pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
+    +                     }
+    +                 }
+    + 
+    +-                // In-memory OpenCode lease projection & cheap liveness check bounded to 32 records per slice
+    ++                // In-memory lease projection & cheap liveness check bounded to 32 records per slice
+    +                 if now >= next_lease_liveness {
+    +                     let now_ms = crate::agent_store::now_ms();
+    +                     let mut dead_ids = Vec::new();
+    +@@ verij-cli/src/agent_watcher.rs: pub fn spawn_inner(root: PathBuf, tx: mpsc::Sender<Vec<AgentRecord>>) -> Result<
+    +                             changed = true;
+    +                         }
+    + 
+    ++                        changed |= degrade_expired_pi_lease(&mut record.state, now_ms);
+    ++
+    +                         // Cached liveness recheck
+    +                         let is_dead = if let Some(cached) = identity_cache.get_mut(id) {
+    +                             if now_ms.saturating_sub(cached.last_liveness_check_ms) >= 1000 {
+     @@ verij-cli/src/agent_watcher.rs: mod tests {
+      
+              handle.join().unwrap();
+3:  c7a5abb = 3:  501b721 Add Pi monitoring extension
+4:  d251213 = 4:  bef4c9a Add Pi agent setup and diagnostics
+5:  276d194 = 5:  27a746f Qualified local Pi monitoring acceptance
+-:  ------- > 6:  f662fe7 Covered cached Pi lease expiry after rebase
+-:  ------- > 7:  fa6f513 Added matched private Pi resource comparison
