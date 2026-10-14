@@ -621,6 +621,33 @@ fn add_missing_sessions_cancelable(
     }
 }
 
+const STATUS_PRUNE_TTL: Duration = Duration::from_millis(2500);
+
+/// Retain the last successful inventory for presentation until a successful
+/// query replaces it. Only fresh samples authorize destructive snapshot pruning.
+#[derive(Default)]
+struct SessionStatusCache {
+    sample: Option<(BTreeMap<String, SessionStatus>, Instant)>,
+}
+
+impl SessionStatusCache {
+    fn update(&mut self, statuses: Option<BTreeMap<String, SessionStatus>>) {
+        if let Some(statuses) = statuses {
+            self.sample = Some((statuses, Instant::now()));
+        }
+    }
+
+    fn statuses(&self) -> Option<&BTreeMap<String, SessionStatus>> {
+        self.sample.as_ref().map(|(statuses, _)| statuses)
+    }
+
+    fn can_prune(&self) -> bool {
+        self.sample
+            .as_ref()
+            .is_some_and(|(_, fetched)| fetched.elapsed() < STATUS_PRUNE_TTL)
+    }
+}
+
 struct FsNotificationSignal {
     tx: std::sync::mpsc::SyncSender<()>,
     rx: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
@@ -809,17 +836,12 @@ pub fn spawn_fs_watcher_inner(
             let mut host_cache = HashMap::new();
 
             const TOPOLOGY_INTERVAL: Duration = Duration::from_secs(10);
-            // File-driven topology remains prompt; do not extend stale discovery
-            // authority merely because the quiet discovery fallback is slower.
-            const STATUSES_TTL: Duration = Duration::from_millis(2500);
 
-            let mut cached_statuses: Option<(BTreeMap<String, SessionStatus>, Instant)> = None;
-            if let Some(statuses) = query_session_statuses_bounded_cancelable(
+            let mut cached_statuses = SessionStatusCache::default();
+            cached_statuses.update(query_session_statuses_bounded_cancelable(
                 Duration::from_millis(500),
                 Some(&stop_thread),
-            ) {
-                cached_statuses = Some((statuses, Instant::now()));
-            }
+            ));
 
             if tx.is_closed() || stop_thread.load(Ordering::Relaxed) {
                 return;
@@ -830,8 +852,7 @@ pub fn spawn_fs_watcher_inner(
             let mut accumulated_snapshots: Vec<SessionSnapshot> = Vec::new();
             let mut scan_in_progress = true;
             let mut followup_pass = false;
-            let mut can_prune = cached_statuses.is_some();
-            let mut status_sample_time: Option<Instant> = cached_statuses.as_ref().map(|(_, t)| *t);
+            let mut can_prune = cached_statuses.can_prune();
 
             let mut next_topology_refresh = Instant::now() + TOPOLOGY_INTERVAL;
 
@@ -857,15 +878,8 @@ pub fn spawn_fs_watcher_inner(
                         Duration::from_millis(500),
                         Some(&stop_thread),
                     );
-                    if let Some(fresh) = fresh_query {
-                        cached_statuses = Some((fresh, Instant::now()));
-                        can_prune = true;
-                        status_sample_time = Some(Instant::now());
-                    } else {
-                        cached_statuses = None;
-                        can_prune = false;
-                        status_sample_time = None;
-                    }
+                    can_prune = fresh_query.is_some();
+                    cached_statuses.update(fresh_query);
 
                     if scan_in_progress {
                         followup_pass = true;
@@ -919,7 +933,6 @@ pub fn spawn_fs_watcher_inner(
                         scan_cursor = None;
                         accumulated_snapshots.clear();
                         can_prune = false;
-                        status_sample_time = None;
                     }
                 }
 
@@ -930,13 +943,9 @@ pub fn spawn_fs_watcher_inner(
                         .unwrap_or(&registry_names);
 
                     // Pruning eligibility must not stay true after original status sample TTL
-                    let current_can_prune =
-                        can_prune && status_sample_time.is_some_and(|t| t.elapsed() < STATUSES_TTL);
+                    let current_can_prune = can_prune && cached_statuses.can_prune();
 
-                    let valid_statuses = cached_statuses
-                        .as_ref()
-                        .filter(|(_, fetched)| fetched.elapsed() < STATUSES_TTL)
-                        .map(|(s, _)| s);
+                    let statuses = cached_statuses.statuses();
 
                     let eof = read_states_slice_cancelable(
                         &states_dir,
@@ -945,14 +954,14 @@ pub fn spawn_fs_watcher_inner(
                         &mut accumulated_snapshots,
                         names,
                         &mut host_cache,
-                        valid_statuses,
+                        statuses,
                         current_can_prune,
                         Some(&stop_thread),
                     );
 
                     if eof {
                         // Completed pass! Build missing-status placeholders and publish atomically
-                        if let Some(statuses) = valid_statuses {
+                        if let Some(statuses) = statuses {
                             add_missing_sessions_cancelable(
                                 &mut accumulated_snapshots,
                                 statuses,
@@ -994,7 +1003,6 @@ pub fn spawn_fs_watcher_inner(
                             scan_in_progress = true;
                             scan_cursor = None;
                             can_prune = false;
-                            status_sample_time = None;
                         } else {
                             scan_in_progress = false;
                         }
@@ -1014,6 +1022,107 @@ pub fn spawn_fs_watcher_inner(
 mod tests {
     use super::*;
     use verij_types::TabSnapshot;
+
+    #[test]
+    fn inventory_rows_survive_prune_expiry_and_failed_refresh_until_successful_removal() {
+        let dir = tempfile::tempdir().unwrap();
+        let hosts = HashSet::new();
+        let mut host_cache = HashMap::from([
+            ("exited-inner".into(), HostClassification::NotHost),
+            ("live-inner".into(), HostClassification::NotHost),
+        ]);
+        let mut cache = SessionStatusCache::default();
+        cache.update(Some(BTreeMap::from([
+            ("exited-inner".into(), SessionStatus::Exited),
+            ("live-inner".into(), SessionStatus::Live),
+        ])));
+        assert!(cache.can_prune());
+        let initial = read_all_states_with_statuses(
+            dir.path(),
+            &hosts,
+            &mut host_cache,
+            cache.statuses(),
+            cache.can_prune(),
+        );
+        assert_eq!(initial.len(), 2);
+        assert!(initial[0].needs_resurrection);
+        assert!(!initial[1].needs_resurrection);
+
+        // File-driven scans outlive pruning authority before the next CLI poll.
+        cache.sample.as_mut().unwrap().1 =
+            Instant::now() - STATUS_PRUNE_TTL - Duration::from_secs(1);
+        for failed_refresh in [false, true] {
+            if failed_refresh {
+                cache.update(None);
+            }
+            assert!(!cache.can_prune());
+            let sessions = read_all_states_with_statuses(
+                dir.path(),
+                &hosts,
+                &mut host_cache,
+                cache.statuses(),
+                cache.can_prune(),
+            );
+            assert_eq!(sessions, initial);
+        }
+
+        // A successful empty inventory is authoritative, unlike a failed query.
+        cache.update(Some(BTreeMap::new()));
+        assert!(cache.can_prune());
+        let sessions = read_all_states_with_statuses(
+            dir.path(),
+            &hosts,
+            &mut host_cache,
+            cache.statuses(),
+            cache.can_prune(),
+        );
+        assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn expired_inventory_preserves_exited_snapshot_status_without_pruning_new_exports() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["exited-inner", "new-inner"] {
+            let snapshot = SessionSnapshot {
+                name: name.into(),
+                is_current: false,
+                tabs: Vec::new(),
+                active_pane: None,
+                connected_clients: None,
+                needs_resurrection: false,
+                inventory: None,
+            };
+            std::fs::write(
+                dir.path().join(format!("{name}.json")),
+                serde_json::to_vec(&snapshot).unwrap(),
+            )
+            .unwrap();
+        }
+        let cache = SessionStatusCache {
+            sample: Some((
+                BTreeMap::from([("exited-inner".into(), SessionStatus::Exited)]),
+                Instant::now() - STATUS_PRUNE_TTL - Duration::from_secs(1),
+            )),
+        };
+        let mut host_cache = HashMap::from([
+            ("exited-inner".into(), HostClassification::NotHost),
+            ("new-inner".into(), HostClassification::NotHost),
+        ]);
+        let sessions = read_all_states_with_statuses(
+            dir.path(),
+            &HashSet::new(),
+            &mut host_cache,
+            cache.statuses(),
+            cache.can_prune(),
+        );
+
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[0].name, "exited-inner");
+        assert!(sessions[0].needs_resurrection);
+        assert_eq!(sessions[1].name, "new-inner");
+        assert!(!sessions[1].needs_resurrection);
+        assert!(dir.path().join("new-inner.json").exists());
+    }
 
     #[test]
     fn reboot_without_runtime_snapshots_keeps_live_and_exited_inner_sessions() {
