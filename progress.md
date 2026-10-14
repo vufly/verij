@@ -54,6 +54,14 @@ Verij currently provides a working nested-session host for Zellij. Each host ses
 - Creation waits for the first tab's configured status plugin and a terminal pane to stabilize, then verifies the plugin survived fake-client detach.
 - Plugin fallback launches the agent when automatic layout loading does not produce state.
 
+### Pi Monitoring — P0 Lifecycle Qualification
+
+- The [Pi monitoring plan](docs/PI_MONITORING_PLAN.md) is approved; P0 is complete, while P1–P4 remain pending.
+- The [private runtime probe](prototypes/pi-runtime/README.md) exercised Pi 1.2.0 compiled/Bun and npm/Node TUI distributions with the observer loaded before and after the active fixture: 112 scenario runs, 1,608 sanitized lifecycle records.
+- Retained evidence covers parallel/nested tools, recoverable tool errors, provider errors and retries, cancellation, steering/follow-ups, extension continuation, automatic/manual compaction, blocking/nested/idle UI, session name/tree/replacement/reload, and orderly shutdown. All private process groups, provider workers, and scratch directories were cleaned up.
+- Eight JavaScript tests, twelve Python tests, strict TypeScript probe checks, and independent evidence validation passed. No production Rust/WASM adapter or global Pi/Verij configuration changed.
+- Completion requires final settlement plus current final outcome evidence: a post-run exception can settle non-aborted after a successful turn without the pre-settlement boundary. Missing evidence remains Unknown.
+
 ## Verification
 
 Current workspace checks:
