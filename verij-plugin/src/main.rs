@@ -5,7 +5,7 @@
 /// Runs headless inside EVERY inner Zellij session.
 ///
 /// Responsibilities:
-///   1. State & Inventory Export: On a bounded one-second SDK poll,
+///   1. State & Inventory Export: From native topology events and bounded validation,
 ///      serializes the session's own tabs and full terminal pane topology into
 ///      `SessionSnapshot` with `SessionInventory` and writes it to
 ///      `/tmp/verij/states/`.
@@ -27,6 +27,8 @@ use verij_types::{SessionSnapshot, TabSnapshot, VERIJ_CONTROL_PIPE, VERIJ_STATES
 use zellij_tile::prelude::*;
 mod control;
 mod queries;
+
+const SESSION_SCAN_INTERVAL: Duration = Duration::from_secs(10);
 
 // ---------------------------------------------------------------------------
 // Process Locator Helper
@@ -92,6 +94,11 @@ pub struct State {
 
     /// Inventory polling shares control's timer without following its fast focus polls.
     pub next_inventory_poll: Option<Instant>,
+    /// Full SDK session discovery broadcasts SessionUpdate to every subscriber.
+    /// Use it only for bootstrap/slow recovery; topology events keep our cache current.
+    pub next_session_scan: Option<Instant>,
+    /// Asynchronous own-client query avoids a global session scan.
+    pub observed_clients: Option<usize>,
 }
 
 thread_local! {
@@ -139,11 +146,19 @@ fn load() {
         }
     });
 
-    // Stock Zellij queues every subscribed update before calling WASM. Filtering
-    // unchanged facts inside update() cannot prevent that queue or decode cost.
-    // Poll instead; pipes, permission results and keyboard registration stay live.
-    eprintln!("[verij-plugin] load: bounded inventory polling (1s)");
-    subscribe(&[EventType::PermissionRequestResult]);
+    // GetSessionList is not a passive read in stock 0.45.1: it broadcasts a
+    // SessionUpdate and makes all status bars decode/render the global inventory.
+    // Receive our small native topology events instead, with slow scan recovery.
+    // InitialKeybinds keeps unused keybindings out of ModeUpdate payloads.
+    eprintln!("[verij-plugin] load: event-driven topology, validation (1s), session recovery (10s)");
+    subscribe(&[
+        EventType::PermissionRequestResult,
+        EventType::TabUpdate,
+        EventType::PaneUpdate,
+        EventType::ModeUpdate,
+        EventType::InitialKeybinds,
+        EventType::ListClients,
+    ]);
 
     request_permission(&[
         PermissionType::ReadApplicationState,
@@ -316,6 +331,28 @@ impl ZellijPlugin for State {
     /// State & Inventory Export: triggered on `SessionUpdate`, `TabUpdate`, or `PaneUpdate`.
     fn update(&mut self, event: Event) -> bool {
         match event {
+            Event::ModeUpdate(info) => {
+                if let Some(name) = info.session_name {
+                    if self.session_name.as_deref() != Some(name.as_str()) {
+                        if let Some(old) = self.session_name.clone() {
+                            self.cleanup_renamed_session_file(&old);
+                        }
+                        self.session_name = Some(name.clone());
+                        #[cfg(target_arch = "wasm32")]
+                        CONTROL.with(|control| {
+                            if let Some(controller) = control.borrow_mut().as_mut() {
+                                controller.set_session(&name);
+                            }
+                        });
+                        if self.last_inventory.is_some() {
+                            self.export_state();
+                        }
+                    }
+                }
+            }
+            Event::ListClients(clients) => {
+                self.observed_clients = Some(clients.len());
+            }
             Event::SessionUpdate(session_infos, _resurrectable) => {
                 if let Some(current) = session_infos.into_iter().find(|s| s.is_current_session) {
                     let old_name = self.session_name.clone();
@@ -406,10 +443,14 @@ impl ZellijPlugin for State {
 
             Event::PermissionRequestResult(PermissionStatus::Granted) => {
                 self.next_inventory_poll = Some(Instant::now() + Duration::from_secs(1));
+                #[cfg(target_arch = "wasm32")]
+                list_clients();
                 self.resolve_session_from_snapshot();
             }
 
             Event::Timer(_) if self.inventory_poll_due(Instant::now()) => {
+                #[cfg(target_arch = "wasm32")]
+                list_clients();
                 self.resolve_session_from_snapshot();
             }
 
@@ -427,6 +468,21 @@ impl ZellijPlugin for State {
 // ---------------------------------------------------------------------------
 
 impl State {
+    fn session_scan_due(&self, now: Instant) -> bool {
+        self.next_session_scan.is_none_or(|next| now >= next)
+    }
+
+    fn cached_session_snapshot(&self) -> Option<SessionInfo> {
+        Some(SessionInfo {
+            name: self.session_name.clone()?,
+            tabs: self.raw_tabs.clone(),
+            panes: self.panes.clone(),
+            connected_clients: self.observed_clients.or(self.connected_clients).unwrap_or(0),
+            is_current_session: true,
+            ..Default::default()
+        })
+    }
+
     fn inventory_poll_due(&mut self, now: Instant) -> bool {
         match self.next_inventory_poll {
             Some(next) if now >= next => {
@@ -709,9 +765,15 @@ impl State {
             let mut live_panes = Vec::new();
             if let Some(cached_panes) = current.panes.panes.get(&cached_tab.position) {
                 for cached_pane in cached_panes.iter().filter(|pane| !pane.is_plugin) {
-                    let Some(pane) = pane_info(PaneId::Terminal(cached_pane.id))? else {
+                    let Some(mut pane) = pane_info(PaneId::Terminal(cached_pane.id))? else {
                         return Ok(false);
                     };
+                    // Stock GetPaneInfo has no client context and always returns
+                    // is_focused=false. It is not a negative layer-focus fact.
+                    // Keep the client-scoped event flag while validating identity,
+                    // membership and live geometry; otherwise every timer erases
+                    // focus and the next PaneUpdate restores it, rewriting state.
+                    pane.is_focused = cached_pane.is_focused;
                     live_panes.push(pane);
                 }
             }
@@ -724,39 +786,55 @@ impl State {
         Ok(true)
     }
 
-    /// Bounded full-topology refresh, including sessions with no attached clients.
+    #[cfg(any(target_arch = "wasm32", test))]
+    fn collect_inventory(
+        &mut self,
+        now: Instant,
+        mut session_list: impl FnMut() -> Result<SessionListSnapshot, String>,
+        tab_info: impl FnMut(usize) -> Result<Option<TabInfo>, String>,
+        pane_info: impl FnMut(PaneId) -> Result<Option<PaneInfo>, String>,
+        mut focused_pane: impl FnMut() -> Result<(usize, PaneId), String>,
+    ) -> Result<Option<(SessionInfo, Option<(usize, PaneId)>)>, String> {
+        let current = if self.session_scan_due(now) {
+            let current = session_list()?.live_sessions.into_iter().find(|s| s.is_current_session);
+            if current.is_some() {
+                self.next_session_scan = Some(now + SESSION_SCAN_INTERVAL);
+            }
+            current
+        } else {
+            self.cached_session_snapshot()
+        };
+        let Some(mut current) = current else { return Ok(None); };
+        if let Some(clients) = self.observed_clients {
+            current.connected_clients = clients;
+        }
+        if !Self::refresh_polled_topology(&mut current, tab_info, pane_info)? {
+            // Never refresh authority for a closed entity from stale metadata.
+            // An actual cache mismatch may repair at the next bounded tick;
+            // unchanged topology must not repeatedly broadcast global scans.
+            self.cleanup_renamed_session_file(&current.name);
+            self.last_inventory = None;
+            self.next_session_scan = Some(now);
+            return Ok(None);
+        }
+        let focus = (current.connected_clients > 0).then(|| focused_pane().ok()).flatten();
+        Ok(Some((current, focus)))
+    }
+
+    /// Native events discover new topology; direct queries validate existing facts.
+    /// The slow session scan also recovers missed events and detached topology.
     pub fn resolve_session_from_snapshot(&mut self) {
         #[cfg(target_arch = "wasm32")]
-        {
-            if let Ok(snapshot) = queries::session_list() {
-                if let Some(mut current) = snapshot
-                    .live_sessions
-                    .into_iter()
-                    .find(|s| s.is_current_session)
-                {
-                    match Self::refresh_polled_topology(
-                        &mut current, queries::tab_info, queries::live_pane_info,
-                    ) {
-                        Ok(true) => {}
-                        Ok(false) => {
-                            // A new timestamp must never make a closed tab or pane
-                            // outrank a healthy exporter. Withdraw only our files.
-                            self.cleanup_renamed_session_file(&current.name);
-                            self.last_inventory = None;
-                            return;
-                        }
-                        Err(_) => return,
-                    }
-                    let focus = (current.connected_clients > 0)
-                        .then(|| queries::focused_pane().ok()).flatten();
-                    CONTROL.with(|control| {
-                        if let Some(controller) = control.borrow_mut().as_mut() {
-                            controller.set_session(&current.name);
-                        }
-                    });
-                    self.apply_polled_snapshot(current, focus);
+        if let Ok(Some((current, focus))) = self.collect_inventory(
+            Instant::now(), queries::session_list, queries::tab_info,
+            queries::live_pane_info, queries::focused_pane,
+        ) {
+            CONTROL.with(|control| {
+                if let Some(controller) = control.borrow_mut().as_mut() {
+                    controller.set_session(&current.name);
                 }
-            }
+            });
+            self.apply_polled_snapshot(current, focus);
         }
     }
 
@@ -916,7 +994,86 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::collections::HashMap;
+
+    #[test]
+    fn inventory_validation_reuses_topology_without_rebroadcasting_session_scans() {
+        let directory = std::env::temp_dir().join(format!("verij-scan-budget-{}", uuid_for_test()));
+        let mut state = State::new();
+        state.export_dir = directory.to_string_lossy().into_owned();
+        let tab = TabInfo { tab_id: 7, position: 0, active: true, name: "one".into(), ..Default::default() };
+        let pane = PaneInfo { id: 2, title: "terminal".into(), is_focused: true, ..Default::default() };
+        let session = SessionInfo {
+            name: "scan-budget".into(), is_current_session: true, connected_clients: 1,
+            tabs: vec![tab.clone()], panes: PaneManifest { panes: HashMap::from([(0, vec![pane.clone()])]) },
+            ..Default::default()
+        };
+        let scans = Cell::new(0);
+        let validations = Cell::new(0);
+        let now = Instant::now();
+        for seconds in 0..=10 {
+            let (current, focus) = state.collect_inventory(
+                now + Duration::from_secs(seconds),
+                || {
+                    scans.set(scans.get() + 1);
+                    Ok(SessionListSnapshot { live_sessions: vec![session.clone()], resurrectable_sessions: vec![] })
+                },
+                |_| { validations.set(validations.get() + 1); Ok(Some(tab.clone())) },
+                |_| Ok(Some(pane.clone())),
+                || Ok((7, PaneId::Terminal(2))),
+            ).unwrap().unwrap();
+            state.apply_polled_snapshot(current, focus);
+            assert_eq!(scans.get(), if seconds < 10 { 1 } else { 2 });
+        }
+        assert_eq!(validations.get(), 11, "native validation retains one-second freshness");
+        assert_eq!(state.revision, 1, "unchanged validation must not rewrite inventory");
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn native_topology_events_discover_new_panes_before_session_scan_recovery() {
+        let directory = std::env::temp_dir().join(format!("verij-native-events-{}", uuid_for_test()));
+        let mut state = State::new();
+        state.export_dir = directory.to_string_lossy().into_owned();
+        state.session_name = Some("native-events".into());
+        let now = Instant::now();
+        state.next_session_scan = Some(now + SESSION_SCAN_INTERVAL);
+        let tab = TabInfo { tab_id: 9, position: 0, active: true, name: "new".into(), ..Default::default() };
+        let pane = PaneInfo { id: 6, title: "new terminal".into(), is_focused: true, ..Default::default() };
+        state.update(Event::TabUpdate(vec![tab.clone()]));
+        state.update(Event::PaneUpdate(PaneManifest { panes: HashMap::from([(0, vec![pane.clone()])]) }));
+        state.observed_clients = Some(1);
+        let (current, focus) = state.collect_inventory(
+            now + Duration::from_secs(1),
+            || panic!("native topology events must not force a global session scan"),
+            |_| Ok(Some(tab.clone())), |_| Ok(Some(pane.clone())), || Ok((9, PaneId::Terminal(6))),
+        ).unwrap().unwrap();
+        assert_eq!(current.tabs[0].tab_id, 9);
+        assert_eq!(current.panes.panes[&0][0].id, 6);
+        state.apply_polled_snapshot(current, focus);
+        assert_eq!(state.last_inventory.as_ref().unwrap().panes[0].terminal_id.0, 6);
+        state.update(Event::PaneUpdate(PaneManifest::default()));
+        assert!(state.last_inventory.as_ref().unwrap().panes.is_empty());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn context_free_pane_validation_does_not_erase_client_scoped_layer_focus() {
+        let cached = PaneInfo { id: 4, title: "old".into(), is_focused: true, ..Default::default() };
+        let tab = TabInfo { tab_id: 3, position: 0, active: true, ..Default::default() };
+        let mut current = SessionInfo {
+            tabs: vec![tab.clone()],
+            panes: PaneManifest { panes: HashMap::from([(0, vec![cached])]) },
+            ..Default::default()
+        };
+        assert!(State::refresh_polled_topology(&mut current,
+            |_| Ok(Some(tab.clone())),
+            |_| Ok(Some(PaneInfo { id: 4, title: "fresh".into(), is_focused: false, ..Default::default() })),
+        ).unwrap());
+        assert!(current.panes.panes[&0][0].is_focused);
+        assert_eq!(current.panes.panes[&0][0].title, "fresh");
+    }
 
     #[test]
     fn inventory_timer_ignores_fast_focus_and_obsolete_callbacks() {

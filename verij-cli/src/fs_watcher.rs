@@ -385,32 +385,39 @@ pub fn is_host_session_bounded(name: &str, timeout: Duration) -> bool {
     classify_host_session_bounded(name, timeout) == HostClassification::Host
 }
 
-#[cfg(test)]
-pub fn check_is_host(
-    name: &str,
-    hosts: &HashSet<String>,
-    host_cache: &mut HashMap<String, HostClassification>,
-) -> bool {
-    check_is_host_cancelable(name, hosts, host_cache, None)
-}
-
 pub fn check_is_host_cancelable(
     name: &str,
     hosts: &HashSet<String>,
     host_cache: &mut HashMap<String, HostClassification>,
     stop: Option<&AtomicBool>,
 ) -> bool {
+    check_is_host_with_classifier(name, hosts, host_cache, stop, |name| {
+        classify_host_session_bounded(name, Duration::from_millis(300))
+    })
+}
+
+fn expire_unknown_host_classifications(host_cache: &mut HashMap<String, HostClassification>) {
+    host_cache.retain(|_, classification| *classification != HostClassification::Unknown);
+}
+
+fn check_is_host_with_classifier(
+    name: &str,
+    hosts: &HashSet<String>,
+    host_cache: &mut HashMap<String, HostClassification>,
+    stop: Option<&AtomicBool>,
+    mut classify: impl FnMut(&str) -> HostClassification,
+) -> bool {
     if hosts.contains(name) {
         return true;
     }
     match host_cache.get(name) {
         Some(HostClassification::Host) => true,
-        Some(HostClassification::NotHost) => false,
-        Some(HostClassification::Unknown) | None => {
+        Some(HostClassification::NotHost | HostClassification::Unknown) => false,
+        None => {
             if stop.is_some_and(|s| s.load(Ordering::Relaxed)) {
                 return false;
             }
-            let outcome = classify_host_session_bounded(name, Duration::from_millis(300));
+            let outcome = classify(name);
             match outcome {
                 HostClassification::Host => {
                     host_cache.insert(name.to_string(), HostClassification::Host);
@@ -420,7 +427,14 @@ pub fn check_is_host_cancelable(
                     host_cache.insert(name.to_string(), HostClassification::NotHost);
                     false
                 }
-                HostClassification::Unknown => false,
+                HostClassification::Unknown => {
+                    // A failed probe is not NotHost, but retrying it on every
+                    // filesystem update creates more CLI disconnect events and
+                    // can feed another inventory update back into this watcher.
+                    // Periodic discovery retires Unknown entries for a fresh try.
+                    host_cache.insert(name.to_string(), HostClassification::Unknown);
+                    false
+                }
             }
         }
     }
@@ -870,6 +884,7 @@ pub fn spawn_fs_watcher_inner(
                 let now = Instant::now();
                 if now >= next_topology_refresh {
                     next_topology_refresh = now + TOPOLOGY_INTERVAL;
+                    expire_unknown_host_classifications(&mut host_cache);
                     if let Some(ref mut reg) = registry {
                         let _ = reg.refresh();
                     }
@@ -1428,21 +1443,34 @@ mod tests {
     }
 
     #[test]
-    fn host_classification_tri_state_unknown_not_cached() {
+    fn failed_host_probe_is_coalesced_until_periodic_discovery_then_retried() {
         let hosts = HashSet::new();
         let mut host_cache = HashMap::new();
+        let mut probes = 0;
+        for _ in 0..1000 {
+            assert!(!check_is_host_with_classifier("exited", &hosts, &mut host_cache, None, |_| {
+                probes += 1;
+                HostClassification::Unknown
+            }));
+        }
+        assert_eq!(probes, 1, "filesystem bursts must not repeatedly spawn failed CLI probes");
+        assert_eq!(host_cache.get("exited"), Some(&HostClassification::Unknown));
+        host_cache.insert("known".into(), HostClassification::NotHost);
+        expire_unknown_host_classifications(&mut host_cache);
+        assert_eq!(host_cache.get("known"), Some(&HostClassification::NotHost));
+        assert!(check_is_host_with_classifier("exited", &hosts, &mut host_cache, None, |_| {
+            probes += 1;
+            HostClassification::Host
+        }));
+        assert_eq!(probes, 2, "periodic discovery must permit classification after resurrection");
+    }
 
-        // Unknown session with unresolvable name should result in Unknown outcome, which is NOT cached
-        let is_host = check_is_host(
-            "unresolvable-random-session-xyz-1234",
-            &hosts,
-            &mut host_cache,
-        );
-        assert!(!is_host);
-        assert!(
-            !host_cache.contains_key("unresolvable-random-session-xyz-1234"),
-            "Unknown classification outcome must not be memoized forever"
-        );
+    #[test]
+    fn registered_host_overrides_temporarily_unknown_classification_without_another_probe() {
+        let hosts = HashSet::from(["host".into()]);
+        let mut host_cache = HashMap::from([("host".into(), HostClassification::Unknown)]);
+        assert!(check_is_host_with_classifier("host", &hosts, &mut host_cache, None,
+            |_| panic!("registry ownership must not wait for the probe retry interval")));
     }
 
     #[test]
