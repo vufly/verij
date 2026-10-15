@@ -196,7 +196,7 @@ By default, selection swaps foreground and background across the entire row, inc
 
 #### Agent row formatting and display labels
 
-`[tui.tree]` also formats agent rows via `agent_format`. The default template renders one badge containing a leading space, status icon, `|`, agent label, and trailing space (for example, ` ○| `). The entire badge uses red (`1`) background with foreground `255` for errors; magenta (`5`) background with foreground `0` for input requests; silver (`7`) background with foreground `0` for idle/unknown; and green (`2`) background with foreground `0` for working/done, including the spinner. Selecting the row inverts the entire badge, including its padding. The pane title retains the row base style. Custom templates can apply their own styling to `#{agent_name}`.
+`[tui.tree]` also formats agent rows via `agent_format`. The default template renders one badge containing a leading space, status icon, `|`, agent label, and trailing space (for example, ` ○| `). The entire badge uses red (`1`) background with foreground `255` for errors; magenta (`5`) background with foreground `0` for input requests; silver (`7`) background with foreground `0` for idle/unknown; and green (`2`) background with foreground `0` for working/done, including the spinner. Selecting the row inverts the entire badge, including its padding. The pane title retains the row base style and is separated from the badge by a leading space. Custom templates can apply their own styling to `#{agent_name}`.
 
 `[tui.tree.agent_names]` maps agent kind keys to custom display labels:
 

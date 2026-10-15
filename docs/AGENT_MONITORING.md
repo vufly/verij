@@ -244,7 +244,7 @@ Extend `[tui.tree]` rather than introducing a second formatting language:
 ```toml
 [tui.tree]
 # One status-colored badge, including both padding spaces.
-agent_format = '#{tree_prefix}#[fg=0,bg=2]#{?error,#[fg=255,bg=1],#{?needs_input,#[bg=5],#{?idle,#[bg=7],#{?unknown,#[bg=7],}}}} #{status_icon}|#{agent_name} #[default]#{agent_title}'
+agent_format = '#{tree_prefix}#[fg=0,bg=2]#{?error,#[fg=255,bg=1],#{?needs_input,#[bg=5],#{?idle,#[bg=7],#{?unknown,#[bg=7],}}}} #{status_icon}|#{agent_name} #[default] #{agent_title}'
 
 [tui.tree.agent_styles]
 normal = ""
