@@ -166,7 +166,7 @@ Formats support this tmux-like subset (not the full tmux format language):
 | `#[bg=active_bg,fg=active_fg]` | Set background and foreground |
 | `#[default]` | Reset subsequent text to the current row's base style |
 
-Conditional commas inside a nested `#{...}` or `#[...]` do not split branches. Escape a literal comma in a branch as `\,`, a closing brace as `\}`, and a backslash as `\\`; `##` prints `#`. TOML literal strings (`'...'`) make these escapes easiest to write. Styles accept `fg` / `bg` as names from `[colors]`, ANSI indices (`0`–`255`), or `default`; modifiers are `bold`, `dim`, `italic`, `underline`, and `reverse`. `#[default]` restores the *row base*, including selection background. Invalid formats/styles report a warning on startup and fall back to the corresponding default.
+Conditional commas inside a nested `#{...}` or `#[...]` do not split branches. Escape a literal comma in a branch as `\,`, a closing brace as `\}`, and a backslash as `\\`; `##` prints `#`. TOML literal strings (`'...'`) make these escapes easiest to write. Styles accept `fg` / `bg` as names from `[colors]`, ANSI indices (`0`–`255`), or `default`; modifiers are `bold`, `dim`, `italic`, `underline`, and `reverse`. `#[default]` restores the *row base*. A row-level `reverse` inverts every span after inline styling, including already-inverse badges. Invalid formats/styles report a warning on startup and fall back to the corresponding default.
 
 | Variable | Where / meaning |
 |---|---|
@@ -187,16 +187,16 @@ Conditions: `selected` (sidebar cursor), `active` (attached session or its activ
 ```toml
 [tui.tree.tab_styles]
 normal = ""
-selected = "fg=selected_fg,bg=selected_bg"
+selected = "reverse"
 active = ""
-both = "fg=selected_fg,bg=selected_bg"
+both = "reverse"
 ```
 
-Inline style directives affect text spans on top of the chosen row base. Changing existing `[colors]` entries also changes default tree styles that reference those names. Templates and glyphs must produce one line per row; line breaks in snapshot names render as spaces.
+By default, selection swaps foreground and background across the entire row, including colored badges and trailing padding. Inline style directives affect text spans on top of the chosen row base. Changing existing `[colors]` entries also changes default tree styles that reference those names. Templates and glyphs must produce one line per row; line breaks in snapshot names render as spaces.
 
 #### Agent row formatting and display labels
 
-`[tui.tree]` also formats agent rows via `agent_format`. The default template wraps the agent name in `#[bold]#{agent_name}#[default]`, keeping row base colors (such as selection or active focus) while bolding only the name. Custom templates can apply their own styling to `#{agent_name}`.
+`[tui.tree]` also formats agent rows via `agent_format`. The default template renders one badge containing a leading space, status icon, `|`, agent label, and trailing space (for example, ` ○| `). The entire badge uses red (`1`) background with foreground `255` for errors; magenta (`5`) background with foreground `0` for input requests; silver (`7`) background with foreground `0` for idle/unknown; and green (`2`) background with foreground `0` for working/done, including the spinner. Selecting the row inverts the entire badge, including its padding. The pane title retains the row base style. Custom templates can apply their own styling to `#{agent_name}`.
 
 `[tui.tree.agent_names]` maps agent kind keys to custom display labels:
 

@@ -243,14 +243,14 @@ Extend `[tui.tree]` rather than introducing a second formatting language:
 
 ```toml
 [tui.tree]
-# Illustrative template with bold agent name. Defaults include status-specific icons and styles.
-agent_format = '#{tree_prefix}#{status_icon} #[bold]#{agent_name}#[default] #{agent_title}'
+# One status-colored badge, including both padding spaces.
+agent_format = '#{tree_prefix}#[fg=0,bg=2]#{?error,#[fg=255,bg=1],#{?needs_input,#[bg=5],#{?idle,#[bg=7],#{?unknown,#[bg=7],}}}} #{status_icon}|#{agent_name} #[default]#{agent_title}'
 
 [tui.tree.agent_styles]
 normal = ""
-selected = "fg=selected_fg,bg=selected_bg"
+selected = "reverse"
 active = "fg=active_fg,bg=active_bg"
-both = "fg=selected_fg,bg=selected_bg"
+both = "fg=active_fg,bg=active_bg,reverse"
 
 [tui.tree.agent_names]
 opencode = "▣"
@@ -263,7 +263,7 @@ pi = "󰏿"
 Display label semantics:
 
 - **Fallback**: Missing keys or blank entries fall back to the raw kind name (`opencode`, `agy`).
-- **Styling**: The default agent template bolds only the agent name segment via `#[bold]#{agent_name}#[default]`, preserving underlying row base colors (e.g. selection background). Custom templates are responsible for their own styling.
+- **Styling**: The default template renders a single ` ○| ` badge, including both padding spaces. Error uses background `1` and foreground `255`; needs input uses background `5` and foreground `0`; idle/unknown use background `7` and foreground `0`; working/done (including spinner) use background `2` and foreground `0`. Row selection inverts the entire badge, while the pane title retains active-row colors. Custom templates are responsible for their own styling.
 - **Literal text**: Configured values are literal text (control characters replaced with spaces, trimmed, and limited to 256 characters when the formatter is created) and are never evaluated as format strings. Text labels work as well as icons.
 - **Sidebar restart**: Configuration edits take effect when the sidebar TUI is restarted.
 - **Placeholders**: `codex`, `claude`, and `pi` entries are accepted for future adapter support and do not enable monitoring.

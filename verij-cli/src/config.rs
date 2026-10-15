@@ -139,9 +139,9 @@ pub struct TreeRowStyles {
 }
 
 // These formats, rather than rendering branches, define the default appearance.
-pub const DEFAULT_SESSION_FORMAT: &str = "#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}#{?has_agents,#{?agent_summary, #{agent_summary},},}";
+pub const DEFAULT_SESSION_FORMAT: &str = "#[bold]#{fold_marker} #[default]#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#[fg=muted][#{active_tab_name}]#[default]},}#{?has_tabs, #[fg=muted](#{tab_count} tabs)#[default],},#{?has_tabs, #[fg=muted](#{tab_count})#[default],}}#{?has_agents,#{?agent_summary, #{agent_summary},},}";
 pub const DEFAULT_TAB_FORMAT: &str = "#{branch} #{?has_agents,#{fold_marker} ,}#{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}#{?has_agents,#{?agent_summary, #{agent_summary},},}";
-pub const DEFAULT_AGENT_FORMAT: &str = "#{tree_prefix}#{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #[bold]#{agent_name}#[default] #{agent_title}";
+pub const DEFAULT_AGENT_FORMAT: &str = "#{tree_prefix}#[fg=0,bg=2]#{?error,#[fg=255,bg=1],#{?needs_input,#[bg=5],#{?idle,#[bg=7],#{?unknown,#[bg=7],}}}} #{status_icon}|#{agent_name} #[default]#{agent_title}";
 
 impl Default for TreeConfig {
     fn default() -> Self {
@@ -157,21 +157,21 @@ impl Default for TreeConfig {
             branch_last: "└".into(),
             session_styles: TreeRowStyles {
                 normal: "".into(),
-                selected: "fg=selected_fg,bg=selected_bg".into(),
+                selected: "reverse".into(),
                 active: "".into(),
-                both: "fg=selected_fg,bg=selected_bg".into(),
+                both: "reverse".into(),
             },
             tab_styles: TreeRowStyles {
                 normal: "".into(),
-                selected: "fg=selected_fg,bg=selected_bg".into(),
+                selected: "reverse".into(),
                 active: "".into(),
-                both: "fg=selected_fg,bg=selected_bg".into(),
+                both: "reverse".into(),
             },
             agent_styles: TreeRowStyles {
                 normal: "".into(),
-                selected: "fg=selected_fg,bg=selected_bg".into(),
+                selected: "reverse".into(),
                 active: "fg=active_fg,bg=active_bg".into(),
-                both: "fg=selected_fg,bg=selected_bg".into(),
+                both: "fg=active_fg,bg=active_bg,reverse".into(),
             },
         }
     }
@@ -233,9 +233,9 @@ pub struct ColorConfig {
     pub active_bg: u8,
     /// Foreground of the active-tab badge (default: Bright white = 255).
     pub active_fg: u8,
-    /// Background of the cursor-selected row (default: Bright white = 15).
+    /// Optional selected-row background for custom styles (default: Bright white = 15).
     pub selected_bg: u8,
-    /// Foreground of the cursor-selected row (default: Dark gray = 8).
+    /// Optional selected-row foreground for custom styles (default: Dark gray = 8).
     pub selected_fg: u8,
     /// Muted / secondary text (default: Dark gray = 8).
     pub muted: u8,
@@ -806,16 +806,16 @@ title_sources = ["pane", "conversation", "agent"]
 # title_sources = ["pane", "conversation", "agent"]
 
 [tui.tree]
-session_format = '#[bold]#{fold_marker} #[default]#{?selected,#{?attached,#[fg=attached_fg],},#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#{?selected,,#[fg=muted]}[#{active_tab_name}]#[default]},}#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count} tabs)#[default],},#{?has_tabs, #{?selected,,#[fg=muted]}(#{tab_count})#[default],}}#{?has_agents,#{?agent_summary, #{agent_summary},},}'
+session_format = '#[bold]#{fold_marker} #[default]#{?exited,#[fg=muted],#{?attached,#[fg=attached_fg],#[fg=session]}}#[bold]#{session_name}#[default]#{?collapsed,#{?has_active_tab, #{?attached,#[fg=active_fg,bg=active_bg,bold] [#{active_tab_name}] #[default],#[fg=muted][#{active_tab_name}]#[default]},}#{?has_tabs, #[fg=muted](#{tab_count} tabs)#[default],},#{?has_tabs, #[fg=muted](#{tab_count})#[default],}}#{?has_agents,#{?agent_summary, #{agent_summary},},}'
 tab_format = '#{branch} #{?has_agents,#{fold_marker} ,}#{?active,#[fg=active_fg,bg=active_bg,bold] #{tab_name} #[default],#{tab_name}}#{?has_agents,#{?agent_summary, #{agent_summary},},}'
-agent_format = '#{tree_prefix}#{?working,#[fg=spinner],}#{?needs_input,#[fg=needs_input],}#{?done,#[fg=done],}#{?error,#[fg=error],}#{?idle,#[fg=idle],}#{?unknown,#[fg=unknown],}#{status_icon}#[default] #[bold]#{agent_name}#[default] #{agent_title}'
+agent_format = '#{tree_prefix}#[fg=0,bg=2]#{?error,#[fg=255,bg=1],#{?needs_input,#[bg=5],#{?idle,#[bg=7],#{?unknown,#[bg=7],}}}} #{status_icon}|#{agent_name} #[default]#{agent_title}'
 fold_collapsed = "▷"
 fold_expanded = "▽"
 branch_first = "├" # first of multiple tabs; a single tab uses branch_last
 branch_middle = "├"
 branch_last = "└"
 
-# Optional agent labels; missing/blank values use the raw name. Names are bold by default.
+# Optional agent labels; missing/blank values use the raw name. Status and label share a badge.
 # Codex, Claude and Pi entries are placeholders for future monitoring support.
 # [tui.tree.agent_names]
 # opencode = "▣"
@@ -826,21 +826,21 @@ branch_last = "└"
 
 [tui.tree.session_styles]
 normal = ""
-selected = "fg=selected_fg,bg=selected_bg"
+selected = "reverse"
 active = ""
-both = "fg=selected_fg,bg=selected_bg"
+both = "reverse"
 
 [tui.tree.tab_styles]
 normal = ""
-selected = "fg=selected_fg,bg=selected_bg"
+selected = "reverse"
 active = ""
-both = "fg=selected_fg,bg=selected_bg"
+both = "reverse"
 
 [tui.tree.agent_styles]
 normal = ""
-selected = "fg=selected_fg,bg=selected_bg"
+selected = "reverse"
 active = "fg=active_fg,bg=active_bg"
-both = "fg=selected_fg,bg=selected_bg"
+both = "fg=active_fg,bg=active_bg,reverse"
 
 [zellij]
 # Zellij options patched into generated configuration for Verij hosts.
@@ -854,8 +854,8 @@ session      = 4    # Blue
 attached_fg  = 1    # Red   — attached session name foreground
 active_bg    = 1    # Red   — active-tab badge background
 active_fg    = 255  # Bright white — active-tab badge foreground
-selected_bg  = 15   # Bright white — cursor row background
-selected_fg  = 8    # Dark gray — cursor row foreground
+selected_bg  = 15   # Bright white — optional custom selection background
+selected_fg  = 8    # Dark gray — optional custom selection foreground
 muted        = 8    # Dark gray — secondary text
 error        = 1    # Red — error message
 spinner      = 6    # Cyan — connecting spinner / working indicator

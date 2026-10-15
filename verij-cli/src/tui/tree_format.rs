@@ -200,14 +200,7 @@ impl TreeFormatter {
             tick,
             formatter: self,
         };
-        let mut output = RowOutput {
-            spans: Vec::new(),
-            style: base,
-            base,
-            column: 0,
-            fold_range: None,
-            after_fold: false,
-        };
+        let mut output = RowOutput::new(base);
         output.emit(tokens, &context);
         (
             ListItem::new(Line::from(output.spans)).style(base),
@@ -586,6 +579,23 @@ struct RowOutput {
 }
 
 impl RowOutput {
+    fn new(base: Style) -> Self {
+        Self {
+            spans: Vec::new(),
+            style: Self::content_base(base),
+            base,
+            column: 0,
+            fold_range: None,
+            after_fold: false,
+        }
+    }
+
+    fn content_base(mut base: Style) -> Style {
+        // Apply row inversion after inline styles so inverse badges invert too.
+        base.add_modifier.remove(Modifier::REVERSED);
+        base
+    }
+
     fn text(&mut self, text: String) {
         // Keep each navigable node on exactly one rendered line.
         let text = text.replace(['\r', '\n'], " ");
@@ -597,7 +607,16 @@ impl RowOutput {
         }
         if !text.is_empty() {
             self.after_fold = false;
-            self.spans.push(Span::styled(text, self.style));
+            let style = if self.base.add_modifier.contains(Modifier::REVERSED) {
+                if self.style.add_modifier.contains(Modifier::REVERSED) {
+                    self.style.remove_modifier(Modifier::REVERSED)
+                } else {
+                    self.style.add_modifier(Modifier::REVERSED)
+                }
+            } else {
+                self.style
+            };
+            self.spans.push(Span::styled(text, style));
             self.column += width;
         }
     }
@@ -634,7 +653,7 @@ impl RowOutput {
                     self.emit(if context.flag(flag) { yes } else { no }, context)
                 }
                 Token::Style(style) => self.style = self.style.patch(*style),
-                Token::Reset => self.style = self.base,
+                Token::Reset => self.style = Self::content_base(self.base),
             }
         }
     }
@@ -948,14 +967,7 @@ mod tests {
             tick,
             formatter,
         };
-        let mut output = RowOutput {
-            spans: Vec::new(),
-            style: base,
-            base,
-            column: 0,
-            fold_range: None,
-            after_fold: false,
-        };
+        let mut output = RowOutput::new(base);
         output.emit(tokens, &context);
         output
     }
@@ -998,9 +1010,13 @@ mod tests {
             "▽ backend (3)"
         );
         let selected = output(&formatter, &expanded, &snap, true, false, false, false);
-        assert_eq!(selected.base.bg, Some(Color::Indexed(15)));
-        assert_eq!(selected.spans[0].style.fg, Some(Color::Indexed(8)));
-        assert_eq!(selected.spans[0].style.bg, Some(Color::Indexed(15)));
+        assert!(selected.base.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(selected.spans[0].style.fg, None);
+        assert_eq!(selected.spans[0].style.bg, None);
+        assert!(selected
+            .spans
+            .iter()
+            .all(|span| span.style.add_modifier.contains(Modifier::REVERSED)));
         assert_eq!(
             selected
                 .spans
@@ -1009,7 +1025,7 @@ mod tests {
                 .unwrap()
                 .style
                 .fg,
-            Some(Color::Indexed(8))
+            Some(Color::Indexed(4))
         );
 
         let collapsed = session(true, false);
@@ -1043,7 +1059,7 @@ mod tests {
         assert_eq!(attached_row.fold_range, Some(0..2));
 
         let both = output(&formatter, &attached, &snap, true, true, false, false);
-        assert_eq!(both.base.bg, Some(Color::Indexed(15)));
+        assert!(both.base.add_modifier.contains(Modifier::REVERSED));
         assert_eq!(
             both.spans
                 .iter()
@@ -1122,7 +1138,7 @@ mod tests {
                 .unwrap()
                 .style
                 .fg,
-            Some(Color::Indexed(1))
+            Some(Color::Indexed(8))
         );
     }
 
@@ -1156,7 +1172,7 @@ mod tests {
             "└ editor"
         );
         let selected = output(&formatter, &tab, &snap, true, false, true, false);
-        assert_eq!(selected.base.bg, Some(Color::Indexed(15)));
+        assert!(selected.base.add_modifier.contains(Modifier::REVERSED));
 
         let mut active = tab.clone();
         if let TreeNode::Tab {
@@ -1181,7 +1197,7 @@ mod tests {
         assert!(badge.style.add_modifier.contains(Modifier::BOLD));
         let both = output(&formatter, &active, &snap, true, true, true, false);
         assert_eq!(content(&both), "╞  editor ");
-        assert_eq!(both.base.bg, Some(Color::Indexed(15)));
+        assert!(both.base.add_modifier.contains(Modifier::REVERSED));
         assert_eq!(
             both.spans
                 .iter()
@@ -1249,7 +1265,10 @@ mod tests {
             )),
             "▽ backend (3)"
         );
-        assert_eq!(formatter.tab_styles.selected.fg, Some(Color::Indexed(8)));
+        assert_eq!(
+            formatter.tab_styles.selected,
+            Style::default().add_modifier(Modifier::REVERSED)
+        );
     }
 
     #[test]
@@ -1268,13 +1287,15 @@ mod tests {
             false,
         );
         assert_eq!(row.spans[0].style.fg, Some(Color::Indexed(12)));
-        assert_eq!(row.spans[0].style.bg, Some(Color::Indexed(15)));
-        assert_eq!(row.spans[1].style.fg, Some(Color::Indexed(8)));
-        assert_eq!(row.spans[1].style.bg, Some(Color::Indexed(15)));
+        assert_eq!(row.spans[0].style.bg, None);
+        assert!(row.spans[0].style.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(row.spans[1].style.fg, None);
+        assert_eq!(row.spans[1].style.bg, None);
+        assert!(row.spans[1].style.add_modifier.contains(Modifier::REVERSED));
     }
 
     #[test]
-    fn selected_style_changes_default_session_text() {
+    fn custom_selected_style_is_base_for_inline_styles() {
         let mut config = TreeConfig::default();
         config.session_styles.selected = "fg=12,bg=selected_bg".into();
         let formatter = TreeFormatter::new(&config, &ColorConfig::default());
@@ -1288,13 +1309,17 @@ mod tests {
             false,
             false,
         );
-        for span in row
+        assert_eq!(row.spans[0].style.fg, Some(Color::Indexed(12)));
+        assert!(row
             .spans
             .iter()
-            .filter(|span| !span.content.trim().is_empty())
-        {
-            assert_eq!(span.style.fg, Some(Color::Indexed(12)));
-        }
+            .all(|span| span.style.bg == Some(Color::Indexed(15))));
+        let name = row
+            .spans
+            .iter()
+            .find(|span| span.content == "backend")
+            .unwrap();
+        assert_eq!(name.style.fg, Some(Color::Indexed(4)));
     }
 
     use verij_types::identity::{AgentInstanceId, PaneKey, SessionInstanceId, TerminalPaneId};
@@ -1363,11 +1388,14 @@ mod tests {
             meta: agent1_meta,
         };
         let row1 = output(&formatter, &agent1, &snap, false, false, true, false);
-        assert_eq!(content(&row1), "│ ⠋ opencode opencode-task");
+        assert_eq!(content(&row1), "│  ⠋|opencode opencode-task");
 
-        // Bold agent name, normal title, and preserved row base colors.
+        // Status, divider, and agent label share one badge; title uses row base.
         let name_span = row1.spans.iter().find(|s| s.content == "opencode").unwrap();
-        assert!(name_span.style.add_modifier.contains(Modifier::BOLD));
+        assert_eq!(name_span.style.fg, Some(Color::Indexed(0)));
+        assert_eq!(name_span.style.bg, Some(Color::Indexed(2)));
+        let divider = row1.spans.iter().find(|s| s.content == "|").unwrap();
+        assert_eq!(divider.style, name_span.style);
         let title_span = row1
             .spans
             .iter()
@@ -1405,7 +1433,7 @@ mod tests {
             meta: agent2_meta,
         };
         let row2 = output(&formatter, &agent2, &snap, false, false, false, true);
-        assert_eq!(content(&row2), "│ ! agy agy-task");
+        assert_eq!(content(&row2), "│  !|agy agy-task");
 
         // Sanitized, blank (discarded -> fallback), and missing label handling.
         let mut label_cfg = TreeConfig::default();
@@ -1415,16 +1443,16 @@ mod tests {
         label_cfg.agent_names.insert("agy".into(), "   ".into());
         let label_fmt = TreeFormatter::new(&label_cfg, &ColorConfig::default());
         let label_row1 = output(&label_fmt, &agent1, &snap, false, false, true, false);
-        assert_eq!(content(&label_row1), "│ ⠋ ▣ opencode-task");
+        assert_eq!(content(&label_row1), "│  ⠋|▣ opencode-task");
         let label_row2 = output(&label_fmt, &agent2, &snap, false, false, false, true);
-        assert_eq!(content(&label_row2), "│ ! agy agy-task");
+        assert_eq!(content(&label_row2), "│  !|agy agy-task");
 
         let mut unknown_agent = agent1.clone();
         if let TreeNode::AgentPane { view, .. } = &mut unknown_agent {
             view.kind = AgentKind::Unknown;
         }
         let unk_row = output(&label_fmt, &unknown_agent, &snap, false, false, true, false);
-        assert!(content(&unk_row).contains(" unknown "));
+        assert!(content(&unk_row).contains("|unknown "));
 
         label_cfg.agent_names.insert("agy".into(), "⮝".into());
         let label_fmt = TreeFormatter::new(&label_cfg, &ColorConfig::default());
@@ -1432,7 +1460,7 @@ mod tests {
             content(&output(
                 &label_fmt, &agent2, &snap, false, false, false, true
             )),
-            "│ ! ⮝ agy-task"
+            "│  !|⮝ agy-task"
         );
         for selected in [false, true] {
             for active in [false, true] {
@@ -1447,12 +1475,20 @@ mod tests {
                     .iter()
                     .find(|s| s.content == "opencode-task")
                     .unwrap();
-                assert!(label.style.add_modifier.contains(Modifier::BOLD));
+                assert!(!label.style.add_modifier.contains(Modifier::BOLD));
+                assert_eq!(
+                    label.style.add_modifier.contains(Modifier::REVERSED),
+                    selected
+                );
+                assert_eq!(
+                    title.style.add_modifier.contains(Modifier::REVERSED),
+                    selected
+                );
                 assert!(!title.style.add_modifier.contains(Modifier::BOLD));
-                for span in [label, title] {
-                    assert_eq!(span.style.fg, row.base.fg);
-                    assert_eq!(span.style.bg, row.base.bg);
-                }
+                assert_eq!(label.style.fg, Some(Color::Indexed(0)));
+                assert_eq!(label.style.bg, Some(Color::Indexed(2)));
+                assert_eq!(title.style.fg, row.base.fg);
+                assert_eq!(title.style.bg, row.base.bg);
             }
         }
 
@@ -1463,7 +1499,7 @@ mod tests {
             .insert("opencode".into(), "#[bold]#{status_icon}".into());
         let lit_fmt = TreeFormatter::new(&lit_cfg, &ColorConfig::default());
         let lit_row = output(&lit_fmt, &agent1, &snap, false, false, true, false);
-        assert_eq!(content(&lit_row), "│ ⠋ #[bold]#{status_icon} opencode-task");
+        assert_eq!(content(&lit_row), "│  ⠋|#[bold]#{status_icon} opencode-task");
 
         // Agent 3 under last tab (tab has NO more siblings -> tab_has_more = false)
         let agent3_meta = RowMeta {
@@ -1489,7 +1525,7 @@ mod tests {
             meta: agent3_meta,
         };
         let row3 = output(&formatter, &agent3, &snap, false, false, true, true);
-        assert_eq!(content(&row3), "  ✓ opencode opencode-task");
+        assert_eq!(content(&row3), "   ✓|opencode opencode-task");
     }
 
     #[test]
@@ -1791,13 +1827,139 @@ mod tests {
         assert_eq!(normal.base.bg, None);
 
         let selected_only = output(&formatter, &node_inactive, &snap, true, false, false, false);
-        assert_eq!(selected_only.base.bg, Some(Color::Indexed(15)));
+        assert_eq!(selected_only.base.bg, None);
+        assert!(selected_only.base.add_modifier.contains(Modifier::REVERSED));
 
         let active_only = output(&formatter, &node_active, &snap, false, false, false, false);
         assert_eq!(active_only.base.bg, Some(Color::Indexed(1)));
 
         let both = output(&formatter, &node_active, &snap, true, false, false, false);
-        assert_eq!(both.base.bg, Some(Color::Indexed(15)));
+        assert_eq!(both.base.bg, Some(Color::Indexed(1)));
+        assert_eq!(both.base.fg, active_only.base.fg);
+        assert!(both.base.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn unified_agent_badge_palette_and_padding_follow_selection() {
+        let mut config = TreeConfig::default();
+        config.agent_names.insert("codex".into(), "".into());
+        let formatter = TreeFormatter::new(&config, &ColorConfig::default());
+        let snap = snapshot();
+        for (status, fg, bg) in [
+            (AgentStatus::Error, 255, 1),
+            (AgentStatus::NeedsInput, 0, 5),
+            (AgentStatus::Idle, 0, 7),
+            (AgentStatus::Unknown, 0, 7),
+            (AgentStatus::Working, 0, 2),
+            (AgentStatus::Done, 0, 2),
+        ] {
+            for active in [false, true] {
+                for selected in [false, true] {
+                    let node = TreeNode::AgentPane {
+                        session_name: "backend".into(),
+                        session_index: 0,
+                        tab_name: "editor".into(),
+                        tab_position: 0,
+                        view: make_agent_view("agent", AgentKind::Codex, status, active, false),
+                        meta: Default::default(),
+                    };
+                    // Exercise two spinner frames as well as static status icons.
+                    for tick in [0, 2] {
+                        let row = output_at_tick(
+                            &formatter, &node, &snap, selected, active, false, false, tick,
+                        );
+                        let badge = &row.spans[..5];
+                        assert_eq!(badge[0].content, " ");
+                        assert_eq!(badge[2].content, "|");
+                        assert_eq!(badge[3].content, "");
+                        assert_eq!(badge[4].content, " ");
+                        if status == AgentStatus::Working {
+                            assert_eq!(badge[1].content, if tick == 0 { "⠋" } else { "⠙" });
+                        }
+                        for span in badge {
+                            assert_eq!(span.style.fg, Some(Color::Indexed(fg)));
+                            assert_eq!(span.style.bg, Some(Color::Indexed(bg)));
+                            assert_eq!(
+                                span.style.add_modifier.contains(Modifier::REVERSED),
+                                selected
+                            );
+                            assert_eq!(span.style, badge[0].style);
+                        }
+                        let title = row.spans.last().unwrap();
+                        assert_eq!(title.content, "codex-task");
+                        assert_eq!(title.style.fg, row.base.fg);
+                        assert_eq!(title.style.bg, row.base.bg);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn selection_inverts_every_rendered_cell_including_badges_and_padding() {
+        use ratatui::{
+            buffer::Buffer,
+            layout::Rect,
+            widgets::{List, Widget},
+        };
+
+        let mut config = TreeConfig::default();
+        config.agent_names.insert("codex".into(), "".into());
+        let formatter = TreeFormatter::new(&config, &ColorConfig::default());
+        let snap = snapshot();
+        for active in [false, true] {
+            let mut nodes = vec![
+                session(true, active),
+                TreeNode::Tab {
+                    session_name: "backend".into(),
+                    session_index: 0,
+                    name: "editor".into(),
+                    position: 0,
+                    is_workspace_active: active,
+                    meta: Default::default(),
+                    summary: Default::default(),
+                    is_collapsed: false,
+                    has_children: false,
+                },
+            ];
+            for status in [
+                AgentStatus::Working,
+                AgentStatus::NeedsInput,
+                AgentStatus::Done,
+                AgentStatus::Idle,
+                AgentStatus::Error,
+                AgentStatus::Unknown,
+            ] {
+                nodes.push(TreeNode::AgentPane {
+                    session_name: "backend".into(),
+                    session_index: 0,
+                    tab_name: "editor".into(),
+                    tab_position: 0,
+                    view: make_agent_view("agent", AgentKind::Codex, status, active, false),
+                    meta: Default::default(),
+                });
+            }
+            for node in nodes {
+                for width in [5, 60] {
+                    let area = Rect::new(0, 0, width, 1);
+                    let render_row = |selected| {
+                        let (item, _) =
+                            formatter.render(&node, Some(&snap), selected, active, false, false);
+                        let mut buffer = Buffer::empty(area);
+                        List::new(vec![item]).render(area, &mut buffer);
+                        buffer
+                    };
+                    let normal = render_row(false);
+                    let selected = render_row(true);
+                    for (before, after) in normal.content.iter().zip(&selected.content) {
+                        assert_eq!(before.symbol(), after.symbol());
+                        assert_eq!(before.fg, after.fg);
+                        assert_eq!(before.bg, after.bg);
+                        assert_eq!(before.modifier ^ Modifier::REVERSED, after.modifier);
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -1963,13 +2125,13 @@ mod tests {
         // Default formatter renders "pi"
         let default_fmt = TreeFormatter::default();
         let default_row = output(&default_fmt, &agent_pi, &snap, false, false, true, false);
-        assert_eq!(content(&default_row), "│ ⠋ pi pi-task");
+        assert_eq!(content(&default_row), "│  ⠋|pi pi-task");
 
         // Custom agent_names override renders custom symbol
         let mut custom_cfg = TreeConfig::default();
         custom_cfg.agent_names.insert("pi".into(), "󰏿".into());
         let custom_fmt = TreeFormatter::new(&custom_cfg, &ColorConfig::default());
         let custom_row = output(&custom_fmt, &agent_pi, &snap, false, false, true, false);
-        assert_eq!(content(&custom_row), "│ ⠋ 󰏿 pi-task");
+        assert_eq!(content(&custom_row), "│  ⠋|󰏿 pi-task");
     }
 }
