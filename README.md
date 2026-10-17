@@ -196,7 +196,7 @@ By default, selection swaps foreground and background across the entire row, inc
 
 #### Agent row formatting and display labels
 
-`[tui.tree]` also formats agent rows via `agent_format`. The default template renders one badge containing a leading space, status icon, `|`, agent label, and trailing space (for example, ` ○| `). The entire badge uses red (`1`) background with foreground `255` for errors; magenta (`5`) background with foreground `0` for input requests; silver (`7`) background with foreground `0` for idle/unknown; and green (`2`) background with foreground `0` for working/done, including the spinner. Selecting the row inverts the entire badge, including its padding. The pane title retains the row base style and is separated from the badge by a leading space. Custom templates can apply their own styling to `#{agent_name}`.
+`[tui.tree]` also formats agent rows via `agent_format`. The default template renders a bold, colored status icon followed by a dimmed agent label and the pane title, separated by spaces (for example, `✓  Task title`), without a badge or divider. Status foregrounds are red (`1`) for errors (`✕`), magenta (`5`) for input requests, silver (`7`) for idle/unknown, and green (`2`) for working/done, including the spinner and checkmark. Icons inherit the row background; the title retains the row base style. Selecting the row inverts the entire row. Custom templates can apply their own styling to `#{agent_name}`.
 
 `[tui.tree.agent_names]` maps agent kind keys to custom display labels:
 
@@ -206,7 +206,7 @@ opencode = "▣"
 codex = ""
 claude = ""
 agy = "⮝"
-pi = "󰏿"
+pi = ""
 ```
 
 - **Missing/blank fallback**: If an agent kind key is omitted or configured with a blank string, it falls back to the raw kind name (`opencode`, `agy`).
@@ -279,6 +279,21 @@ Zellij 0.45.1 can retain `start_suspended` in serialized layouts despite `--forc
 Host resurrection also replaces stale serialized Workspace-pane attach commands with the host's durable last-session target.
 
 New inner sessions receive a fake-PTY attach while their initial layout is created. Verij waits for the default layout's status plugin in the first tab to remain present alongside a terminal pane, then verifies it survived detaching the fake client before attaching the Workspace pane. If the plugin is still absent, creation reports an error instead of silently switching to a broken layout.
+
+## Agent version compatibility
+
+Agent adapters accept minor and patch upgrades within their supported release family without rebuilding Verij or rerunning setup:
+
+| Agent | Compatible releases |
+|---|---|
+| OpenCode | `>=1.0.0, <2.0.0` |
+| Agy / Magy | `>=1.2.14, <2.0.0` |
+| Codex | `>=0.160.1, <1.0.0` |
+| Pi | `>=1.2.0, <2.0.0` |
+
+These ranges select existing adapter contracts, not exhaustive runtime qualification. Version acceptance never bypasses protocol/schema validation, foreground ownership, or completion evidence. New major versions require contract review; Codex 0.x minor upgrades are deliberately allowed within the listed family. Retained fixture versions describe tested releases, not exact allowlists.
+
+For an older exact-pinned Pi installation, refresh Verij and run `verij agent setup pi` once, then `/reload` open Pi sessions. Subsequent compatible Pi upgrades need no Verij changes.
 
 ## Documentation
 

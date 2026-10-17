@@ -243,8 +243,8 @@ Extend `[tui.tree]` rather than introducing a second formatting language:
 
 ```toml
 [tui.tree]
-# One status-colored badge, including both padding spaces.
-agent_format = '#{tree_prefix}#[fg=0,bg=2]#{?error,#[fg=255,bg=1],#{?needs_input,#[bg=5],#{?idle,#[bg=7],#{?unknown,#[bg=7],}}}} #{status_icon}|#{agent_name} #[default] #{agent_title}'
+# Bold, colored status icon followed by a dimmed agent label; no badge or separator.
+agent_format = '#{tree_prefix}#[fg=2,bold]#{?error,#[fg=1],#{?needs_input,#[fg=5],#{?idle,#[fg=7],#{?unknown,#[fg=7],}}}}#{status_icon}#[default] #[dim]#{agent_name}#[default] #{agent_title}'
 
 [tui.tree.agent_styles]
 normal = ""
@@ -257,13 +257,13 @@ opencode = "▣"
 codex = ""
 claude = ""
 agy = "⮝"
-pi = "󰏿"
+pi = ""
 ```
 
 Display label semantics:
 
 - **Fallback**: Missing keys or blank entries fall back to the raw kind name (`opencode`, `agy`).
-- **Styling**: The default template renders a single ` ○| ` badge, including both padding spaces. Error uses background `1` and foreground `255`; needs input uses background `5` and foreground `0`; idle/unknown use background `7` and foreground `0`; working/done (including spinner) use background `2` and foreground `0`. Row selection inverts the entire badge, while the pane title retains active-row colors. Custom templates are responsible for their own styling.
+- **Styling**: The default template renders a bold, colored status icon and a dimmed agent label, separated by a space (for example, `○ `), without a badge or divider. Error (`✕`) uses foreground `1`; needs input uses `5`; idle/unknown use `7`; working/done (including spinner and `✓`) use `2`. Both icons inherit the row background, and the pane title retains the row base style. Row selection inverts the entire row. Custom templates are responsible for their own styling.
 - **Literal text**: Configured values are literal text (control characters replaced with spaces, trimmed, and limited to 256 characters when the formatter is created) and are never evaluated as format strings. Text labels work as well as icons.
 - **Sidebar restart**: Configuration edits take effect when the sidebar TUI is restarted.
 - **Placeholders**: `codex`, `claude`, and `pi` entries are accepted for future adapter support and do not enable monitoring.

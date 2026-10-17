@@ -244,7 +244,7 @@ impl RowContext<'_> {
         let summary = self.node.summary();
         let mut parts = Vec::new();
         if summary.error > 0 {
-            parts.push(format!("×{}", summary.error));
+            parts.push(format!("✕{}", summary.error));
         }
         if summary.needs_input > 0 {
             parts.push(format!("!{}", summary.needs_input));
@@ -534,7 +534,7 @@ impl RowContext<'_> {
                     AgentStatus::NeedsInput => "!".to_string(),
                     AgentStatus::Done => "✓".to_string(),
                     AgentStatus::Idle => "○".to_string(),
-                    AgentStatus::Error => "×".to_string(),
+                    AgentStatus::Error => "✕".to_string(),
                     AgentStatus::Unknown => "?".to_string(),
                 },
                 _ => String::new(),
@@ -591,7 +591,7 @@ impl RowOutput {
     }
 
     fn content_base(mut base: Style) -> Style {
-        // Apply row inversion after inline styles so inverse badges invert too.
+        // Apply row inversion after inline styles so inverse spans invert too.
         base.add_modifier.remove(Modifier::REVERSED);
         base
     }
@@ -1388,14 +1388,18 @@ mod tests {
             meta: agent1_meta,
         };
         let row1 = output(&formatter, &agent1, &snap, false, false, true, false);
-        assert_eq!(content(&row1), "│  ⠋|opencode opencode-task");
+        assert_eq!(content(&row1), "│ ⠋ opencode opencode-task");
 
-        // Status, divider, and agent label share one badge; title uses row base.
+        // Status is bold and colored; agent label is dimmed, without a badge or divider.
+        let status_span = row1.spans.iter().find(|s| s.content == "⠋").unwrap();
+        assert_eq!(status_span.style.fg, Some(Color::Indexed(2)));
+        assert_eq!(status_span.style.bg, row1.base.bg);
+        assert!(status_span.style.add_modifier.contains(Modifier::BOLD));
         let name_span = row1.spans.iter().find(|s| s.content == "opencode").unwrap();
-        assert_eq!(name_span.style.fg, Some(Color::Indexed(0)));
-        assert_eq!(name_span.style.bg, Some(Color::Indexed(2)));
-        let divider = row1.spans.iter().find(|s| s.content == "|").unwrap();
-        assert_eq!(divider.style, name_span.style);
+        assert_eq!(name_span.style.fg, row1.base.fg);
+        assert_eq!(name_span.style.bg, row1.base.bg);
+        assert!(name_span.style.add_modifier.contains(Modifier::DIM));
+        assert!(!row1.spans.iter().any(|s| s.content == "|"));
         let title_span = row1
             .spans
             .iter()
@@ -1433,7 +1437,7 @@ mod tests {
             meta: agent2_meta,
         };
         let row2 = output(&formatter, &agent2, &snap, false, false, false, true);
-        assert_eq!(content(&row2), "│  !|agy agy-task");
+        assert_eq!(content(&row2), "│ ! agy agy-task");
 
         // Sanitized, blank (discarded -> fallback), and missing label handling.
         let mut label_cfg = TreeConfig::default();
@@ -1443,16 +1447,16 @@ mod tests {
         label_cfg.agent_names.insert("agy".into(), "   ".into());
         let label_fmt = TreeFormatter::new(&label_cfg, &ColorConfig::default());
         let label_row1 = output(&label_fmt, &agent1, &snap, false, false, true, false);
-        assert_eq!(content(&label_row1), "│  ⠋|▣ opencode-task");
+        assert_eq!(content(&label_row1), "│ ⠋ ▣ opencode-task");
         let label_row2 = output(&label_fmt, &agent2, &snap, false, false, false, true);
-        assert_eq!(content(&label_row2), "│  !|agy agy-task");
+        assert_eq!(content(&label_row2), "│ ! agy agy-task");
 
         let mut unknown_agent = agent1.clone();
         if let TreeNode::AgentPane { view, .. } = &mut unknown_agent {
             view.kind = AgentKind::Unknown;
         }
         let unk_row = output(&label_fmt, &unknown_agent, &snap, false, false, true, false);
-        assert!(content(&unk_row).contains("|unknown "));
+        assert!(content(&unk_row).contains(" unknown "));
 
         label_cfg.agent_names.insert("agy".into(), "⮝".into());
         let label_fmt = TreeFormatter::new(&label_cfg, &ColorConfig::default());
@@ -1460,7 +1464,7 @@ mod tests {
             content(&output(
                 &label_fmt, &agent2, &snap, false, false, false, true
             )),
-            "│  !|⮝ agy-task"
+            "│ ! ⮝ agy-task"
         );
         for selected in [false, true] {
             for active in [false, true] {
@@ -1485,8 +1489,9 @@ mod tests {
                     selected
                 );
                 assert!(!title.style.add_modifier.contains(Modifier::BOLD));
-                assert_eq!(label.style.fg, Some(Color::Indexed(0)));
-                assert_eq!(label.style.bg, Some(Color::Indexed(2)));
+                assert!(label.style.add_modifier.contains(Modifier::DIM));
+                assert_eq!(label.style.fg, row.base.fg);
+                assert_eq!(label.style.bg, row.base.bg);
                 assert_eq!(title.style.fg, row.base.fg);
                 assert_eq!(title.style.bg, row.base.bg);
             }
@@ -1499,7 +1504,7 @@ mod tests {
             .insert("opencode".into(), "#[bold]#{status_icon}".into());
         let lit_fmt = TreeFormatter::new(&lit_cfg, &ColorConfig::default());
         let lit_row = output(&lit_fmt, &agent1, &snap, false, false, true, false);
-        assert_eq!(content(&lit_row), "│  ⠋|#[bold]#{status_icon} opencode-task");
+        assert_eq!(content(&lit_row), "│ ⠋ #[bold]#{status_icon} opencode-task");
 
         // Agent 3 under last tab (tab has NO more siblings -> tab_has_more = false)
         let agent3_meta = RowMeta {
@@ -1525,7 +1530,7 @@ mod tests {
             meta: agent3_meta,
         };
         let row3 = output(&formatter, &agent3, &snap, false, false, true, true);
-        assert_eq!(content(&row3), "   ✓|opencode opencode-task");
+        assert_eq!(content(&row3), "  ✓ opencode opencode-task");
     }
 
     #[test]
@@ -1767,7 +1772,7 @@ mod tests {
             false,
             0,
         ));
-        assert!(res.contains("×1 !2 ✓3 ⠋4 ?5"));
+        assert!(res.contains("✕1 !2 ✓3 ⠋4 ?5"));
 
         // Tab with children and summary
         let tab_node = TreeNode::Tab {
@@ -1785,7 +1790,7 @@ mod tests {
             &formatter, &tab_node, &snap, false, false, false, false, 0,
         ));
         assert!(tab_res.contains("▷"));
-        assert!(tab_res.contains("×1 !2 ✓3 ⠋4 ?5"));
+        assert!(tab_res.contains("✕1 !2 ✓3 ⠋4 ?5"));
     }
 
     #[test]
@@ -1840,18 +1845,18 @@ mod tests {
     }
 
     #[test]
-    fn unified_agent_badge_palette_and_padding_follow_selection() {
+    fn dual_agent_icons_have_bold_status_and_dim_label_without_badges() {
         let mut config = TreeConfig::default();
         config.agent_names.insert("codex".into(), "".into());
         let formatter = TreeFormatter::new(&config, &ColorConfig::default());
         let snap = snapshot();
-        for (status, fg, bg) in [
-            (AgentStatus::Error, 255, 1),
-            (AgentStatus::NeedsInput, 0, 5),
-            (AgentStatus::Idle, 0, 7),
-            (AgentStatus::Unknown, 0, 7),
-            (AgentStatus::Working, 0, 2),
-            (AgentStatus::Done, 0, 2),
+        for (status, icon, fg) in [
+            (AgentStatus::Error, "✕", 1),
+            (AgentStatus::NeedsInput, "!", 5),
+            (AgentStatus::Idle, "○", 7),
+            (AgentStatus::Unknown, "?", 7),
+            (AgentStatus::Working, "⠋", 2),
+            (AgentStatus::Done, "✓", 2),
         ] {
             for active in [false, true] {
                 for selected in [false, true] {
@@ -1868,27 +1873,47 @@ mod tests {
                         let row = output_at_tick(
                             &formatter, &node, &snap, selected, active, false, false, tick,
                         );
-                        let badge = &row.spans[..5];
-                        assert_eq!(badge[0].content, " ");
-                        assert_eq!(badge[2].content, "|");
-                        assert_eq!(badge[3].content, "");
-                        assert_eq!(badge[4].content, " ");
-                        if status == AgentStatus::Working {
-                            assert_eq!(badge[1].content, if tick == 0 { "⠋" } else { "⠙" });
-                        }
-                        for span in badge {
-                            assert_eq!(span.style.fg, Some(Color::Indexed(fg)));
-                            assert_eq!(span.style.bg, Some(Color::Indexed(bg)));
+                        let icon = if status == AgentStatus::Working && tick == 2 {
+                            "⠙"
+                        } else {
+                            icon
+                        };
+                        assert_eq!(content(&row), format!("{icon}  codex-task"));
+                        let status_span = &row.spans[0];
+                        assert_eq!(status_span.content, icon);
+                        assert_eq!(status_span.style.fg, Some(Color::Indexed(fg)));
+                        assert!(status_span.style.add_modifier.contains(Modifier::BOLD));
+                        assert!(!status_span.style.add_modifier.contains(Modifier::DIM));
+
+                        let label = &row.spans[2];
+                        assert_eq!(label.content, "");
+                        assert_eq!(label.style.fg, row.base.fg);
+                        assert!(label.style.add_modifier.contains(Modifier::DIM));
+                        assert!(!label.style.add_modifier.contains(Modifier::BOLD));
+
+                        for span in &row.spans {
+                            assert_eq!(span.style.bg, row.base.bg);
                             assert_eq!(
                                 span.style.add_modifier.contains(Modifier::REVERSED),
                                 selected
                             );
-                            assert_eq!(span.style, badge[0].style);
                         }
                         let title = row.spans.last().unwrap();
                         assert_eq!(title.content, "codex-task");
                         assert_eq!(title.style.fg, row.base.fg);
-                        assert_eq!(title.style.bg, row.base.bg);
+                        assert!(!title
+                            .style
+                            .add_modifier
+                            .intersects(Modifier::BOLD | Modifier::DIM));
+                        for index in [1, 3] {
+                            let space = &row.spans[index];
+                            assert_eq!(space.content, " ");
+                            assert_eq!(space.style.fg, row.base.fg);
+                            assert!(!space
+                                .style
+                                .add_modifier
+                                .intersects(Modifier::BOLD | Modifier::DIM));
+                        }
                     }
                 }
             }
@@ -1896,7 +1921,7 @@ mod tests {
     }
 
     #[test]
-    fn selection_inverts_every_rendered_cell_including_badges_and_padding() {
+    fn selection_inverts_every_rendered_cell_including_icons_and_padding() {
         use ratatui::{
             buffer::Buffer,
             layout::Rect,
@@ -2125,13 +2150,13 @@ mod tests {
         // Default formatter renders "pi"
         let default_fmt = TreeFormatter::default();
         let default_row = output(&default_fmt, &agent_pi, &snap, false, false, true, false);
-        assert_eq!(content(&default_row), "│  ⠋|pi pi-task");
+        assert_eq!(content(&default_row), "│ ⠋ pi pi-task");
 
         // Custom agent_names override renders custom symbol
         let mut custom_cfg = TreeConfig::default();
-        custom_cfg.agent_names.insert("pi".into(), "󰏿".into());
+        custom_cfg.agent_names.insert("pi".into(), "".into());
         let custom_fmt = TreeFormatter::new(&custom_cfg, &ColorConfig::default());
         let custom_row = output(&custom_fmt, &agent_pi, &snap, false, false, true, false);
-        assert_eq!(content(&custom_row), "│  ⠋|󰏿 pi-task");
+        assert_eq!(content(&custom_row), "│ ⠋  pi-task");
     }
 }

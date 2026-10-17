@@ -1,4 +1,4 @@
-// Pi 1.2.0 monitoring extension entrypoint for Verij.
+// Pi 1.x (>=1.2.0) monitoring extension entrypoint for Verij.
 // Metadata-only aggregate projection with bounded transport.
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs"
 import { homedir } from "node:os"

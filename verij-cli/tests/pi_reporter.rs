@@ -489,6 +489,13 @@ fn test_pi_reporter_rejects_detached_background_child() {
 #[test]
 #[cfg(target_os = "linux")]
 fn test_pi_reporter_ready_success_ordered_snapshots_and_eof_teardown() {
+    for version in ["1.2.0", "1.3.0", "1.99.42+build.7"] {
+        assert_reporter_lifecycle(version);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn assert_reporter_lifecycle(version: &str) {
     let root = tempfile::tempdir().unwrap();
     let runtime_dir = root.path().join("runtime");
     let states_dir = root.path().join("states");
@@ -531,7 +538,7 @@ fn test_pi_reporter_ready_success_ordered_snapshots_and_eof_teardown() {
     let hello = serde_json::json!({
         "type": "hello",
         "schema_version": 1,
-        "version": "1.2.0",
+        "version": version,
         "runtime_id": "rt-1",
         "conversation_id": "conv-1"
     });
@@ -551,7 +558,7 @@ fn test_pi_reporter_ready_success_ordered_snapshots_and_eof_teardown() {
     // 3. Send Working snapshot
     let working_snap = serde_json::json!({
         "schema_version": 1,
-        "version": "1.2.0",
+        "version": version,
         "conversation_id": "conv-1",
         "run_id": "run-1",
         "activity": "working"
@@ -568,7 +575,7 @@ fn test_pi_reporter_ready_success_ordered_snapshots_and_eof_teardown() {
     // 4. Send Done snapshot
     let done_snap = serde_json::json!({
         "schema_version": 1,
-        "version": "1.2.0",
+        "version": version,
         "conversation_id": "conv-1",
         "run_id": "run-1",
         "activity": "idle",

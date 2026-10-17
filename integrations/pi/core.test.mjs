@@ -21,7 +21,8 @@ import {
   createBridge,
   observationBudget,
   PROTOCOL_VERSION,
-  SUPPORTED_VERSION,
+  MINIMUM_VERSION,
+  SUPPORTED_VERSIONS,
   ERROR_KINDS,
   REQUEST_KINDS,
   PI_ACTIVITIES,
@@ -31,14 +32,21 @@ import {
   ALLOWED_SNAPSHOT_KEYS,
 } from "./core.mjs"
 
-test("supportsVersion accepts 1.2.0 only", () => {
-  assert.equal(supportsVersion("1.2.0"), true)
-  assert.equal(supportsVersion("1.2.1"), false)
-  assert.equal(supportsVersion("1.3.0"), false)
-  assert.equal(supportsVersion("2.0.0"), false)
-  assert.equal(supportsVersion(undefined), false)
-  assert.equal(supportsVersion(null), false)
-  assert.equal(supportsVersion(""), false)
+test("Pi minor/patch upgrades retain strict snapshot validation", () => {
+  assert.equal(MINIMUM_VERSION, "1.2.0")
+  assert.equal(SUPPORTED_VERSIONS, ">=1.2.0, <2.0.0")
+  for (const version of ["1.2.0", "1.2.1", "1.3.0", "1.99.42", "1.3.0-beta.1", "1.3.0+build.7"]) {
+    assert.equal(supportsVersion(version), true, version)
+    const snapshot = unknown(version)
+    assert.equal(validateStrictSnapshot(snapshot), true, version)
+    assert.equal(validateStrictSnapshot({ ...snapshot, schema_version: 2 }), false, version)
+    assert.equal(validateStrictSnapshot({ ...snapshot, prompt: "private" }), false, version)
+    assert.equal(validateStrictSnapshot({ ...snapshot, activity: "new-unknown-state" }), false, version)
+  }
+  for (const version of ["1.1.999", "2.0.0", "0.9.0", "1.2", "1.x.0", "1.3.0-", "1.3.0\n", "1.3.0+bad suffix", "1.18446744073709551616.0", undefined, null, ""]) {
+    assert.equal(supportsVersion(version), false, String(version))
+    assert.equal(validateStrictSnapshot({ ...unknown(), version }), false, String(version))
+  }
 })
 
 test("isValidU32 validates bounded 32-bit unsigned integers", () => {
@@ -571,12 +579,12 @@ function createTestClock() {
   return { clock, advanceTime, activeTimers }
 }
 
-test("createBridge: accepts native NeedsInput status on ready greeting and receipts", () => {
+test("createBridge: Pi 1.3.0 connects and accepts native NeedsInput status on ready greeting and receipts", () => {
   const { clock } = createTestClock()
   let proc = null
   const fakePi = new EventEmitter()
   const bridge = createBridge(
-    { pi: fakePi, version: "1.2.0", pane: "1", session: "s", conversationId: "conv-needs-input" },
+    { pi: fakePi, version: "1.3.0", pane: "1", session: "s", conversationId: "conv-needs-input" },
     { clock, spawn: () => { proc = new MockProcess(); return proc } }
   )
 

@@ -4,6 +4,8 @@ Status: **approved by the user; P0–P3 complete. P4 local automated acceptance 
 
 P0 evidence: [runtime qualification and established contract](../prototypes/pi-runtime/README.md), [sanitized traces](../prototypes/pi-runtime/results.json), and [independent verification summary](../prototypes/pi-runtime/summary.json). Compiled and Node-based Pi 1.2.0 passed the two-extension-order matrix. This is lifecycle qualification, not production monitoring readiness.
 
+Current version policy supersedes the initial exact-release scope below: Pi `>=1.2.0, <2.0.0` is accepted across minor/patch upgrades without rebuilding Verij or rerunning setup. Historical qualification remains release-specific. See [current compatibility and migration guidance](../integrations/pi/README.md#version-compatibility); protocol and semantic validation remain strict.
+
 ## 1. Objective and scope
 
 Add Pi as a supported Verij agent without changing the existing Session → Tab → Agent pane experience. Install once, launch `pi` normally, and observe activity, blocking extension dialogs, successful aggregate completion, cancellation, and terminal failure.

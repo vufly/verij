@@ -1,9 +1,9 @@
-//! Pi 1.2.0 TUI-local, metadata-only snapshot contract and reporter.
+//! Pi 1.x TUI-local, metadata-only snapshot contract and reporter.
 //!
 //! # P2 Integration Interface
 //!
 //! This module defines the native protocol, fencing, state projection, and
-//! completion deduplication for Pi 1.2.0 (`@earendil-works/pi-coding-agent`).
+//! completion deduplication for Pi >=1.2.0, <2.0.0 (`@earendil-works/pi-coding-agent`).
 //! The P2 extension connects to this reporter as a child process via private
 //! stdin/stdout pipes:
 //!
@@ -52,7 +52,7 @@ use verij_types::agent::{
 };
 
 pub const PROTOCOL_VERSION: u32 = 1;
-pub const SUPPORTED_VERSION: &str = "1.2.0";
+pub const SUPPORTED_VERSIONS: &str = ">=1.2.0, <2.0.0";
 pub const LEASE_MS: u64 = 15_000;
 pub const MAX_FRAME_BYTES: usize = 262_144;
 pub const MAX_LEDGER_ENTRIES: usize = 128;
@@ -60,9 +60,9 @@ pub const MAX_LEDGER_BYTES: usize = 32_768;
 pub const MAX_ID_LEN: usize = 256;
 pub const MAX_TITLE_LEN: usize = 256;
 
-/// Version guard: qualify Pi 1.2.0 only.
+/// Select the 1.x lifecycle contract; schemas and settlement evidence stay strict.
 pub fn supports_version(version: &str) -> bool {
-    version == SUPPORTED_VERSION
+    crate::agent_version::supports_series(version, (1, 2, 0))
 }
 
 /// Check if observer lease has expired for Pi.
@@ -180,7 +180,7 @@ impl HandshakeFrame {
                     bail!(
                         "unsupported Pi version {:?}; supported: {}",
                         version,
-                        SUPPORTED_VERSION
+                        SUPPORTED_VERSIONS
                     );
                 }
                 if runtime_id.is_empty()
@@ -237,7 +237,7 @@ impl Snapshot {
             bail!(
                 "unsupported Pi version {:?}; supported: {}",
                 self.version,
-                SUPPORTED_VERSION
+                SUPPORTED_VERSIONS
             );
         }
 
@@ -925,18 +925,34 @@ mod tests {
     use verij_types::agent::{AgentInstanceId, NormalizedSourceRecord};
 
     #[test]
-    fn version_guard_rejects_non_1_2_0() {
-        assert!(supports_version("1.2.0"));
-        for invalid in [
-            "1.1.0",
+    fn version_guard_accepts_minor_and_patch_upgrades_without_relaxing_payloads() {
+        for version in [
+            "1.2.0",
             "1.2.1",
             "1.3.0",
-            "2.0.0",
-            "1.2.0-beta",
-            "1.2.0+1",
-            "0.1.2",
-            "",
-            "1.2",
+            "1.99.42",
+            "1.3.0-beta.1",
+            "1.3.0+build.7",
+        ] {
+            assert!(supports_version(version), "{version}");
+            let hello = HandshakeFrame::Hello {
+                schema_version: PROTOCOL_VERSION,
+                version: version.into(),
+                runtime_id: "runtime".into(),
+                conversation_id: "conversation".into(),
+            };
+            assert!(hello.validate().is_ok(), "{version}");
+            let mut snapshot = Snapshot {
+                schema_version: PROTOCOL_VERSION,
+                version: version.into(),
+                ..Default::default()
+            };
+            assert!(snapshot.validate().is_ok(), "{version}");
+            snapshot.schema_version = 2;
+            assert!(snapshot.validate().is_err(), "{version}");
+        }
+        for invalid in [
+            "1.1.999", "2.0.0", "0.1.2", "", "1.2", "1.x.0", "1.3.0-", "1.3.0\n",
         ] {
             assert!(!supports_version(invalid), "should reject {invalid}");
             let snap = Snapshot {
@@ -1402,7 +1418,7 @@ mod tests {
         // Invalid version
         let invalid_ver = HandshakeFrame::Hello {
             schema_version: 1,
-            version: "1.3.0".into(),
+            version: "2.0.0".into(),
             runtime_id: "rt-123".into(),
             conversation_id: "conv-456".into(),
         };

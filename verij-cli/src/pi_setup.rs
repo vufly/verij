@@ -1,6 +1,6 @@
 /// verij-cli/src/pi_setup.rs
 ///
-/// Pi 1.2.0 agent monitoring lifecycle adapter and diagnostic doctor.
+/// Pi 1.x agent monitoring lifecycle adapter and diagnostic doctor.
 /// Dispatches setup, uninstall, and doctor for Pi.
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use std::path::{Component, Path, PathBuf};
 
 const INDEX: &str = include_str!("../../integrations/pi/index.ts");
 const CORE: &str = include_str!("../../integrations/pi/core.mjs");
-pub const SUPPORTED_VERSION: &str = crate::pi::SUPPORTED_VERSION;
+pub const SUPPORTED_VERSIONS: &str = crate::pi::SUPPORTED_VERSIONS;
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
 pub const ADAPTER_ID: &str = "verij-monitoring-v1";
 
@@ -470,7 +470,9 @@ pub fn read_manifest(manifest_path: &Path) -> Result<Option<PiManifest>> {
     if manifest.adapter_id != ADAPTER_ID {
         return Ok(None);
     }
-    if manifest.version != SUPPORTED_VERSION {
+    // Installation-time version selects a compatible contract, not an exact pin.
+    // Legacy 1.2.0 manifests remain valid across agent-only upgrades.
+    if !crate::pi::supports_version(&manifest.version) {
         return Ok(None);
     }
     if !is_valid_hex_16(&manifest.index_fingerprint)
@@ -490,7 +492,7 @@ pub fn setup(args: crate::agent_setup::SetupArgs) -> Result<()> {
     if !crate::pi::supports_version(&ver) {
         bail!(
             "unsupported Pi version: {ver}; supported: [\"{}\"]",
-            SUPPORTED_VERSION
+            SUPPORTED_VERSIONS
         );
     }
 
@@ -637,7 +639,11 @@ pub fn setup(args: crate::agent_setup::SetupArgs) -> Result<()> {
         core_fingerprint: core_fp,
         adapter_fingerprint: adapter_fp,
         reporter: reporter.clone(),
-        version: SUPPORTED_VERSION.to_string(),
+        // Preserve installation metadata across routine minor/patch upgrades.
+        version: existing_manifest
+            .as_ref()
+            .map(|m| m.version.clone())
+            .unwrap_or_else(|| ver.clone()),
         installed_at_ms,
         uninstalled: None,
     };
@@ -1283,8 +1289,8 @@ pub fn doctor(args: crate::agent_setup::DoctorArgs) -> Result<()> {
         }
     } else if !version_supported {
         blockers.push(format!(
-            "Detected Pi version {:?} is not supported; qualified version is {}",
-            ver, SUPPORTED_VERSION
+            "Detected Pi version {:?} is not supported; supported range is {}",
+            ver, SUPPORTED_VERSIONS
         ));
     }
     if let Some(err) = manifest_err {
@@ -1352,7 +1358,7 @@ pub fn doctor(args: crate::agent_setup::DoctorArgs) -> Result<()> {
             "version": ver,
             "version_supported": version_supported,
             "supported_version": version_supported,
-            "supported_versions": [SUPPORTED_VERSION],
+            "supported_versions": [SUPPORTED_VERSIONS],
             "binary_available": binary_available,
             "config_dir": agent_dir,
             "extensions_dir": ext_dir,
@@ -1395,7 +1401,7 @@ pub fn doctor(args: crate::agent_setup::DoctorArgs) -> Result<()> {
                 "terminal_failure"
             ],
             "limitations": [
-                "Qualified strictly for Pi 1.2.0; other releases are unsupported.",
+                "Pi >=1.2.0, <2.0.0 uses the 1.x lifecycle contract; minor/patch upgrades do not require setup. Payload and settlement validation remain mandatory.",
                 "Non-interactive modes (print, json, rpc) do not bind monitoring.",
                 "Conventional autoloading requires extensions/verij-monitoring; launch with --no-extensions or settings exclusions disables loading.",
                 "Explicit local filesystem paths are required; file: URLs are not supported for configuration directories.",

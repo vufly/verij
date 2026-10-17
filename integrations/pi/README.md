@@ -1,8 +1,18 @@
 # Pi pane-local monitoring
 
-This extension provides event-driven, metadata-only observation for **Pi 1.2.0 (`@earendil-works/pi-coding-agent`)** running in interactive TUI mode inside a verified Zellij terminal pane.
+This extension provides event-driven, metadata-only observation for **Pi >=1.2.0, <2.0.0 (`@earendil-works/pi-coding-agent`)** running in interactive TUI mode inside a verified Zellij terminal pane.
 
 Owned lifecycle management (`setup pi`, `doctor pi`, `uninstall pi`) is implemented. **P4 local automated acceptance passes for compiled and Node Pi 1.2.0 in stock Zellij 0.45.1**: 74 checks with actual exporter inventory, two sidebars, host-local visits, fault recovery and resource measurements. See [retained evidence and qualification limits](../../prototypes/pi-acceptance/README.md). Forced PID/server reuse, serialized resurrection, sidebar keyboard selection stability and long-duration resource stress are not qualified by this matrix; no global deployment approval is inferred.
+
+## Version compatibility
+
+Minor and patch upgrades within the supported 1.x family do not require rebuilding Verij or rerunning adapter setup. Extension startup, snapshot validation, native handshakes, persisted manifests, and doctor diagnostics all use the same release-family policy. Prerelease/build suffixes select that same contract, as with the other adapters; a version string alone never establishes semantic status. Older versions, other majors, malformed versions, incompatible protocol schemas, and invalid payloads remain rejected.
+
+The manifest records the installation-time Pi version, not an exact runtime requirement. Existing 1.2.0 manifests remain valid, and explicit setup after an agent-only upgrade leaves intact assets and installation metadata unchanged.
+
+**One-time migration from the exact-pinned adapter:** install the updated Verij binary, run `verij agent setup pi`, then run `/reload` in each open Pi TUI (or restart it). Future compatible Pi upgrades reuse that installation. No Zellij exporter upgrade is required for this policy change.
+
+Full retained P4 evidence remains for 1.2.0; it is not an allowlist. A separate local compiled-Pi 1.3.0 smoke test passed verified foreground ownership and live doctor reporting, success, nested tools, continuation, blocking dialogs, cancellation, and provider error in an isolated stock-Zellij session. Cleanup reported zero forced kills and removed private processes, providers, and configuration. This smoke does not replace the two-distribution/two-host/resource matrix.
 
 ## Architecture and lifecycle
 
@@ -76,7 +86,7 @@ To prevent Pi's package loader from treating configuration as an extension, Veri
 The manifest `<agent_dir>/verij-monitoring/installed.json` enforces strict ownership:
 - `schema_version: 1`
 - `adapter_id: "verij-monitoring-v1"`
-- `version: "1.2.0"`
+- `version`: installation-time Pi release in the supported family (legacy `"1.2.0"` manifests remain valid)
 - 16-hex lowercase noncryptographic FNV-1a 64-bit ownership fingerprints for `index.ts`, `core.mjs`, and `adapter.json`
 - Canonical absolute reporter executable path
 - `installed_at_ms` preserved across idempotent reinstallations
@@ -109,7 +119,7 @@ To prevent symlink attacks:
 ### Doctor diagnostics
 
 `verij agent doctor pi` evaluates:
-1. **Binary availability & version**: Probes `pi --version` with a bounded nonblocking pipe, 4 KiB cap, dedicated process group cleanup, and a 3-second deadline. Qualified strictly for `1.2.0`.
+1. **Binary availability & version**: Probes `pi --version` with a bounded nonblocking pipe, 4 KiB cap, dedicated process group cleanup, and a 3-second deadline. Accepts the compatible release family `>=1.2.0, <2.0.0` independently of the installation-time version.
 2. **Structural installation readiness**: Validates ownership manifest integrity, asset hashes, reporter binary availability (`verij --version`), and runtime directory writability.
 3. **Discovery overrides**: Evaluates `settings.json` against Pi's supported subset of `isEnabledByOverrides`:
    - `!` glob exclusions evaluated first against directory name `verij-monitoring` and relative path `extensions/verij-monitoring`.
@@ -120,7 +130,7 @@ To prevent symlink attacks:
 4. **Hydrated inventory & live monitoring**:
    - Matches exact session incarnation (`session_instance_id == pane_key.session`).
    - Verifies foreground terminal job ownership via `/proc` controlling terminal ancestry (`verify_foreground`).
-   - Verifies active observer lease: source `"pi"`, `"lease"` capability, observed timestamp within 15 seconds, matching source epoch/revision, non-empty `runtime_id`, and supported version `1.2.0`.
+   - Verifies active observer lease: source `"pi"`, `"lease"` capability, observed timestamp within 15 seconds, matching source epoch/revision, non-empty `runtime_id`, and a supported running version in `>=1.2.0, <2.0.0`.
    - Distinguishes structural readiness (`installation_ready: true`) from actual verified live reporting (`adapter_loaded: true`).
 
 ## Capabilities
@@ -140,7 +150,7 @@ To prevent symlink attacks:
 - **Untracked background work**: Extensions launching asynchronous background work outside Pi's tracked turn lifecycle remain outside aggregate completion guarantees.
 - **Unobservable UI**: External browser approvals, raw terminal readers, third-party UI bypassing Pi's extension API, and assistant conversational questions are not observable and do not trigger `Needs input`.
 - **Historical transcripts**: Resumed sessions do not replay historical completions.
-- **Versions**: Qualified strictly for Pi 1.2.0. Other releases are unsupported.
+- **Versions**: Minor/patch releases in `>=1.2.0, <2.0.0` are accepted automatically. Full P4 qualification was run on 1.2.0; compiled 1.3.0 has separate scoped smoke coverage. Other major versions remain unsupported; payload/settlement validation remains independent of release compatibility.
 - **Autoloading prerequisite**: Launching with `--no-extensions` or disabling `verij-monitoring` via settings overrides disables monitoring.
 - **Explicit local paths**: Explicit filesystem paths are required; `file:` URLs are not supported.
 
@@ -158,11 +168,11 @@ Short two-pane/two-host resource phases observe positive native write counters, 
 
 ## Verification
 
-1. Isolated lifecycle CLI tests (16 tests in `verij-cli/tests/pi_setup.rs`):
+1. Isolated lifecycle CLI tests (18 tests in `verij-cli/tests/pi_setup.rs`):
 ```bash
 cargo test -p verij-cli --test pi_setup
 ```
-Covers: repeated setup/uninstall idempotency, unowned directory adoption rejection, dotfile and custom config preservation, custom path/tilde resolution, explicit `file:` URL rejection, symlink safety across parent and child trees, unsupported version rejection, missing reporter and `VERIJ_BIN` override, legacy/missing inventory, doctor structural readiness vs loaded live adapter, settings discovery exclusion overrides, manifest integrity error handling, and process group timeout/large output handling.
+Covers: compatible minor/patch upgrades without setup or asset changes, legacy manifest preservation, fresh installation on newer minors, repeated setup/uninstall idempotency, unowned directory adoption rejection, dotfile and custom config preservation, custom path/tilde resolution, explicit `file:` URL rejection, symlink safety across parent and child trees, unsupported version rejection, missing reporter and `VERIJ_BIN` override, legacy/missing inventory, doctor structural readiness vs loaded live adapter, settings discovery exclusion overrides, manifest integrity error handling, and process group timeout/large output handling.
 
 2. Deterministic event projection and P0 trace replay (35 tests):
 ```bash

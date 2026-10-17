@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 
 export const PROTOCOL_VERSION: number
-export const SUPPORTED_VERSION: string
+export const MINIMUM_VERSION: string
+export const SUPPORTED_VERSIONS: string
 
 export const ERROR_KINDS: readonly string[]
 export const REQUEST_KINDS: readonly string[]

@@ -868,6 +868,132 @@ fn verij_cli_pi_setup_probe_version(path: &Path) -> anyhow::Result<String> {
 }
 
 #[test]
+fn test_minor_and_patch_upgrades_preserve_existing_installation() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let fake_pi = root.join("pi");
+    make_fake_pi(&fake_pi, "1.2.0");
+    let setup = [
+        "agent",
+        "setup",
+        "pi",
+        "--pi-bin",
+        fake_pi.to_str().unwrap(),
+    ];
+    let doctor = [
+        "agent",
+        "doctor",
+        "pi",
+        "--pi-bin",
+        fake_pi.to_str().unwrap(),
+    ];
+    assert!(cli(root, &setup, &[]).status.success());
+
+    let agent_dir = root.join(".pi/agent");
+    let paths = [
+        "extensions/verij-monitoring/index.ts",
+        "extensions/verij-monitoring/core.mjs",
+        "verij-monitoring/adapter.json",
+        "verij-monitoring/installed.json",
+    ];
+    let installed: Vec<_> = paths
+        .iter()
+        .map(|p| fs::read(agent_dir.join(p)).unwrap())
+        .collect();
+    for version in [
+        "1.2.1",
+        "1.3.0",
+        "1.99.42",
+        "1.99.42+build.7",
+        "1.99.43-beta.1",
+    ] {
+        // Simulate an agent update that also replaces the executable inode.
+        let replacement = root.join("pi-new");
+        make_fake_pi(&replacement, version);
+        fs::rename(&replacement, &fake_pi).unwrap();
+        let output = cli(root, &doctor, &[]);
+        assert!(output.status.success());
+        let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(doc["version"], version);
+        assert_eq!(doc["version_supported"], true);
+        assert_eq!(doc["manifest_valid"], true);
+        assert_eq!(doc["installation_ready"], true);
+        assert_eq!(doc["supported_versions"], json!([">=1.2.0, <2.0.0"]));
+
+        // Setup is unnecessary; if explicitly requested it remains a no-op.
+        let output = cli(root, &setup, &[]);
+        assert!(output.status.success());
+        let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(result["changed"], false, "{version}");
+        assert_eq!(result["restart_required"], false, "{version}");
+        for (path, bytes) in paths.iter().zip(&installed) {
+            assert_eq!(
+                &fs::read(agent_dir.join(path)).unwrap(),
+                bytes,
+                "{version}: {path}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_fresh_install_on_new_minor_accepts_its_manifest() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let fake_pi = root.join("pi");
+    make_fake_pi(&fake_pi, "1.3.0");
+    let output = cli(
+        root,
+        &[
+            "agent",
+            "setup",
+            "pi",
+            "--pi-bin",
+            fake_pi.to_str().unwrap(),
+        ],
+        &[],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(root.join(".pi/agent/verij-monitoring/installed.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["version"], "1.3.0");
+    let output = cli(
+        root,
+        &[
+            "agent",
+            "doctor",
+            "pi",
+            "--pi-bin",
+            fake_pi.to_str().unwrap(),
+        ],
+        &[],
+    );
+    assert!(output.status.success());
+    let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(doc["manifest_valid"], true);
+    assert_eq!(doc["installation_ready"], true);
+    assert!(cli(
+        root,
+        &[
+            "agent",
+            "uninstall",
+            "pi",
+            "--pi-bin",
+            fake_pi.to_str().unwrap()
+        ],
+        &[]
+    )
+    .status
+    .success());
+}
+
+#[test]
 fn test_unsupported_versions_rejected() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("home");
@@ -876,7 +1002,7 @@ fn test_unsupported_versions_rejected() {
 
     let fake_pi = root.join("pi");
 
-    for version in ["1.2.1", "1.3.0", "2.0.0", "0.9.0", "1.2.0-beta.1"] {
+    for version in ["1.1.999", "2.0.0", "0.9.0", "1.3", "1.x.0", "1.3.0-"] {
         make_fake_pi(&fake_pi, version);
 
         let setup_args = [
@@ -909,7 +1035,7 @@ fn test_unsupported_versions_rejected() {
         let doc: Value = serde_json::from_slice(&doc_out.stdout).unwrap();
         assert_eq!(doc["version"], version);
         assert_eq!(doc["version_supported"], false);
-        assert_eq!(doc["supported_versions"], json!(["1.2.0"]));
+        assert_eq!(doc["supported_versions"], json!([">=1.2.0, <2.0.0"]));
         assert_eq!(doc["installation_ready"], false);
     }
 }

@@ -1,14 +1,22 @@
-// Pi 1.2.0 metadata-only projection and bounded reporter transport.
+// Pi 1.x (>=1.2.0) metadata-only projection and bounded reporter transport.
 // Prompts, assistant text, tool arguments/results, provider bodies and dialog contents are strictly excluded.
 import { randomUUID as nodeCryptoRandomUUID } from "node:crypto"
 import { spawn as spawnProcess } from "node:child_process"
 import { StringDecoder } from "node:string_decoder"
 
 export const PROTOCOL_VERSION = 1
-export const SUPPORTED_VERSION = "1.2.0"
+export const MINIMUM_VERSION = "1.2.0"
+export const SUPPORTED_VERSIONS = ">=1.2.0, <2.0.0"
 
+// Match the native release-family guard, including prerelease/build suffixes.
+// Release compatibility never bypasses snapshot or settlement validation.
 export function supportsVersion(version) {
-  return typeof version === "string" && version === SUPPORTED_VERSION
+  if (typeof version !== "string") return false
+  const match = /^([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-+][0-9A-Za-z.+-]+)?$/.exec(version)
+  if (!match || match[0] !== version) return false
+  const [major, minor, patch] = match.slice(1).map(BigInt)
+  const max = 0xffffffffffffffffn // Native parser uses u64 release components.
+  return major === 1n && minor >= 2n && minor <= max && patch <= max
 }
 
 export const ERROR_KINDS = Object.freeze([
@@ -188,7 +196,7 @@ export function mapPromptKind(kind) {
   }
 }
 
-export function unknown(version = SUPPORTED_VERSION) {
+export function unknown(version = MINIMUM_VERSION) {
   return {
     schema_version: PROTOCOL_VERSION,
     version,
@@ -203,7 +211,7 @@ export function validateStrictSnapshot(snap, expectedConvId = null) {
     if (!ALLOWED_SNAPSHOT_KEYS.includes(k)) return false
   }
   if (snap.schema_version !== PROTOCOL_VERSION) return false
-  if (snap.version !== SUPPORTED_VERSION) return false
+  if (!supportsVersion(snap.version)) return false
 
   if (snap.conversation_id !== undefined && snap.conversation_id !== null) {
     if (typeof snap.conversation_id !== "string" || snap.conversation_id.length === 0) return false
@@ -386,7 +394,7 @@ export class SnapshotQueue {
 // and single outer blocking UI prompt metadata.
 export class StateProjector {
   constructor(options = {}) {
-    this.version = options.version ?? SUPPORTED_VERSION
+    this.version = options.version ?? MINIMUM_VERSION
     this.randomUUID = options.randomUUID ?? nodeCryptoRandomUUID
     this.runtimeId = options.runtimeId ?? this.randomUUID()
     this.conversationId = sanitizeId(options.conversationId)
@@ -857,7 +865,7 @@ export function createBridge(options = {}, runtime = {}) {
   }
   const spawn = runtime.spawn ?? spawnProcess
   const randomUUID = runtime.randomUUID ?? nodeCryptoRandomUUID
-  const version = options.version ?? SUPPORTED_VERSION
+  const version = options.version ?? MINIMUM_VERSION
 
   const pane = String(options.pane ?? "")
   const session = options.session !== undefined && options.session !== null ? String(options.session) : null
