@@ -92,6 +92,7 @@ pub fn build_views(
                 .filter(|record| {
                     record.identity.pane_key == key
                         && crate::process::is_alive(&record.identity.process)
+                        && !crate::process::is_suspended(&record.identity.process)
                 })
                 .collect();
             candidates.sort_by(|a, b| {
@@ -252,6 +253,7 @@ impl PresentationCache {
                 record.identity.agent_instance_id == id
                     && record.identity.pane_key == previous.pane
                     && crate::process::is_alive(&record.identity.process)
+                    && !crate::process::is_suspended(&record.identity.process)
             });
             if live && now.duration_since(seen) < std::time::Duration::from_secs(3) {
                 let mut uncertain = previous;
@@ -531,6 +533,84 @@ mod tests {
         assert_eq!(view.detail, "running test command");
         assert!(view.is_active);
         assert!(!view.is_synthetic);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn suspended_agent_disappears_without_grace_and_resumes_same_instance() {
+        let child = spawn_pty_foreground_process().unwrap();
+        let server = crate::process::identity(std::process::id()).unwrap();
+        let process = crate::process::identity(child.child.id()).unwrap();
+        let session = make_test_inventory(
+            "sid-suspended",
+            23,
+            Some(server),
+            Some(process.clone()),
+            "zsh",
+            false,
+        );
+        let record = make_test_record(
+            "agent-suspended",
+            "sid-suspended",
+            23,
+            AgentKind::Pi,
+            process.clone(),
+            AgentStatus::Idle,
+            "",
+            0,
+            false,
+        );
+        let sessions = [session];
+        let records = [record];
+        let acks = BTreeMap::new();
+        let policy = AgentsConfig::default();
+        let now = std::time::Instant::now();
+        let mut cache = PresentationCache::default();
+        let original = cache.refresh_at(&sessions, &records, &acks, &policy, None, now);
+        assert_eq!(original.len(), 1);
+        assert!(original[0].navigable);
+
+        assert_eq!(unsafe { libc::kill(process.pid as i32, libc::SIGSTOP) }, 0);
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while !crate::process::is_suspended(&process) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(crate::process::is_suspended(&process));
+        assert!(crate::process::is_alive(&process));
+        assert!(!crate::process::is_definitely_dead(&process));
+        let mut stale = process.clone();
+        stale.start_jiffies += 1;
+        assert!(!crate::process::is_suspended(&stale));
+        assert!(build_views(&sessions, &records, &acks, &policy, None).is_empty());
+        // Neither current topology nor its Unknown grace may resurrect the row.
+        for topology in [&sessions[..], &[][..], &sessions[..]] {
+            assert!(cache
+                .refresh_at(
+                    topology,
+                    &records,
+                    &acks,
+                    &policy,
+                    None,
+                    now + Duration::from_millis(100)
+                )
+                .is_empty());
+        }
+
+        assert_eq!(unsafe { libc::kill(process.pid as i32, libc::SIGCONT) }, 0);
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while crate::process::is_suspended(&process) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!crate::process::is_suspended(&process));
+        let resumed = cache.refresh_at(
+            &sessions,
+            &records,
+            &acks,
+            &policy,
+            None,
+            now + Duration::from_millis(200),
+        );
+        assert_eq!(resumed, original);
     }
 
     #[test]

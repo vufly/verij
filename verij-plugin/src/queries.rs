@@ -18,13 +18,6 @@ extern "C" {
 }
 
 fn query<R: Message + Default>(command: PluginCommand) -> Result<R, String> {
-    query_with_empty(command, false)
-}
-
-fn query_with_empty<R: Message + Default>(
-    command: PluginCommand,
-    allow_empty: bool,
-) -> Result<R, String> {
     #[cfg(target_arch = "wasm32")]
     {
         let command: ProtobufPluginCommand = command
@@ -34,17 +27,13 @@ fn query_with_empty<R: Message + Default>(
         unsafe { host_run_plugin_command() };
         let bytes = zellij_tile::shim::bytes_from_stdin()
             .map_err(|error| format!("Missing SDK reply: {error}"))?;
-        // Optional-object responses encode an absent object as zero bytes.
-        // Reading stdin still must succeed; absence is not a transport failure.
-        if allow_empty && bytes.is_empty() {
-            Ok(R::default())
-        } else {
-            decode_reply(&bytes)
-        }
+        // Stock optional-object queries encode both absence and timeout as zero
+        // bytes. An empty reply cannot establish that a tab or pane was closed.
+        decode_reply(&bytes)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = (command, allow_empty);
+        let _ = command;
         Err("SDK query unavailable outside WASM".into())
     }
 }
@@ -79,7 +68,7 @@ pub fn pane_info(pane: PaneId) -> Option<PaneInfo> {
 
 pub fn live_pane_info(pane: PaneId) -> Result<Option<PaneInfo>, String> {
     let response: ProtobufGetPaneInfoResponse =
-        query_with_empty(PluginCommand::GetPaneInfo(pane), true)?;
+        query(PluginCommand::GetPaneInfo(pane))?;
     response.pane_info
         .map(|info| info.try_into().map_err(|error| format!("Malformed pane info: {error}")))
         .transpose()
@@ -88,7 +77,7 @@ pub fn live_pane_info(pane: PaneId) -> Result<Option<PaneInfo>, String> {
 #[cfg(target_arch = "wasm32")]
 pub fn tab_info(tab_id: usize) -> Result<Option<TabInfo>, String> {
     let response: ProtobufGetTabInfoResponse =
-        query_with_empty(PluginCommand::GetTabInfo(tab_id), true)?;
+        query(PluginCommand::GetTabInfo(tab_id))?;
     response.tab_info
         .map(|info| info.try_into().map_err(|error| format!("Malformed tab info: {error}")))
         .transpose()
@@ -122,6 +111,25 @@ pub fn session_list() -> Result<SessionListSnapshot, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn optional_object_replies_cannot_distinguish_absence_from_timeout() {
+        use zellij_tile::shim::plugin_api::plugin_command::ProtobufGetTabInfoResponse;
+
+        let missing_pane = ProtobufGetPaneInfoResponse::default().encode_to_vec();
+        let missing_tab = ProtobufGetTabInfoResponse::default().encode_to_vec();
+        assert!(missing_pane.is_empty());
+        assert!(missing_tab.is_empty());
+        assert!(decode_reply::<ProtobufGetPaneInfoResponse>(&missing_pane).is_err());
+        assert!(decode_reply::<ProtobufGetTabInfoResponse>(&missing_tab).is_err());
+        assert!(decode_reply::<ProtobufGetPaneInfoResponse>(&[0xff]).is_err());
+        assert!(decode_reply::<ProtobufGetTabInfoResponse>(&[0xff]).is_err());
+
+        let pane = ProtobufGetPaneInfoResponse { pane_info: Some(Default::default()) };
+        let tab = ProtobufGetTabInfoResponse { tab_info: Some(Default::default()) };
+        assert_eq!(decode_reply::<ProtobufGetPaneInfoResponse>(&pane.encode_to_vec()).unwrap(), pane);
+        assert_eq!(decode_reply::<ProtobufGetTabInfoResponse>(&tab.encode_to_vec()).unwrap(), tab);
+    }
 
     #[test]
     fn missing_and_malformed_replies_fail_without_trapping() {

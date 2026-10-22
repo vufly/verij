@@ -78,6 +78,15 @@ pub fn is_alive(expected: &ProcessIdentity) -> bool {
         .is_ok_and(|actual| actual == expected)
 }
 
+/// Job-control suspension is not exit. Hide suspended pane agents without pruning
+/// their registration, so resuming the same process restores its row.
+pub fn is_suspended(expected: &ProcessIdentity) -> bool {
+    is_alive(expected)
+        && stat(expected.pid).is_ok_and(|value| {
+            value.start == expected.start_jiffies && matches!(value.state.as_str(), "T" | "t")
+        })
+}
+
 /// A process is definitely dead ONLY if procfs confirms its termination (stat 404,
 /// zombie state) or confirms PID recycling (identity mismatch).
 /// Permission errors, IO errors, or transient issues return false (uncertain),

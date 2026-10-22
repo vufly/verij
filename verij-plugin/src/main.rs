@@ -748,8 +748,8 @@ impl State {
 
     /// Session-list replies can retain a detached client's old topology. Resolve
     /// stable IDs against the live screen before publishing another observation.
-    /// A missing object rejects the entire cached manifest; a failed query leaves
-    /// the last publication intact until the next poll.
+    /// An absent object and a timed-out optional query are indistinguishable in
+    /// stock Zellij. Neither validates the cached manifest or proves closure.
     #[cfg(any(target_arch = "wasm32", test))]
     fn refresh_polled_topology(
         current: &mut SessionInfo,
@@ -809,12 +809,9 @@ impl State {
             current.connected_clients = clients;
         }
         if !Self::refresh_polled_topology(&mut current, tab_info, pane_info)? {
-            // Never refresh authority for a closed entity from stale metadata.
-            // An actual cache mismatch may repair at the next bounded tick;
-            // unchanged topology must not repeatedly broadcast global scans.
-            self.cleanup_renamed_session_file(&current.name);
-            self.last_inventory = None;
-            self.next_session_scan = Some(now);
+            // Inconclusive queries must neither renew nor delete the last
+            // publication. Native topology events establish closures; the normal
+            // polling/slow recovery cadence retries without a global-scan storm.
             return Ok(None);
         }
         let focus = (current.connected_clients > 0).then(|| focused_pane().ok()).flatten();
@@ -1153,6 +1150,114 @@ mod tests {
         ).unwrap());
         assert_eq!(current.tabs, vec![live_tab]);
         assert_eq!(current.panes.panes, HashMap::from([(0, vec![live_pane])]));
+    }
+
+    #[test]
+    fn ambiguous_inventory_queries_preserve_publication_and_real_closures_still_apply() {
+        let directory = std::env::temp_dir().join(format!("verij-query-recovery-{}", uuid_for_test()));
+        let mut state = State::new();
+        state.export_dir = directory.to_string_lossy().into_owned();
+        let tab = TabInfo {
+            tab_id: 7,
+            name: "portal".into(),
+            ..Default::default()
+        };
+        let pane = PaneInfo {
+            id: 23,
+            title: "zsh".into(),
+            ..Default::default()
+        };
+        let other = PaneInfo { id: 24, ..pane.clone() };
+        let session = SessionInfo {
+            name: "query-recovery".into(),
+            is_current_session: true,
+            tabs: vec![tab.clone()],
+            panes: PaneManifest { panes: HashMap::from([(0, vec![pane.clone(), other.clone()])]) },
+            ..Default::default()
+        };
+        let now = Instant::now();
+        let (current, focus) = state.collect_inventory(
+            now,
+            || Ok(SessionListSnapshot { live_sessions: vec![session.clone()], resurrectable_sessions: vec![] }),
+            |_| Ok(Some(tab.clone())),
+            |id| Ok(Some(if id == PaneId::Terminal(pane.id) { pane.clone() } else { other.clone() })),
+            || panic!("detached session has no focus query"),
+        ).unwrap().unwrap();
+        state.apply_polled_snapshot(current, focus);
+        let published = state.last_inventory.clone();
+        let revision = state.revision;
+        let next_scan = state.next_session_scan;
+        let files: Vec<_> = std::fs::read_dir(&directory).unwrap().map(|entry| {
+            let path = entry.unwrap().path();
+            let bytes = std::fs::read(&path).unwrap();
+            (path, bytes)
+        }).collect();
+        assert_eq!(files.len(), 2, "both exporter and legacy snapshots exist");
+
+        for attempt in 0..8 {
+            let failure = attempt % 4;
+            let result = state.collect_inventory(
+                now + Duration::from_secs(attempt + 1),
+                || panic!("ambiguous replies must not accelerate global session scans"),
+                |_| match failure {
+                    0 => Ok(None),
+                    1 => Err("tab query failed".into()),
+                    _ => Ok(Some(tab.clone())),
+                },
+                |id| {
+                    if id == PaneId::Terminal(pane.id) {
+                        // A partial successful refresh must not leak into the publication.
+                        Ok(Some(PaneInfo { title: "partial update".into(), ..pane.clone() }))
+                    } else if failure == 2 {
+                        Ok(None)
+                    } else {
+                        Err("pane query failed".into())
+                    }
+                },
+                || panic!("unvalidated topology must not establish focus"),
+            );
+            assert!(matches!(result, Ok(None) | Err(_)));
+            assert_eq!(state.last_inventory, published);
+            assert_eq!(state.revision, revision);
+            assert_eq!(state.next_session_scan, next_scan);
+            for (path, bytes) in &files {
+                assert_eq!(&std::fs::read(path).expect("ambiguous reply deleted inventory"), bytes);
+            }
+        }
+
+        let (current, focus) = state.collect_inventory(
+            now + Duration::from_secs(9),
+            || panic!("recovery should reuse cached topology"),
+            |_| Ok(Some(tab.clone())),
+            |id| Ok(Some(if id == PaneId::Terminal(pane.id) { pane.clone() } else { other.clone() })),
+            || panic!("detached session has no focus query"),
+        ).unwrap().unwrap();
+        state.apply_polled_snapshot(current, focus);
+        assert_eq!(state.last_inventory, published);
+        assert_eq!(state.revision, revision, "unchanged recovery must not renew authority");
+
+        // Native topology events, unlike optional query replies, establish closure.
+        state.update(Event::PaneUpdate(PaneManifest::default()));
+        state.update(Event::TabUpdate(vec![]));
+        let closed = state.last_inventory.clone().unwrap();
+        assert!(closed.panes.is_empty());
+        assert!(closed.tabs.is_empty());
+        let revision = state.revision;
+        let result = state.collect_inventory(
+            now + SESSION_SCAN_INTERVAL,
+            || Ok(SessionListSnapshot { live_sessions: vec![session.clone()], resurrectable_sessions: vec![] }),
+            |_| Ok(Some(tab.clone())),
+            |_| Ok(None),
+            || panic!("stale topology must not establish focus"),
+        );
+        assert!(matches!(result, Ok(None) | Err(_)));
+        assert_eq!(state.last_inventory.as_ref(), Some(&closed));
+        assert_eq!(state.revision, revision, "stale session list must not resurrect closed panes");
+        for (path, _) in &files {
+            let snapshot: SessionSnapshot = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+            assert_eq!(snapshot.inventory.as_ref(), Some(&closed));
+        }
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
