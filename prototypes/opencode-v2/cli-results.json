@@ -1,0 +1,584 @@
+{
+  "schema": 1,
+  "target": {
+    "version": "2.0.32",
+    "upstream_commit": "843a6c514e606b436a7fe713422ace0a93ad3d61",
+    "executable_sha256": "489b51816a77809e841310e80c88e834c28c19ad1639e12ba8a19f08b47ab607",
+    "launcher_sha256": "cdf4729f26f340ce84eb0e1b3b96912e584eb1f53141d7da9ffe590280549ac5"
+  },
+  "artifact_hashes": {
+    "cli_contract.py": "f901a0e388108d26af41fe06816df163aa023a3e1062484ec20598e26c68598a",
+    "cli_evidence.py": "6d34d7bc7b04428fb299a80a5428bc57a5532c2ca45daefedee639057326bff2",
+    "cli-observer.mjs": "a7530f6d798d18e22483ebab8b45436829a39a384d0e7a093f3feddcf6a7ad4d",
+    "cli-observer-core.mjs": "aba885442eb62c50933410924e33de06fb110605f1bb1418065a7fef555c94d7",
+    "marker_probe.py": "dcae4de9f414358811a52a961771775dc7833a420bbd306f1ef2b6547d6d3cdc",
+    "marker_evidence.py": "6f66cc7a75643143964208d9ccd899c02b3e744137a867925afcb9ae25f0fcf5",
+    "provider.py": "9746958ea5e5ed4464aa74df7ece41b8685d760f5e65819b6d7f71a672fc4044",
+    "smoke.py": "9cd4706337ad17ee67cf1fdb714ed471812090bd8c045e695596eb66af73dd65",
+    "verify_evidence.py": "02220671af192e8a7f1c5eb8b5c53cfcf1bd444f465b2a6a070d5f594b57cf82",
+    "pin.json": "619a4de45978261b396c78013272c5cea5025f7cc22902b3d5392923923ce759"
+  },
+  "status": "CLI_PASS",
+  "production_admission": false,
+  "connected_transport_qualified": false,
+  "runs": [
+    {
+      "mode": "standalone",
+      "status": "CLI_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "setup",
+          "generation": 1,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 686416
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 1,
+          "route": "home",
+          "selected": null,
+          "pid": 686416
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 2,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 3,
+          "channel": "envelope",
+          "event": "session.execution.started",
+          "session": "6b7bfe230388f6144ed5",
+          "event_id": "aec970abf74f4649f467",
+          "aggregate": "6b7bfe230388f6144ed5",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 4,
+          "channel": "typed",
+          "event": "session.execution.started",
+          "session": "6b7bfe230388f6144ed5",
+          "event_id": "aec970abf74f4649f467",
+          "aggregate": "6b7bfe230388f6144ed5",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 5,
+          "channel": "envelope",
+          "event": "session.execution.succeeded",
+          "session": "6b7bfe230388f6144ed5",
+          "event_id": "4c5a246ab6772220ac92",
+          "aggregate": "6b7bfe230388f6144ed5",
+          "seq": 12,
+          "version": 1,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 6,
+          "channel": "typed",
+          "event": "session.execution.succeeded",
+          "session": "6b7bfe230388f6144ed5",
+          "event_id": "4c5a246ab6772220ac92",
+          "aggregate": "6b7bfe230388f6144ed5",
+          "seq": 12,
+          "version": 1,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "cleanup",
+          "generation": 1,
+          "index": 7,
+          "pid": 686416
+        },
+        {
+          "kind": "setup",
+          "generation": 2,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 686416
+        },
+        {
+          "kind": "route",
+          "generation": 2,
+          "index": 1,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "cleanup",
+          "generation": 2,
+          "index": 2,
+          "pid": 686416
+        },
+        {
+          "kind": "setup",
+          "generation": 2,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 686416
+        },
+        {
+          "kind": "route",
+          "generation": 2,
+          "index": 1,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "cleanup",
+          "generation": 2,
+          "index": 2,
+          "pid": 686416
+        },
+        {
+          "kind": "setup",
+          "generation": 3,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 686416
+        },
+        {
+          "kind": "route",
+          "generation": 3,
+          "index": 1,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "event",
+          "generation": 3,
+          "index": 2,
+          "channel": "envelope",
+          "event": "session.execution.started",
+          "session": "6b7bfe230388f6144ed5",
+          "event_id": "fe8928fac29ea2cbf337",
+          "aggregate": "6b7bfe230388f6144ed5",
+          "seq": 25,
+          "version": 1,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "event",
+          "generation": 3,
+          "index": 3,
+          "channel": "typed",
+          "event": "session.execution.started",
+          "session": "6b7bfe230388f6144ed5",
+          "event_id": "fe8928fac29ea2cbf337",
+          "aggregate": "6b7bfe230388f6144ed5",
+          "seq": 25,
+          "version": 1,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "event",
+          "generation": 3,
+          "index": 4,
+          "channel": "envelope",
+          "event": "session.execution.succeeded",
+          "session": "6b7bfe230388f6144ed5",
+          "event_id": "23565f2695ba71cac237",
+          "aggregate": "6b7bfe230388f6144ed5",
+          "seq": 32,
+          "version": 1,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "event",
+          "generation": 3,
+          "index": 5,
+          "channel": "typed",
+          "event": "session.execution.succeeded",
+          "session": "6b7bfe230388f6144ed5",
+          "event_id": "23565f2695ba71cac237",
+          "aggregate": "6b7bfe230388f6144ed5",
+          "seq": 32,
+          "version": 1,
+          "route": "session",
+          "selected": "6b7bfe230388f6144ed5",
+          "pid": 686416
+        },
+        {
+          "kind": "cleanup",
+          "generation": 3,
+          "index": 6,
+          "pid": 686416
+        }
+      ],
+      "client": {
+        "pid": 686416,
+        "ppid": 686349,
+        "pgrp": 686416,
+        "session": 686416,
+        "tty": 34851,
+        "tpgid": 686416,
+        "start": 9476015
+      },
+      "listener_owned": null,
+      "layout": [
+        {
+          "role": "client",
+          "birth": {
+            "pid": 686416,
+            "ppid": 686349,
+            "pgrp": 686416,
+            "session": 686416,
+            "tty": 34851,
+            "tpgid": 686416,
+            "start": 9476015
+          }
+        },
+        {
+          "role": "server",
+          "birth": {
+            "pid": 686425,
+            "ppid": 686416,
+            "pgrp": 686425,
+            "session": 686425,
+            "tty": 0,
+            "tpgid": -1,
+            "start": 9476037
+          }
+        }
+      ],
+      "cleanup": true,
+      "stage": "complete",
+      "checks": [
+        "home",
+        "interactive_success",
+        "options_reload",
+        "source_reload",
+        "disabled_cleanup",
+        "disabled_execution",
+        "reenabled_selection",
+        "reenabled_success",
+        "exit_cleanup"
+      ],
+      "initial_provider_requests": 2,
+      "disabled_provider_requests": 1,
+      "provider_requests": {
+        "success": 4,
+        "failure": 0,
+        "blocked": 0
+      }
+    },
+    {
+      "mode": "server",
+      "status": "CLI_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "setup",
+          "generation": 1,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 686517
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 1,
+          "route": "home",
+          "selected": null,
+          "pid": 686517
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 2,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 3,
+          "channel": "envelope",
+          "event": "session.execution.started",
+          "session": "04f98bbf9c02586e096f",
+          "event_id": "42bd7a856dc012f1db2a",
+          "aggregate": "04f98bbf9c02586e096f",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 4,
+          "channel": "typed",
+          "event": "session.execution.started",
+          "session": "04f98bbf9c02586e096f",
+          "event_id": "42bd7a856dc012f1db2a",
+          "aggregate": "04f98bbf9c02586e096f",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 5,
+          "channel": "envelope",
+          "event": "session.execution.succeeded",
+          "session": "04f98bbf9c02586e096f",
+          "event_id": "6f29d67624dcb023e03c",
+          "aggregate": "04f98bbf9c02586e096f",
+          "seq": 10,
+          "version": 1,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 6,
+          "channel": "typed",
+          "event": "session.execution.succeeded",
+          "session": "04f98bbf9c02586e096f",
+          "event_id": "6f29d67624dcb023e03c",
+          "aggregate": "04f98bbf9c02586e096f",
+          "seq": 10,
+          "version": 1,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "cleanup",
+          "generation": 1,
+          "index": 7,
+          "pid": 686517
+        },
+        {
+          "kind": "setup",
+          "generation": 2,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 686517
+        },
+        {
+          "kind": "route",
+          "generation": 2,
+          "index": 1,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "cleanup",
+          "generation": 2,
+          "index": 2,
+          "pid": 686517
+        },
+        {
+          "kind": "setup",
+          "generation": 2,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 686517
+        },
+        {
+          "kind": "route",
+          "generation": 2,
+          "index": 1,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "cleanup",
+          "generation": 2,
+          "index": 2,
+          "pid": 686517
+        },
+        {
+          "kind": "setup",
+          "generation": 3,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 686517
+        },
+        {
+          "kind": "route",
+          "generation": 3,
+          "index": 1,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "event",
+          "generation": 3,
+          "index": 2,
+          "channel": "envelope",
+          "event": "session.execution.started",
+          "session": "04f98bbf9c02586e096f",
+          "event_id": "f1e370466884424db1c7",
+          "aggregate": "04f98bbf9c02586e096f",
+          "seq": 25,
+          "version": 1,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "event",
+          "generation": 3,
+          "index": 3,
+          "channel": "typed",
+          "event": "session.execution.started",
+          "session": "04f98bbf9c02586e096f",
+          "event_id": "f1e370466884424db1c7",
+          "aggregate": "04f98bbf9c02586e096f",
+          "seq": 25,
+          "version": 1,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "event",
+          "generation": 3,
+          "index": 4,
+          "channel": "envelope",
+          "event": "session.execution.succeeded",
+          "session": "04f98bbf9c02586e096f",
+          "event_id": "5d6fd877d571038d17b3",
+          "aggregate": "04f98bbf9c02586e096f",
+          "seq": 32,
+          "version": 1,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "event",
+          "generation": 3,
+          "index": 5,
+          "channel": "typed",
+          "event": "session.execution.succeeded",
+          "session": "04f98bbf9c02586e096f",
+          "event_id": "5d6fd877d571038d17b3",
+          "aggregate": "04f98bbf9c02586e096f",
+          "seq": 32,
+          "version": 1,
+          "route": "session",
+          "selected": "04f98bbf9c02586e096f",
+          "pid": 686517
+        },
+        {
+          "kind": "cleanup",
+          "generation": 3,
+          "index": 6,
+          "pid": 686517
+        }
+      ],
+      "client": {
+        "pid": 686517,
+        "ppid": 686349,
+        "pgrp": 686517,
+        "session": 686517,
+        "tty": 34851,
+        "tpgid": 686517,
+        "start": 9476764
+      },
+      "listener_owned": true,
+      "layout": [
+        {
+          "role": "server",
+          "birth": {
+            "pid": 686501,
+            "ppid": 686349,
+            "pgrp": 686501,
+            "session": 686501,
+            "tty": 0,
+            "tpgid": -1,
+            "start": 9476734
+          }
+        },
+        {
+          "role": "client",
+          "birth": {
+            "pid": 686517,
+            "ppid": 686349,
+            "pgrp": 686517,
+            "session": 686517,
+            "tty": 34851,
+            "tpgid": 686517,
+            "start": 9476764
+          }
+        }
+      ],
+      "cleanup": true,
+      "stage": "complete",
+      "checks": [
+        "home",
+        "interactive_success",
+        "options_reload",
+        "source_reload",
+        "disabled_cleanup",
+        "disabled_execution",
+        "reenabled_selection",
+        "reenabled_success",
+        "exit_cleanup"
+      ],
+      "initial_provider_requests": 2,
+      "disabled_provider_requests": 1,
+      "provider_requests": {
+        "success": 4,
+        "failure": 0,
+        "blocked": 0
+      }
+    }
+  ]
+}

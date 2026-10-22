@@ -33,6 +33,9 @@ pub struct SetupArgs {
     pub pi_bin: PathBuf,
     #[arg(long, default_value = "python3")]
     pub python_bin: PathBuf,
+    /// Opt into experimental OpenCode V2 live hints (no Done or outcome recovery).
+    #[arg(long)]
+    pub experimental_live_status: bool,
 }
 
 #[derive(Debug, Args)]
@@ -54,7 +57,7 @@ pub struct DoctorArgs {
     pub session: Option<String>,
 }
 
-fn directory(override_dir: Option<PathBuf>) -> Result<PathBuf> {
+pub(crate) fn directory(override_dir: Option<PathBuf>) -> Result<PathBuf> {
     let path = override_dir
         .or_else(|| std::env::var_os("OPENCODE_CONFIG_DIR").map(PathBuf::from))
         .or_else(|| std::env::var_os("XDG_CONFIG_HOME").map(|p| PathBuf::from(p).join("opencode")))
@@ -153,6 +156,23 @@ pub(crate) fn version(binary: &Path) -> Result<String> {
     }
 }
 
+/// Normalize executable output only; native payload validation remains strict.
+pub(crate) fn opencode_version(binary: &Path) -> Result<String> {
+    normalize_opencode_version(&version(binary)?)
+}
+
+fn normalize_opencode_version(output: &str) -> Result<String> {
+    let trimmed = output.trim();
+    let value = trimmed.strip_prefix("opencode v").unwrap_or(trimmed);
+    let major = value.split('.').next().and_then(|p| p.parse::<u64>().ok());
+    if value.len() > 128
+        || !major.is_some_and(|major| crate::agent_version::supports_series(value, (major, 0, 0)))
+    {
+        bail!("invalid OpenCode version output");
+    }
+    Ok(value.to_string())
+}
+
 /// Mask JSONC comments and trailing commas while retaining byte offsets.
 fn mask_comments(text: &str) -> Result<Vec<u8>> {
     let mut bytes = text.as_bytes().to_vec();
@@ -200,7 +220,7 @@ fn mask_comments(text: &str) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn mask(text: &str) -> Result<String> {
+pub(crate) fn mask(text: &str) -> Result<String> {
     let mut bytes = mask_comments(text)?;
     let mut i = 0;
     while i < bytes.len() {
@@ -266,7 +286,7 @@ fn value_end(bytes: &[u8], start: usize) -> usize {
     i
 }
 
-fn plugin_span(masked: &str) -> Option<(usize, usize)> {
+fn plugin_span(masked: &str, field: &str) -> Option<(usize, usize)> {
     let bytes = masked.as_bytes();
     let mut i = masked.find('{')? + 1;
     while i < bytes.len() {
@@ -286,7 +306,7 @@ fn plugin_span(masked: &str) -> Option<(usize, usize)> {
             i += 1;
         }
         let end = value_end(bytes, i);
-        if key == "plugin" {
+        if key == field {
             return Some((i, end));
         }
         i = end;
@@ -294,8 +314,9 @@ fn plugin_span(masked: &str) -> Option<(usize, usize)> {
     None
 }
 
-fn owned(value: &Value, asset: &str) -> bool {
-    value.as_str() == Some(asset)
+pub(crate) fn owned(value: &Value, asset: &str) -> bool {
+    value.get("package").and_then(Value::as_str) == Some(asset)
+        || value.as_str() == Some(asset)
         || value
             .as_array()
             .and_then(|a| a.first())
@@ -305,6 +326,15 @@ fn owned(value: &Value, asset: &str) -> bool {
 
 /// Surgical entry edits preserve unrelated plugin options and JSONC comments.
 fn edit(text: &str, asset: &str, entry: Option<Value>) -> Result<String> {
+    edit_plugins(text, "plugin", asset, entry)
+}
+
+pub(crate) fn edit_plugins(
+    text: &str,
+    field: &str,
+    asset: &str,
+    entry: Option<Value>,
+) -> Result<String> {
     let masked = mask(text)?;
     let mut config: Value =
         serde_json::from_str(&masked).context("invalid OpenCode TUI JSON/JSONC")?;
@@ -312,15 +342,15 @@ fn edit(text: &str, asset: &str, entry: Option<Value>) -> Result<String> {
         .as_object_mut()
         .context("TUI config must be an object")?;
     let mut plugins = object
-        .get("plugin")
-        .map(|v| v.as_array().cloned().context("plugin must be an array"))
+        .get(field)
+        .map(|v| v.as_array().cloned().context("plugins must be an array"))
         .transpose()?
         .unwrap_or_default();
     let existing: Vec<_> = plugins.iter().filter(|p| owned(p, asset)).collect();
     if existing.len() == 1 && entry.as_ref() == existing.first().copied() {
         return Ok(text.to_string());
     }
-    if let Some((start, end)) = plugin_span(&masked) {
+    if let Some((start, end)) = plugin_span(&masked, field) {
         let comments = mask_comments(text)?;
         let mut spans = Vec::new();
         let mut offset = start + 1;
@@ -407,7 +437,7 @@ fn edit(text: &str, asset: &str, entry: Option<Value>) -> Result<String> {
             ","
         };
         Ok(format!(
-            "{}{}\n  \"plugin\": {}\n{}",
+            "{}{}\n  \"{field}\": {}\n{}",
             &text[..end],
             comma,
             array,
@@ -418,7 +448,7 @@ fn edit(text: &str, asset: &str, entry: Option<Value>) -> Result<String> {
     }
 }
 
-fn atomic_text(path: &Path, text: &str) -> Result<()> {
+pub(crate) fn atomic_text(path: &Path, text: &str) -> Result<()> {
     use std::io::Write;
     let temporary = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));
     let mut file = std::fs::OpenOptions::new()
@@ -432,6 +462,9 @@ fn atomic_text(path: &Path, text: &str) -> Result<()> {
 }
 
 pub fn setup(args: SetupArgs) -> Result<()> {
+    if args.experimental_live_status && !matches!(args.adapter, Adapter::Opencode) {
+        bail!("--experimental-live-status applies only to OpenCode");
+    }
     if matches!(args.adapter, Adapter::Agy) {
         return crate::agy_setup::setup(args);
     }
@@ -441,7 +474,13 @@ pub fn setup(args: SetupArgs) -> Result<()> {
     if matches!(args.adapter, Adapter::Pi) {
         return crate::pi_setup::setup(args);
     }
-    let version = version(&args.opencode_bin)?;
+    let version = opencode_version(&args.opencode_bin)?;
+    if args.experimental_live_status {
+        return crate::opencode_setup_v2::setup(args, &version);
+    }
+    if crate::opencode::supports_live_version(&version) {
+        bail!("OpenCode V2 requires --experimental-live-status; no Done or outcome recovery is available");
+    }
     if !crate::opencode::supports_version(&version) {
         bail!(
             "unsupported OpenCode {version}; supported: {}",
@@ -492,6 +531,9 @@ pub fn setup(args: SetupArgs) -> Result<()> {
 }
 
 pub fn uninstall(args: SetupArgs) -> Result<()> {
+    if args.experimental_live_status && !matches!(args.adapter, Adapter::Opencode) {
+        bail!("--experimental-live-status applies only to OpenCode");
+    }
     if matches!(args.adapter, Adapter::Agy) {
         return crate::agy_setup::uninstall(args);
     }
@@ -500,6 +542,11 @@ pub fn uninstall(args: SetupArgs) -> Result<()> {
     }
     if matches!(args.adapter, Adapter::Pi) {
         return crate::pi_setup::uninstall(args);
+    }
+    if args.experimental_live_status
+        || crate::opencode_setup_v2::installed(args.config_dir.clone())?
+    {
+        return crate::opencode_setup_v2::uninstall(args);
     }
     let path = target(args.config_dir)?;
     let dir = path.parent().context("TUI config has no parent")?;
@@ -572,10 +619,20 @@ pub fn doctor(args: DoctorArgs) -> Result<()> {
     if matches!(args.adapter, Adapter::Pi) {
         return crate::pi_setup::doctor(args);
     }
+    let version = opencode_version(&args.opencode_bin).ok();
+    if version
+        .as_deref()
+        .is_some_and(crate::opencode::supports_live_version)
+        || (!version
+            .as_deref()
+            .is_some_and(crate::opencode::supports_version)
+            && crate::opencode_setup_v2::installed(args.config_dir.clone())?)
+    {
+        return crate::opencode_setup_v2::doctor(args, version);
+    }
     let path = target(args.config_dir)?;
     let dir = path.parent().context("TUI config has no parent")?;
     let assets = dir.join("verij-monitoring");
-    let version = version(&args.opencode_bin).ok();
     let config = std::fs::read_to_string(&path)
         .ok()
         .and_then(|text| mask(&text).ok())

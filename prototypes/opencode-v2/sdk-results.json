@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "target": {
+    "version": "2.0.32",
+    "commit": "843a6c514e606b436a7fe713422ace0a93ad3d61"
+  },
+  "sources": {
+    "client.ts": "9e4da23f8bcd598b45c6fe589ecaf434e3a8561bca9913cf1e4ec332d80aff36",
+    "client-error.ts": "1c02bcfc01072693c43e71cc53c8dcca5d8d75327e09099cac9b37a0317ace2d"
+  },
+  "artifact_sha256": "6d1cfb53fbde2cd0b44fd2d1ad039f05c6f0158439bec7326f2b2ae583d5f00a",
+  "status": "CHARACTERIZED",
+  "evidence_kind": "synthetic-tagged-sdk",
+  "production_admission": false,
+  "connected_transport_qualified": false,
+  "cases": [
+    {
+      "name": "metadata_over_64k",
+      "observed": true
+    },
+    {
+      "name": "success_over_1m",
+      "observed": true
+    },
+    {
+      "name": "declared_error_over_1m",
+      "observed": true
+    },
+    {
+      "name": "depth_over_32",
+      "observed": true
+    },
+    {
+      "name": "nodes_over_16384",
+      "observed": true
+    },
+    {
+      "name": "prefix_and_auth",
+      "observed": true
+    },
+    {
+      "name": "global_fetch_unchanged",
+      "observed": true
+    }
+  ]
+}

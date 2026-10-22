@@ -1,0 +1,174 @@
+{
+  "schema": 1,
+  "target": {
+    "version": "2.0.32",
+    "upstream_commit": "843a6c514e606b436a7fe713422ace0a93ad3d61",
+    "executable_sha256": "489b51816a77809e841310e80c88e834c28c19ad1639e12ba8a19f08b47ab607",
+    "launcher_sha256": "cdf4729f26f340ce84eb0e1b3b96912e584eb1f53141d7da9ffe590280549ac5"
+  },
+  "artifact_hashes": {
+    "pin.json": "619a4de45978261b396c78013272c5cea5025f7cc22902b3d5392923923ce759",
+    "contract-probe.mjs": "da17b0162e4d59f2ff2f36b242df24f6c36861f934f55fa1b9566d6c4b72bb7a",
+    "smoke.py": "9cd4706337ad17ee67cf1fdb714ed471812090bd8c045e695596eb66af73dd65",
+    "verify_evidence.py": "02220671af192e8a7f1c5eb8b5c53cfcf1bd444f465b2a6a070d5f594b57cf82"
+  },
+  "status": "SMOKE_PASS",
+  "production_admission": false,
+  "blockers": [
+    "bounded_transport",
+    "terminal_identity",
+    "fresh_complete_family"
+  ],
+  "runs": [
+    {
+      "mode": "standalone",
+      "status": "SMOKE_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "setup",
+          "index": 0,
+          "pid": 332339,
+          "version_matches": true,
+          "options_match": true,
+          "shape": {
+            "session_get": true,
+            "session_active": true,
+            "session_list": true,
+            "message_list": true,
+            "permission_requests": true,
+            "session_forms": true,
+            "session_inbox": true,
+            "typed_events": true,
+            "enveloped_events": true,
+            "family_cache": true
+          }
+        },
+        {
+          "kind": "route",
+          "index": 1,
+          "pid": 332339,
+          "route": "home",
+          "selected": null
+        },
+        {
+          "kind": "cleanup",
+          "index": 2,
+          "pid": 332339
+        }
+      ],
+      "client": {
+        "pid": 332339,
+        "ppid": 332283,
+        "pgrp": 332339,
+        "session": 332339,
+        "tty": 34824,
+        "tpgid": 332339,
+        "start": 1976930
+      },
+      "listener_owned": null,
+      "layout": [
+        {
+          "role": "client",
+          "birth": {
+            "pid": 332339,
+            "ppid": 332283,
+            "pgrp": 332339,
+            "session": 332339,
+            "tty": 34824,
+            "tpgid": 332339,
+            "start": 1976930
+          }
+        },
+        {
+          "role": "server",
+          "birth": {
+            "pid": 332372,
+            "ppid": 332339,
+            "pgrp": 332372,
+            "session": 332372,
+            "tty": 0,
+            "tpgid": -1,
+            "start": 1976970
+          }
+        }
+      ],
+      "cleanup": true
+    },
+    {
+      "mode": "server",
+      "status": "SMOKE_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "setup",
+          "index": 0,
+          "pid": 332707,
+          "version_matches": true,
+          "options_match": true,
+          "shape": {
+            "session_get": true,
+            "session_active": true,
+            "session_list": true,
+            "message_list": true,
+            "permission_requests": true,
+            "session_forms": true,
+            "session_inbox": true,
+            "typed_events": true,
+            "enveloped_events": true,
+            "family_cache": true
+          }
+        },
+        {
+          "kind": "route",
+          "index": 1,
+          "pid": 332707,
+          "route": "home",
+          "selected": null
+        },
+        {
+          "kind": "cleanup",
+          "index": 2,
+          "pid": 332707
+        }
+      ],
+      "client": {
+        "pid": 332707,
+        "ppid": 332283,
+        "pgrp": 332707,
+        "session": 332707,
+        "tty": 34824,
+        "tpgid": 332707,
+        "start": 1977358
+      },
+      "listener_owned": true,
+      "layout": [
+        {
+          "role": "server",
+          "birth": {
+            "pid": 332665,
+            "ppid": 332283,
+            "pgrp": 332665,
+            "session": 332665,
+            "tty": 0,
+            "tpgid": -1,
+            "start": 1977296
+          }
+        },
+        {
+          "role": "client",
+          "birth": {
+            "pid": 332707,
+            "ppid": 332283,
+            "pgrp": 332707,
+            "session": 332707,
+            "tty": 34824,
+            "tpgid": 332707,
+            "start": 1977358
+          }
+        }
+      ],
+      "cleanup": true
+    }
+  ]
+}

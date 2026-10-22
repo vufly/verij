@@ -1,6 +1,6 @@
 # Agent Monitoring Progress
 
-Status: **H0–H2 approved and committed; integrated H3/H4 work accepted for master integration and global build**. Last updated: **2026-10-11**.
+Status: **H0–H2 approved and committed; integrated H3/H4 work accepted for master integration and global build; OpenCode V2 experimental live-status adapter implemented; full-recovery P0 blocked on upstream transport capability**. Last updated: **2026-10-21**.
 
 Source of truth for product behavior: [approved design](AGENT_MONITORING.md). Engineering sequence, gate deliverables, checkpoint guidelines and acceptance matrix: [implementation guide](AGENT_MONITORING_IMPLEMENTATION.md). This file records *actual* progress, not proposed behavior.
 
@@ -24,11 +24,33 @@ Source of truth for product behavior: [approved design](AGENT_MONITORING.md). En
 | 2 | Reporter, store, reducer and acknowledgement | Approved: synthetic semantics, real ownership/visit proof | H1 approved 2026-10-05 |
 | 3 | Stock-capability pane navigation | Approved within documented stock limits | H1 approved 2026-10-05 |
 | 4 | Three-level TUI | Approved: native/WASM checks, 170 Rust tests, ten live checks | H2 approved 2026-10-05 |
-| 5 | OpenCode adapter | Accepted integrated implementation with H4; prior exporter/registration and live evidence remain scoped | Current integrated work accepted 2026-10-11 |
+| 5 | OpenCode adapter | V1 accepted; V2 experimental live-only adapter implemented and locally tested; full-recovery P0 blocked | Live-only scope approved 2026-10-21; global V2 rollout not approved; full recovery awaits #57885 |
 | 6–7 | Agy/Magy adapters; setup, doctor, documentation | Accepted: 216 Rust tests, three Python callback tests, 19 live checks and ten H2 regression checks | H4 accepted for integration 2026-10-11 |
 | 8 | Automated and live acceptance | Pending | H5 pending |
 
 ## Gate evidence and blockers
+
+### OpenCode V2 experimental live status — 2026-10-21
+
+The user approved a reduced Herdr-style track: **“OK, update the plan then implement.”** The [plan](OPENCODE_V2_UPGRADE_PLAN.md) now separates this track from blocked full-recovery P0/P1/P2. No existing P0 gate or historical evidence was promoted to a pass.
+
+- **Implemented:** dependency-free V2 CLI plugin under `integrations/opencode/v2/`, bounded cache/event projection, one-second sampling, one in-flight/one pending native reporter mailbox, five-second lease renewal, native ownership/producer fencing, and cleanup/reconnect Unknown fencing.
+- **Native safety:** schema 2 accepts only the experimental 2.x >= 2.0.32 contract and rejects all turn identities, completions, terminal errors, and selected Idle. Working/input hints are positive observations, not complete-family freshness. Forms map to the existing Question kind. No SDK/history/sync/storage/credential calls are made. Upstream cache buffering/allocation/freshness remain outside Verij's guarantee.
+- **Installation:** explicit `--experimental-live-status`, independent V2 assets and `cli.json` object registration, first-start migration refusal, executable-output normalization, verified migrated-V1-entry replacement, JSONC preservation, disable/inline-override diagnostics, executable-independent uninstall, and preservation of V1/user-modified assets. Doctor installation readiness is not runtime qualification.
+- **Focused verification:** 77 OpenCode JavaScript tests pass, including 22 new V2 tests; 9 new live-setup integration tests and the existing V1 setup regression pass. Native tests cover V1/schema pairing, rejected outcomes, bounded identities, reduced capabilities, and prevention of replaying an old Done revision.
+- **Real CLI loading:** separate [2.1.2 evidence](../prototypes/opencode-v2/live-status-loading-results.json) passes seven checks in each of standalone and private authenticated-server modes: exact production JavaScript loading, real foreground TTY, Unknown-first, Home Idle without authority, lease renewal, ordered disable cleanup, and re-enable fencing. A third selected-session private-server case passes ten checks, including quiescent Unknown, its own cached form hint, foreign-form isolation, and leaving both forms pending. All runs use an explicit **fixture protocol sink**, not native ownership verification. Private recorded process births were cleaned up. No prompts/provider work or shared service changes occurred.
+- **Shared checks:** native workspace tests, Pi JavaScript tests (35), Agy Python tests (5), Codex Python tests (12), and existing V2 prototype Python tests (117) pass. After explicit user approval of the toolchain prerequisite step, installed `wasm32-wasip1` for active Rust **1.99.1**. `make check` now passes both `cargo check -p verij-cli` and `cargo check -p verij-plugin --target wasm32-wasip1`. No CLI/WASM artifacts were installed globally.
+- **Still unperformed/unapproved:** production V2 native-pane/provider/selected-session runtime acceptance, authenticated-remote qualification, resource/soak qualification, global installation, and user shared-service changes. Full-recovery transport/identity/freshness gates remain blocked. See the [experimental guide](../integrations/opencode/v2/README.md) before manual opt-in.
+
+### OpenCode V2 P0 investigation and upstream dependency — 2026-10-21 (full recovery)
+
+The [V2 upgrade plan](OPENCODE_V2_UPGRADE_PLAN.md) remains **P0 blocked**. Earlier H3 acceptance applies to its documented V1 implementation, not V2 support.
+
+- **Completed investigation:** isolated 2.0.32 plugin loading, SDK shapes, markers/lifecycle, CLI reload, terminal failure/abort, partial event-to-marker reconciliation, and a seven-file transport source audit have separate retained evidence under [`prototypes/opencode-v2/`](../prototypes/opencode-v2/README.md). These are partial contract results, not production acceptance.
+- **Installed-release recheck:** 2.1.2 source at `a517687fde98a7329ada3ae644a01a9fc6c4e99e` retains the same transport blocker. The plugin receives a constructed client without a supported independent pre-parse observation transport or connection-generation contract. This source-only recheck does not repin the original runtime target or qualify 2.1.2.
+- **Upstream action completed:** feature request [anomalyco/opencode#57885](https://github.com/anomalyco/opencode/issues/57885) was filed with user approval. The [automated triage reply](https://github.com/anomalyco/opencode/issues/57885#issuecomment-6324541538) confirms the API gap and reports escalation to maintainers. The issue is open; there is no maintainer design approval, implementation commitment, or timeline.
+- **Latest focused verification:** 11 existing transport-source audit tests and `git diff --check` pass. No new runtime acceptance or resource qualification was performed for this follow-up.
+- **Next:** await maintainer design feedback before an implementation PR. A private patched-target experiment still requires explicit approval. Once a supported transport exists, qualify it on an explicitly pinned target and finish terminal identity and complete-family/input freshness before reassessing P0. P1/P2, production admission, setup activation, and rollout remain blocked; no global assets or shared service were changed.
 
 ### Pi monitoring P0–P4 local automated qualification — 2026-10-14
 

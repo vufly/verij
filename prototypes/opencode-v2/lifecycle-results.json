@@ -1,0 +1,243 @@
+{
+  "schema": 1,
+  "target": {
+    "version": "2.0.32",
+    "upstream_commit": "843a6c514e606b436a7fe713422ace0a93ad3d61",
+    "executable_sha256": "489b51816a77809e841310e80c88e834c28c19ad1639e12ba8a19f08b47ab607",
+    "launcher_sha256": "cdf4729f26f340ce84eb0e1b3b96912e584eb1f53141d7da9ffe590280549ac5"
+  },
+  "artifact_hashes": {
+    "lifecycle_probe.py": "619367882490174067bb20687a937177d53ca4697049dabb2954908c75bbfe0a",
+    "lifecycle_evidence.py": "35ff4f6f449c178ad3dd41322315d611d7b56e9e9005916f9d9f8aa762e70236",
+    "marker_probe.py": "dcae4de9f414358811a52a961771775dc7833a420bbd306f1ef2b6547d6d3cdc",
+    "marker_evidence.py": "6f66cc7a75643143964208d9ccd899c02b3e744137a867925afcb9ae25f0fcf5",
+    "provider.py": "9746958ea5e5ed4464aa74df7ece41b8685d760f5e65819b6d7f71a672fc4044",
+    "smoke.py": "9cd4706337ad17ee67cf1fdb714ed471812090bd8c045e695596eb66af73dd65",
+    "verify_evidence.py": "02220671af192e8a7f1c5eb8b5c53cfcf1bd444f465b2a6a070d5f594b57cf82",
+    "pin.json": "619a4de45978261b396c78013272c5cea5025f7cc22902b3d5392923923ce759"
+  },
+  "evidence_kind": "private-headless-lifecycle",
+  "production_admission": false,
+  "connected_transport_qualified": false,
+  "automatic_resume_qualified": false,
+  "run": {
+    "status": "LIFECYCLE_PASS",
+    "stage": "complete",
+    "failure": null,
+    "checks": [
+      "two_completed_turns",
+      "stage_preserves_history",
+      "clear_wakes_new_marker",
+      "commit_removes_reverted_markers",
+      "replacement_turn_identity",
+      "active_has_no_new_marker",
+      "shutdown_preserves_open_turn",
+      "restart_preserves_open_turn"
+    ],
+    "samples": [
+      {
+        "label": "completed",
+        "session": "a6b8dc1f99c1755bb6e2",
+        "outcome": "succeeded",
+        "marker": "5eedc7b23c90d93ffe17",
+        "marker_outcome": "succeeded",
+        "marker_count": 2,
+        "message_ids": [
+          "5eedc7b23c90d93ffe17",
+          "60db9846fc5a5ee4d72a",
+          "a4096e4edf22a1763cc3",
+          "580b05fce402775ae3a6",
+          "42b7d8025a8fb624f570",
+          "3a33d27626f60464c108"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user",
+          "idle",
+          "assistant",
+          "user"
+        ],
+        "revert": null,
+        "active": false
+      },
+      {
+        "label": "staged",
+        "session": "a6b8dc1f99c1755bb6e2",
+        "outcome": "succeeded",
+        "marker": "5eedc7b23c90d93ffe17",
+        "marker_outcome": "succeeded",
+        "marker_count": 2,
+        "message_ids": [
+          "5eedc7b23c90d93ffe17",
+          "60db9846fc5a5ee4d72a",
+          "a4096e4edf22a1763cc3",
+          "580b05fce402775ae3a6",
+          "42b7d8025a8fb624f570",
+          "3a33d27626f60464c108"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user",
+          "idle",
+          "assistant",
+          "user"
+        ],
+        "revert": "a4096e4edf22a1763cc3",
+        "active": false
+      },
+      {
+        "label": "cleared",
+        "session": "a6b8dc1f99c1755bb6e2",
+        "outcome": "succeeded",
+        "marker": "f1f5be3a68131bb134a4",
+        "marker_outcome": "succeeded",
+        "marker_count": 3,
+        "message_ids": [
+          "f1f5be3a68131bb134a4",
+          "5eedc7b23c90d93ffe17",
+          "60db9846fc5a5ee4d72a",
+          "a4096e4edf22a1763cc3",
+          "580b05fce402775ae3a6",
+          "42b7d8025a8fb624f570",
+          "3a33d27626f60464c108"
+        ],
+        "message_types": [
+          "idle",
+          "idle",
+          "assistant",
+          "user",
+          "idle",
+          "assistant",
+          "user"
+        ],
+        "revert": null,
+        "active": false
+      },
+      {
+        "label": "committed",
+        "session": "a6b8dc1f99c1755bb6e2",
+        "outcome": "succeeded",
+        "marker": "580b05fce402775ae3a6",
+        "marker_outcome": "succeeded",
+        "marker_count": 1,
+        "message_ids": [
+          "580b05fce402775ae3a6",
+          "42b7d8025a8fb624f570",
+          "3a33d27626f60464c108"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user"
+        ],
+        "revert": null,
+        "active": false
+      },
+      {
+        "label": "replacement",
+        "session": "a6b8dc1f99c1755bb6e2",
+        "outcome": "succeeded",
+        "marker": "6ac754bd3422063bd2cd",
+        "marker_outcome": "succeeded",
+        "marker_count": 2,
+        "message_ids": [
+          "6ac754bd3422063bd2cd",
+          "63d9e32d5384260ac3f8",
+          "976648356b0fa0393646",
+          "580b05fce402775ae3a6",
+          "42b7d8025a8fb624f570",
+          "3a33d27626f60464c108"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user",
+          "idle",
+          "assistant",
+          "user"
+        ],
+        "revert": null,
+        "active": false
+      },
+      {
+        "label": "active",
+        "session": "46bdb1980880eb173efe",
+        "outcome": "succeeded",
+        "marker": "13fc5b4bf04f041a6369",
+        "marker_outcome": "succeeded",
+        "marker_count": 1,
+        "message_ids": [
+          "23c60c49f82ff2909e42",
+          "13fc5b4bf04f041a6369",
+          "c97b4eaff863519fffa6",
+          "552bd990e98f0089f7d7"
+        ],
+        "message_types": [
+          "user",
+          "idle",
+          "assistant",
+          "user"
+        ],
+        "revert": null,
+        "active": true
+      },
+      {
+        "label": "after_shutdown",
+        "session": "46bdb1980880eb173efe",
+        "outcome": "succeeded",
+        "marker": "13fc5b4bf04f041a6369",
+        "marker_outcome": "succeeded",
+        "marker_count": 1,
+        "message_ids": [
+          "505a2a534df46456680f",
+          "23c60c49f82ff2909e42",
+          "13fc5b4bf04f041a6369",
+          "c97b4eaff863519fffa6",
+          "552bd990e98f0089f7d7"
+        ],
+        "message_types": [
+          "assistant",
+          "user",
+          "idle",
+          "assistant",
+          "user"
+        ],
+        "revert": null,
+        "active": false
+      },
+      {
+        "label": "after_restart",
+        "session": "46bdb1980880eb173efe",
+        "outcome": "succeeded",
+        "marker": "13fc5b4bf04f041a6369",
+        "marker_outcome": "succeeded",
+        "marker_count": 1,
+        "message_ids": [
+          "505a2a534df46456680f",
+          "23c60c49f82ff2909e42",
+          "13fc5b4bf04f041a6369",
+          "c97b4eaff863519fffa6",
+          "552bd990e98f0089f7d7"
+        ],
+        "message_types": [
+          "assistant",
+          "user",
+          "idle",
+          "assistant",
+          "user"
+        ],
+        "revert": null,
+        "active": false
+      }
+    ],
+    "provider_requests": {
+      "success": 3,
+      "failure": 0,
+      "blocked": 2
+    },
+    "clear_provider_requests": 0,
+    "cleanup": true
+  }
+}

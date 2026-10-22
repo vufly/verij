@@ -1,0 +1,473 @@
+{
+  "schema": 1,
+  "target": {
+    "version": "2.0.32",
+    "upstream_commit": "843a6c514e606b436a7fe713422ace0a93ad3d61",
+    "executable_sha256": "489b51816a77809e841310e80c88e834c28c19ad1639e12ba8a19f08b47ab607",
+    "launcher_sha256": "cdf4729f26f340ce84eb0e1b3b96912e584eb1f53141d7da9ffe590280549ac5"
+  },
+  "artifact_hashes": {
+    "cli_contract.py": "f901a0e388108d26af41fe06816df163aa023a3e1062484ec20598e26c68598a",
+    "cli_evidence.py": "6d34d7bc7b04428fb299a80a5428bc57a5532c2ca45daefedee639057326bff2",
+    "cli-observer.mjs": "a7530f6d798d18e22483ebab8b45436829a39a384d0e7a093f3feddcf6a7ad4d",
+    "cli-observer-core.mjs": "aba885442eb62c50933410924e33de06fb110605f1bb1418065a7fef555c94d7",
+    "marker_probe.py": "dcae4de9f414358811a52a961771775dc7833a420bbd306f1ef2b6547d6d3cdc",
+    "marker_evidence.py": "6f66cc7a75643143964208d9ccd899c02b3e744137a867925afcb9ae25f0fcf5",
+    "provider.py": "9746958ea5e5ed4464aa74df7ece41b8685d760f5e65819b6d7f71a672fc4044",
+    "smoke.py": "9cd4706337ad17ee67cf1fdb714ed471812090bd8c045e695596eb66af73dd65",
+    "verify_evidence.py": "02220671af192e8a7f1c5eb8b5c53cfcf1bd444f465b2a6a070d5f594b57cf82",
+    "pin.json": "619a4de45978261b396c78013272c5cea5025f7cc22902b3d5392923923ce759",
+    "terminal_contract.py": "f0149a3b5a3ea0e35a5f6cd58a5c8888147a73ee3e38c87b93de7b3c644975d5",
+    "terminal_evidence.py": "5feb3d09a896879fa6ff642e68e7f7d8712d30eb29005750a756d91009334fe9",
+    "terminal-observer.mjs": "4bae040cf21519d843dd35fd8f129102802591900b0217c3a115198e498118d8",
+    "reconciliation_contract.py": "e96eafc86bb9d7929e11b4f6308e3064e6e1008a58fb643293748e25db265d29",
+    "reconciliation_evidence.py": "2969bf40e9f0a17dc510a9f939677c36bd6d70195ff65fae0c1ecfcba0d43acb",
+    "reconciliation-observer.mjs": "6d5c04ef227b081bfa9d93b3723d5e25db9e35b160d6fbe9b9f9323d9a5db528",
+    "reconciliation-plugin.mjs": "059d52223f78175ac34616ed0c7c48012e51dd708c3a5aaa50c69dcfe0203fc5"
+  },
+  "status": "RECONCILIATION_PASS",
+  "production_admission": false,
+  "connected_transport_qualified": false,
+  "runs": [
+    {
+      "mode": "server",
+      "status": "RECONCILIATION_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "setup",
+          "generation": 1,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 747339
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 1,
+          "route": "home",
+          "selected": null,
+          "pid": 747339
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 2,
+          "route": "session",
+          "selected": "217877ddfdcd17dcd2ce",
+          "pid": 747339
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 3,
+          "error_type": null,
+          "interruption_reason": null,
+          "marker_from_event": null,
+          "channel": "envelope",
+          "event": "session.execution.started",
+          "session": "217877ddfdcd17dcd2ce",
+          "event_id": "8c3d8dac36e190fcd678",
+          "aggregate": "217877ddfdcd17dcd2ce",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "217877ddfdcd17dcd2ce",
+          "pid": 747339
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 4,
+          "error_type": null,
+          "interruption_reason": null,
+          "marker_from_event": null,
+          "channel": "typed",
+          "event": "session.execution.started",
+          "session": "217877ddfdcd17dcd2ce",
+          "event_id": "8c3d8dac36e190fcd678",
+          "aggregate": "217877ddfdcd17dcd2ce",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "217877ddfdcd17dcd2ce",
+          "pid": 747339
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 5,
+          "error_type": "provider.invalid-request",
+          "interruption_reason": null,
+          "marker_from_event": "f47e2e02f860f439a61b",
+          "channel": "envelope",
+          "event": "session.execution.failed",
+          "session": "217877ddfdcd17dcd2ce",
+          "event_id": "95b18efc67265eda7fe0",
+          "aggregate": "217877ddfdcd17dcd2ce",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "217877ddfdcd17dcd2ce",
+          "pid": 747339
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 6,
+          "error_type": "provider.invalid-request",
+          "interruption_reason": null,
+          "marker_from_event": "f47e2e02f860f439a61b",
+          "channel": "typed",
+          "event": "session.execution.failed",
+          "session": "217877ddfdcd17dcd2ce",
+          "event_id": "95b18efc67265eda7fe0",
+          "aggregate": "217877ddfdcd17dcd2ce",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "217877ddfdcd17dcd2ce",
+          "pid": 747339
+        },
+        {
+          "kind": "cleanup",
+          "generation": 1,
+          "index": 7,
+          "pid": 747339
+        }
+      ],
+      "client": {
+        "pid": 747339,
+        "ppid": 747311,
+        "pgrp": 747339,
+        "session": 747339,
+        "tty": 34851,
+        "tpgid": 747339,
+        "start": 11714807
+      },
+      "listener_owned": true,
+      "layout": [
+        {
+          "role": "server",
+          "birth": {
+            "pid": 747323,
+            "ppid": 747311,
+            "pgrp": 747323,
+            "session": 747323,
+            "tty": 0,
+            "tpgid": -1,
+            "start": 11714784
+          }
+        },
+        {
+          "role": "client",
+          "birth": {
+            "pid": 747339,
+            "ppid": 747311,
+            "pgrp": 747339,
+            "session": 747339,
+            "tty": 34851,
+            "tpgid": 747339,
+            "start": 11714807
+          }
+        }
+      ],
+      "cleanup": true,
+      "stage": "complete",
+      "checks": [
+        "home",
+        "selected_root",
+        "terminal_event",
+        "typed_envelope",
+        "terminal_metadata",
+        "exit_cleanup",
+        "event_marker_identity",
+        "repeated_identity",
+        "restart_identity",
+        "missed_terminal_recovery",
+        "missed_repeated_identity"
+      ],
+      "provider_requests": {
+        "success": 0,
+        "failure": 4,
+        "blocked": 0
+      },
+      "case": "failure",
+      "samples": [
+        {
+          "label": "terminal",
+          "session": "217877ddfdcd17dcd2ce",
+          "outcome": "failed",
+          "marker": "f47e2e02f860f439a61b",
+          "marker_outcome": "failed",
+          "error_type": "provider.invalid-request",
+          "has_interruption_reason": false,
+          "active": false
+        },
+        {
+          "label": "repeated",
+          "session": "217877ddfdcd17dcd2ce",
+          "outcome": "failed",
+          "marker": "f47e2e02f860f439a61b",
+          "marker_outcome": "failed",
+          "error_type": "provider.invalid-request",
+          "has_interruption_reason": false,
+          "active": false
+        },
+        {
+          "label": "restart",
+          "session": "217877ddfdcd17dcd2ce",
+          "outcome": "failed",
+          "marker": "f47e2e02f860f439a61b",
+          "marker_outcome": "failed",
+          "error_type": "provider.invalid-request",
+          "has_interruption_reason": false,
+          "active": false
+        },
+        {
+          "label": "missed",
+          "session": "217877ddfdcd17dcd2ce",
+          "outcome": "failed",
+          "marker": "5d6b2df7cbbe6e4c686d",
+          "marker_outcome": "failed",
+          "error_type": "provider.invalid-request",
+          "has_interruption_reason": false,
+          "active": false
+        },
+        {
+          "label": "missed_repeated",
+          "session": "217877ddfdcd17dcd2ce",
+          "outcome": "failed",
+          "marker": "5d6b2df7cbbe6e4c686d",
+          "marker_outcome": "failed",
+          "error_type": "provider.invalid-request",
+          "has_interruption_reason": false,
+          "active": false
+        }
+      ],
+      "control_calls": 21,
+      "observer_unchanged": true
+    },
+    {
+      "mode": "server",
+      "status": "RECONCILIATION_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "setup",
+          "generation": 1,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 747429
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 1,
+          "route": "home",
+          "selected": null,
+          "pid": 747429
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 2,
+          "route": "session",
+          "selected": "9a735d45bcfd73965c54",
+          "pid": 747429
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 3,
+          "error_type": null,
+          "interruption_reason": null,
+          "marker_from_event": null,
+          "channel": "envelope",
+          "event": "session.execution.started",
+          "session": "9a735d45bcfd73965c54",
+          "event_id": "1544574ddb2eccf01d1e",
+          "aggregate": "9a735d45bcfd73965c54",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "9a735d45bcfd73965c54",
+          "pid": 747429
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 4,
+          "error_type": null,
+          "interruption_reason": null,
+          "marker_from_event": null,
+          "channel": "typed",
+          "event": "session.execution.started",
+          "session": "9a735d45bcfd73965c54",
+          "event_id": "1544574ddb2eccf01d1e",
+          "aggregate": "9a735d45bcfd73965c54",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "9a735d45bcfd73965c54",
+          "pid": 747429
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 5,
+          "error_type": null,
+          "interruption_reason": "user",
+          "marker_from_event": "c2d13033e8509964f7f9",
+          "channel": "envelope",
+          "event": "session.execution.interrupted",
+          "session": "9a735d45bcfd73965c54",
+          "event_id": "a81b8b64375d14854dd8",
+          "aggregate": "9a735d45bcfd73965c54",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "9a735d45bcfd73965c54",
+          "pid": 747429
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 6,
+          "error_type": null,
+          "interruption_reason": "user",
+          "marker_from_event": "c2d13033e8509964f7f9",
+          "channel": "typed",
+          "event": "session.execution.interrupted",
+          "session": "9a735d45bcfd73965c54",
+          "event_id": "a81b8b64375d14854dd8",
+          "aggregate": "9a735d45bcfd73965c54",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "9a735d45bcfd73965c54",
+          "pid": 747429
+        },
+        {
+          "kind": "cleanup",
+          "generation": 1,
+          "index": 7,
+          "pid": 747429
+        }
+      ],
+      "client": {
+        "pid": 747429,
+        "ppid": 747311,
+        "pgrp": 747429,
+        "session": 747429,
+        "tty": 34851,
+        "tpgid": 747429,
+        "start": 11715383
+      },
+      "listener_owned": true,
+      "layout": [
+        {
+          "role": "server",
+          "birth": {
+            "pid": 747412,
+            "ppid": 747311,
+            "pgrp": 747412,
+            "session": 747412,
+            "tty": 0,
+            "tpgid": -1,
+            "start": 11715353
+          }
+        },
+        {
+          "role": "client",
+          "birth": {
+            "pid": 747429,
+            "ppid": 747311,
+            "pgrp": 747429,
+            "session": 747429,
+            "tty": 34851,
+            "tpgid": 747429,
+            "start": 11715383
+          }
+        }
+      ],
+      "cleanup": true,
+      "stage": "complete",
+      "checks": [
+        "home",
+        "selected_root",
+        "terminal_event",
+        "typed_envelope",
+        "terminal_metadata",
+        "exit_cleanup",
+        "event_marker_identity",
+        "repeated_identity",
+        "restart_identity",
+        "missed_terminal_recovery",
+        "missed_repeated_identity"
+      ],
+      "provider_requests": {
+        "success": 0,
+        "failure": 0,
+        "blocked": 4
+      },
+      "case": "user_abort",
+      "samples": [
+        {
+          "label": "terminal",
+          "session": "9a735d45bcfd73965c54",
+          "outcome": "interrupted",
+          "marker": "c2d13033e8509964f7f9",
+          "marker_outcome": "interrupted",
+          "error_type": null,
+          "has_interruption_reason": false,
+          "active": false
+        },
+        {
+          "label": "repeated",
+          "session": "9a735d45bcfd73965c54",
+          "outcome": "interrupted",
+          "marker": "c2d13033e8509964f7f9",
+          "marker_outcome": "interrupted",
+          "error_type": null,
+          "has_interruption_reason": false,
+          "active": false
+        },
+        {
+          "label": "restart",
+          "session": "9a735d45bcfd73965c54",
+          "outcome": "interrupted",
+          "marker": "c2d13033e8509964f7f9",
+          "marker_outcome": "interrupted",
+          "error_type": null,
+          "has_interruption_reason": false,
+          "active": false
+        },
+        {
+          "label": "missed",
+          "session": "9a735d45bcfd73965c54",
+          "outcome": "interrupted",
+          "marker": "42abf1bfda1c48af0985",
+          "marker_outcome": "interrupted",
+          "error_type": null,
+          "has_interruption_reason": false,
+          "active": false
+        },
+        {
+          "label": "missed_repeated",
+          "session": "9a735d45bcfd73965c54",
+          "outcome": "interrupted",
+          "marker": "42abf1bfda1c48af0985",
+          "marker_outcome": "interrupted",
+          "error_type": null,
+          "has_interruption_reason": false,
+          "active": false
+        }
+      ],
+      "control_calls": 19,
+      "observer_unchanged": true
+    }
+  ]
+}

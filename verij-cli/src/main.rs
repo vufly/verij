@@ -33,6 +33,7 @@ mod magy;
 mod navigation;
 pub(crate) mod navigation_diagnostics;
 mod opencode;
+mod opencode_setup_v2;
 mod pi;
 mod pi_setup;
 mod process;

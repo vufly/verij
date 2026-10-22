@@ -2,6 +2,10 @@
 
 This guide reconstructs the development environment for the approved H2 baseline and H3 OpenCode review checkpoint. It also records the handoff context that otherwise lives in conversations and machine-local workspace files.
 
+## Experimental OpenCode V2 status (2026-10-21)
+
+A separate [V2 live-status adapter](../integrations/opencode/v2/README.md) is implemented behind `verij agent setup opencode --experimental-live-status`. It uses CLI-local cached metadata/events and preserves native ownership/leases, but emits no Done, terminal Error, or acknowledgement target. Selected quiescent state is Unknown. Full-recovery P0 remains blocked; native-pane/provider/resource qualification and global rollout are not complete. The dated H2/H3 handoff below remains historical.
+
 ## 1. Checkpoint and source of truth
 
 Repository: `https://github.com/vufly/verij`, branch **`agent-monitoring`**.

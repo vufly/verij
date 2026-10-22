@@ -1,0 +1,241 @@
+{
+  "schema": 1,
+  "target": {
+    "version": "2.0.32",
+    "upstream_commit": "843a6c514e606b436a7fe713422ace0a93ad3d61",
+    "executable_sha256": "489b51816a77809e841310e80c88e834c28c19ad1639e12ba8a19f08b47ab607",
+    "launcher_sha256": "cdf4729f26f340ce84eb0e1b3b96912e584eb1f53141d7da9ffe590280549ac5"
+  },
+  "artifact_hashes": {
+    "marker_probe.py": "dcae4de9f414358811a52a961771775dc7833a420bbd306f1ef2b6547d6d3cdc",
+    "provider.py": "9746958ea5e5ed4464aa74df7ece41b8685d760f5e65819b6d7f71a672fc4044",
+    "marker_evidence.py": "6f66cc7a75643143964208d9ccd899c02b3e744137a867925afcb9ae25f0fcf5",
+    "smoke.py": "9cd4706337ad17ee67cf1fdb714ed471812090bd8c045e695596eb66af73dd65",
+    "verify_evidence.py": "02220671af192e8a7f1c5eb8b5c53cfcf1bd444f465b2a6a070d5f594b57cf82",
+    "pin.json": "619a4de45978261b396c78013272c5cea5025f7cc22902b3d5392923923ce759",
+    "transport-check.mjs": "def73966dd02bc9c8880c4f11bbc13914294b6a475857e2879481bb2643c194e",
+    "bounded-transport.mjs": "a6fc6d915f1abd39e7596f6ed52d22c34c93690d11f73dedae367a87226ac6d7",
+    "../../integrations/opencode/core.mjs": "da2898c87c4216b4d95d31649c998601d8bcde4e351d7ca6ca7c4d933f54b536"
+  },
+  "evidence_kind": "private-headless-runtime",
+  "production_admission": false,
+  "connected_transport_qualified": false,
+  "node_sha256": "67ca5783febb8bf85736c79fcdd92c8d6d465a0eb2a082672bcdfa76a506751c",
+  "run": {
+    "status": "CONTRACT_PASS",
+    "stage": "complete",
+    "failure": null,
+    "checks": [
+      "successful_marker",
+      "repeated_recovery",
+      "message_cursor_order",
+      "new_turn_marker",
+      "failure_not_success",
+      "form_read_only",
+      "parent_pagination",
+      "growth_invalidates_scan",
+      "restart_identity",
+      "fork_identity",
+      "explicit_private_transport",
+      "queued_input",
+      "steered_turn",
+      "user_abort"
+    ],
+    "samples": [
+      {
+        "label": "success",
+        "session": "a26faf92d9df774378eb",
+        "outcome": "succeeded",
+        "marker": "0d59f15ab4243508cd79",
+        "marker_outcome": "succeeded",
+        "marker_count": 1,
+        "message_ids": [
+          "0d59f15ab4243508cd79",
+          "9eb7e6985db4fe7943a5",
+          "a984b05c975360f21caf"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user"
+        ]
+      },
+      {
+        "label": "recovered",
+        "session": "a26faf92d9df774378eb",
+        "outcome": "succeeded",
+        "marker": "0d59f15ab4243508cd79",
+        "marker_outcome": "succeeded",
+        "marker_count": 1,
+        "message_ids": [
+          "0d59f15ab4243508cd79",
+          "9eb7e6985db4fe7943a5",
+          "a984b05c975360f21caf"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user"
+        ]
+      },
+      {
+        "label": "next_turn",
+        "session": "a26faf92d9df774378eb",
+        "outcome": "succeeded",
+        "marker": "1868fe9e72b1f5ab0fe9",
+        "marker_outcome": "succeeded",
+        "marker_count": 2,
+        "message_ids": [
+          "1868fe9e72b1f5ab0fe9",
+          "62f1db7e3d33ec71ae9c",
+          "54609de6fee348869545",
+          "0d59f15ab4243508cd79",
+          "9eb7e6985db4fe7943a5",
+          "a984b05c975360f21caf"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user",
+          "idle",
+          "assistant",
+          "user"
+        ]
+      },
+      {
+        "label": "failure",
+        "session": "bc2f1305fc2a29c7110a",
+        "outcome": "failed",
+        "marker": "78bd9864c94713167d6f",
+        "marker_outcome": "failed",
+        "marker_count": 1,
+        "message_ids": [
+          "78bd9864c94713167d6f",
+          "db3e67f493f87a1395e0",
+          "c3545cca5ae77374f4f7"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user"
+        ]
+      },
+      {
+        "label": "after_restart",
+        "session": "a26faf92d9df774378eb",
+        "outcome": "succeeded",
+        "marker": "1868fe9e72b1f5ab0fe9",
+        "marker_outcome": "succeeded",
+        "marker_count": 2,
+        "message_ids": [
+          "1868fe9e72b1f5ab0fe9",
+          "62f1db7e3d33ec71ae9c",
+          "54609de6fee348869545",
+          "0d59f15ab4243508cd79",
+          "9eb7e6985db4fe7943a5",
+          "a984b05c975360f21caf"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user",
+          "idle",
+          "assistant",
+          "user"
+        ]
+      },
+      {
+        "label": "fork",
+        "session": "94af2f2245c1edbfc970",
+        "outcome": null,
+        "marker": "ef8b1901e33d3183ec24",
+        "marker_outcome": "succeeded",
+        "marker_count": 2,
+        "message_ids": [
+          "ef8b1901e33d3183ec24",
+          "f75f00ce4180b357c3dc",
+          "bcac28f041a6c0b32e58",
+          "ac6f31e73d9b00636a84",
+          "416ae76b9d5e5c524a9c",
+          "a37e3f1f3b7cb179c79e"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user",
+          "idle",
+          "assistant",
+          "user"
+        ]
+      },
+      {
+        "label": "queue",
+        "session": "74a1cb4fa19436d4fa73",
+        "outcome": "succeeded",
+        "marker": "efd7f9c8397f73b4f2a5",
+        "marker_outcome": "succeeded",
+        "marker_count": 1,
+        "message_ids": [
+          "efd7f9c8397f73b4f2a5",
+          "8dc036e9fe7ebaf836f5",
+          "3bd6bb9c581706675e11",
+          "6461d25de7570c4d9d29",
+          "87f647fb4010cb6c213e"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user",
+          "assistant",
+          "user"
+        ]
+      },
+      {
+        "label": "steer",
+        "session": "b03279d1dd849c454385",
+        "outcome": "succeeded",
+        "marker": "1b2d7773f465f7f6d7d2",
+        "marker_outcome": "succeeded",
+        "marker_count": 1,
+        "message_ids": [
+          "1b2d7773f465f7f6d7d2",
+          "8f14d67de2c4a0da6b7f",
+          "dae40e3a6649c1efdc03",
+          "405bd1d7badc5641d67c",
+          "61aa4508583417a7b8ae"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user",
+          "assistant",
+          "user"
+        ]
+      },
+      {
+        "label": "abort",
+        "session": "ea0466b84d314d1f6bcb",
+        "outcome": "interrupted",
+        "marker": "2abba8aea90a712c6487",
+        "marker_outcome": "interrupted",
+        "marker_count": 1,
+        "message_ids": [
+          "2abba8aea90a712c6487",
+          "83a1818108c8e56c435f",
+          "0e819a6547aa6077ba88"
+        ],
+        "message_types": [
+          "idle",
+          "assistant",
+          "user"
+        ]
+      }
+    ],
+    "provider_requests": {
+      "success": 2,
+      "failure": 1,
+      "blocked": 5
+    },
+    "cleanup": true
+  }
+}

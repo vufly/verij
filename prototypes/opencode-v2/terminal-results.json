@@ -1,0 +1,657 @@
+{
+  "schema": 1,
+  "target": {
+    "version": "2.0.32",
+    "upstream_commit": "843a6c514e606b436a7fe713422ace0a93ad3d61",
+    "executable_sha256": "489b51816a77809e841310e80c88e834c28c19ad1639e12ba8a19f08b47ab607",
+    "launcher_sha256": "cdf4729f26f340ce84eb0e1b3b96912e584eb1f53141d7da9ffe590280549ac5"
+  },
+  "artifact_hashes": {
+    "cli_contract.py": "f901a0e388108d26af41fe06816df163aa023a3e1062484ec20598e26c68598a",
+    "cli_evidence.py": "6d34d7bc7b04428fb299a80a5428bc57a5532c2ca45daefedee639057326bff2",
+    "cli-observer.mjs": "a7530f6d798d18e22483ebab8b45436829a39a384d0e7a093f3feddcf6a7ad4d",
+    "cli-observer-core.mjs": "aba885442eb62c50933410924e33de06fb110605f1bb1418065a7fef555c94d7",
+    "marker_probe.py": "dcae4de9f414358811a52a961771775dc7833a420bbd306f1ef2b6547d6d3cdc",
+    "marker_evidence.py": "6f66cc7a75643143964208d9ccd899c02b3e744137a867925afcb9ae25f0fcf5",
+    "provider.py": "9746958ea5e5ed4464aa74df7ece41b8685d760f5e65819b6d7f71a672fc4044",
+    "smoke.py": "9cd4706337ad17ee67cf1fdb714ed471812090bd8c045e695596eb66af73dd65",
+    "verify_evidence.py": "02220671af192e8a7f1c5eb8b5c53cfcf1bd444f465b2a6a070d5f594b57cf82",
+    "pin.json": "619a4de45978261b396c78013272c5cea5025f7cc22902b3d5392923923ce759",
+    "terminal_contract.py": "f0149a3b5a3ea0e35a5f6cd58a5c8888147a73ee3e38c87b93de7b3c644975d5",
+    "terminal_evidence.py": "5feb3d09a896879fa6ff642e68e7f7d8712d30eb29005750a756d91009334fe9",
+    "terminal-observer.mjs": "4bae040cf21519d843dd35fd8f129102802591900b0217c3a115198e498118d8"
+  },
+  "status": "TERMINAL_PASS",
+  "production_admission": false,
+  "connected_transport_qualified": false,
+  "runs": [
+    {
+      "mode": "standalone",
+      "status": "TERMINAL_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "setup",
+          "generation": 1,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 686844
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 1,
+          "route": "home",
+          "selected": null,
+          "pid": 686844
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 2,
+          "route": "session",
+          "selected": "deef0cc5769283ab0c82",
+          "pid": 686844
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 3,
+          "error_type": null,
+          "interruption_reason": null,
+          "channel": "envelope",
+          "event": "session.execution.started",
+          "session": "deef0cc5769283ab0c82",
+          "event_id": "547bea49607cb4e50937",
+          "aggregate": "deef0cc5769283ab0c82",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "deef0cc5769283ab0c82",
+          "pid": 686844
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 4,
+          "error_type": null,
+          "interruption_reason": null,
+          "channel": "typed",
+          "event": "session.execution.started",
+          "session": "deef0cc5769283ab0c82",
+          "event_id": "547bea49607cb4e50937",
+          "aggregate": "deef0cc5769283ab0c82",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "deef0cc5769283ab0c82",
+          "pid": 686844
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 5,
+          "error_type": "provider.invalid-request",
+          "interruption_reason": null,
+          "channel": "envelope",
+          "event": "session.execution.failed",
+          "session": "deef0cc5769283ab0c82",
+          "event_id": "d738167e84ece0cb0313",
+          "aggregate": "deef0cc5769283ab0c82",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "deef0cc5769283ab0c82",
+          "pid": 686844
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 6,
+          "error_type": "provider.invalid-request",
+          "interruption_reason": null,
+          "channel": "typed",
+          "event": "session.execution.failed",
+          "session": "deef0cc5769283ab0c82",
+          "event_id": "d738167e84ece0cb0313",
+          "aggregate": "deef0cc5769283ab0c82",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "deef0cc5769283ab0c82",
+          "pid": 686844
+        },
+        {
+          "kind": "cleanup",
+          "generation": 1,
+          "index": 7,
+          "pid": 686844
+        }
+      ],
+      "client": {
+        "pid": 686844,
+        "ppid": 686833,
+        "pgrp": 686844,
+        "session": 686844,
+        "tty": 34851,
+        "tpgid": 686844,
+        "start": 9488885
+      },
+      "listener_owned": null,
+      "layout": [
+        {
+          "role": "client",
+          "birth": {
+            "pid": 686844,
+            "ppid": 686833,
+            "pgrp": 686844,
+            "session": 686844,
+            "tty": 34851,
+            "tpgid": 686844,
+            "start": 9488885
+          }
+        },
+        {
+          "role": "server",
+          "birth": {
+            "pid": 686854,
+            "ppid": 686844,
+            "pgrp": 686854,
+            "session": 686854,
+            "tty": 0,
+            "tpgid": -1,
+            "start": 9488902
+          }
+        }
+      ],
+      "cleanup": true,
+      "stage": "complete",
+      "checks": [
+        "home",
+        "selected_root",
+        "terminal_event",
+        "typed_envelope",
+        "terminal_metadata",
+        "exit_cleanup"
+      ],
+      "provider_requests": {
+        "success": 0,
+        "failure": 2,
+        "blocked": 0
+      },
+      "case": "failure"
+    },
+    {
+      "mode": "standalone",
+      "status": "TERMINAL_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "setup",
+          "generation": 1,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 686921
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 1,
+          "route": "home",
+          "selected": null,
+          "pid": 686921
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 2,
+          "route": "session",
+          "selected": "b0b1fdb936ed87293a58",
+          "pid": 686921
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 3,
+          "error_type": null,
+          "interruption_reason": null,
+          "channel": "envelope",
+          "event": "session.execution.started",
+          "session": "b0b1fdb936ed87293a58",
+          "event_id": "0d58598dfb41dee98059",
+          "aggregate": "b0b1fdb936ed87293a58",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "b0b1fdb936ed87293a58",
+          "pid": 686921
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 4,
+          "error_type": null,
+          "interruption_reason": null,
+          "channel": "typed",
+          "event": "session.execution.started",
+          "session": "b0b1fdb936ed87293a58",
+          "event_id": "0d58598dfb41dee98059",
+          "aggregate": "b0b1fdb936ed87293a58",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "b0b1fdb936ed87293a58",
+          "pid": 686921
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 5,
+          "error_type": null,
+          "interruption_reason": "user",
+          "channel": "envelope",
+          "event": "session.execution.interrupted",
+          "session": "b0b1fdb936ed87293a58",
+          "event_id": "b186bd0b604ef7002d82",
+          "aggregate": "b0b1fdb936ed87293a58",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "b0b1fdb936ed87293a58",
+          "pid": 686921
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 6,
+          "error_type": null,
+          "interruption_reason": "user",
+          "channel": "typed",
+          "event": "session.execution.interrupted",
+          "session": "b0b1fdb936ed87293a58",
+          "event_id": "b186bd0b604ef7002d82",
+          "aggregate": "b0b1fdb936ed87293a58",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "b0b1fdb936ed87293a58",
+          "pid": 686921
+        },
+        {
+          "kind": "cleanup",
+          "generation": 1,
+          "index": 7,
+          "pid": 686921
+        }
+      ],
+      "client": {
+        "pid": 686921,
+        "ppid": 686833,
+        "pgrp": 686921,
+        "session": 686921,
+        "tty": 34851,
+        "tpgid": 686921,
+        "start": 9489326
+      },
+      "listener_owned": null,
+      "layout": [
+        {
+          "role": "client",
+          "birth": {
+            "pid": 686921,
+            "ppid": 686833,
+            "pgrp": 686921,
+            "session": 686921,
+            "tty": 34851,
+            "tpgid": 686921,
+            "start": 9489326
+          }
+        },
+        {
+          "role": "server",
+          "birth": {
+            "pid": 686931,
+            "ppid": 686921,
+            "pgrp": 686931,
+            "session": 686931,
+            "tty": 0,
+            "tpgid": -1,
+            "start": 9489344
+          }
+        }
+      ],
+      "cleanup": true,
+      "stage": "complete",
+      "checks": [
+        "home",
+        "selected_root",
+        "terminal_event",
+        "typed_envelope",
+        "terminal_metadata",
+        "exit_cleanup"
+      ],
+      "provider_requests": {
+        "success": 0,
+        "failure": 0,
+        "blocked": 2
+      },
+      "case": "user_abort"
+    },
+    {
+      "mode": "server",
+      "status": "TERMINAL_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "setup",
+          "generation": 1,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 686991
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 1,
+          "route": "home",
+          "selected": null,
+          "pid": 686991
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 2,
+          "route": "session",
+          "selected": "2ad5dac3e837570b2139",
+          "pid": 686991
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 3,
+          "error_type": null,
+          "interruption_reason": null,
+          "channel": "envelope",
+          "event": "session.execution.started",
+          "session": "2ad5dac3e837570b2139",
+          "event_id": "38a9c4f2e620b0cd8fd6",
+          "aggregate": "2ad5dac3e837570b2139",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "2ad5dac3e837570b2139",
+          "pid": 686991
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 4,
+          "error_type": null,
+          "interruption_reason": null,
+          "channel": "typed",
+          "event": "session.execution.started",
+          "session": "2ad5dac3e837570b2139",
+          "event_id": "38a9c4f2e620b0cd8fd6",
+          "aggregate": "2ad5dac3e837570b2139",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "2ad5dac3e837570b2139",
+          "pid": 686991
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 5,
+          "error_type": "provider.invalid-request",
+          "interruption_reason": null,
+          "channel": "envelope",
+          "event": "session.execution.failed",
+          "session": "2ad5dac3e837570b2139",
+          "event_id": "a1c3d139c4d1904e21a3",
+          "aggregate": "2ad5dac3e837570b2139",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "2ad5dac3e837570b2139",
+          "pid": 686991
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 6,
+          "error_type": "provider.invalid-request",
+          "interruption_reason": null,
+          "channel": "typed",
+          "event": "session.execution.failed",
+          "session": "2ad5dac3e837570b2139",
+          "event_id": "a1c3d139c4d1904e21a3",
+          "aggregate": "2ad5dac3e837570b2139",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "2ad5dac3e837570b2139",
+          "pid": 686991
+        },
+        {
+          "kind": "cleanup",
+          "generation": 1,
+          "index": 7,
+          "pid": 686991
+        }
+      ],
+      "client": {
+        "pid": 686991,
+        "ppid": 686833,
+        "pgrp": 686991,
+        "session": 686991,
+        "tty": 34851,
+        "tpgid": 686991,
+        "start": 9489896
+      },
+      "listener_owned": true,
+      "layout": [
+        {
+          "role": "server",
+          "birth": {
+            "pid": 686974,
+            "ppid": 686833,
+            "pgrp": 686974,
+            "session": 686974,
+            "tty": 0,
+            "tpgid": -1,
+            "start": 9489866
+          }
+        },
+        {
+          "role": "client",
+          "birth": {
+            "pid": 686991,
+            "ppid": 686833,
+            "pgrp": 686991,
+            "session": 686991,
+            "tty": 34851,
+            "tpgid": 686991,
+            "start": 9489896
+          }
+        }
+      ],
+      "cleanup": true,
+      "stage": "complete",
+      "checks": [
+        "home",
+        "selected_root",
+        "terminal_event",
+        "typed_envelope",
+        "terminal_metadata",
+        "exit_cleanup"
+      ],
+      "provider_requests": {
+        "success": 0,
+        "failure": 2,
+        "blocked": 0
+      },
+      "case": "failure"
+    },
+    {
+      "mode": "server",
+      "status": "TERMINAL_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "setup",
+          "generation": 1,
+          "index": 0,
+          "version_matches": true,
+          "options_match": true,
+          "pid": 687056
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 1,
+          "route": "home",
+          "selected": null,
+          "pid": 687056
+        },
+        {
+          "kind": "route",
+          "generation": 1,
+          "index": 2,
+          "route": "session",
+          "selected": "6c8fb3e097e1d2b13401",
+          "pid": 687056
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 3,
+          "error_type": null,
+          "interruption_reason": null,
+          "channel": "envelope",
+          "event": "session.execution.started",
+          "session": "6c8fb3e097e1d2b13401",
+          "event_id": "156f446d8bcc7e9db912",
+          "aggregate": "6c8fb3e097e1d2b13401",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "6c8fb3e097e1d2b13401",
+          "pid": 687056
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 4,
+          "error_type": null,
+          "interruption_reason": null,
+          "channel": "typed",
+          "event": "session.execution.started",
+          "session": "6c8fb3e097e1d2b13401",
+          "event_id": "156f446d8bcc7e9db912",
+          "aggregate": "6c8fb3e097e1d2b13401",
+          "seq": 2,
+          "version": 1,
+          "route": "session",
+          "selected": "6c8fb3e097e1d2b13401",
+          "pid": 687056
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 5,
+          "error_type": null,
+          "interruption_reason": "user",
+          "channel": "envelope",
+          "event": "session.execution.interrupted",
+          "session": "6c8fb3e097e1d2b13401",
+          "event_id": "06aedc63db8d7cb9fb01",
+          "aggregate": "6c8fb3e097e1d2b13401",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "6c8fb3e097e1d2b13401",
+          "pid": 687056
+        },
+        {
+          "kind": "event",
+          "generation": 1,
+          "index": 6,
+          "error_type": null,
+          "interruption_reason": "user",
+          "channel": "typed",
+          "event": "session.execution.interrupted",
+          "session": "6c8fb3e097e1d2b13401",
+          "event_id": "06aedc63db8d7cb9fb01",
+          "aggregate": "6c8fb3e097e1d2b13401",
+          "seq": 7,
+          "version": 1,
+          "route": "session",
+          "selected": "6c8fb3e097e1d2b13401",
+          "pid": 687056
+        },
+        {
+          "kind": "cleanup",
+          "generation": 1,
+          "index": 7,
+          "pid": 687056
+        }
+      ],
+      "client": {
+        "pid": 687056,
+        "ppid": 686833,
+        "pgrp": 687056,
+        "session": 687056,
+        "tty": 34851,
+        "tpgid": 687056,
+        "start": 9490344
+      },
+      "listener_owned": true,
+      "layout": [
+        {
+          "role": "server",
+          "birth": {
+            "pid": 687039,
+            "ppid": 686833,
+            "pgrp": 687039,
+            "session": 687039,
+            "tty": 0,
+            "tpgid": -1,
+            "start": 9490314
+          }
+        },
+        {
+          "role": "client",
+          "birth": {
+            "pid": 687056,
+            "ppid": 686833,
+            "pgrp": 687056,
+            "session": 687056,
+            "tty": 34851,
+            "tpgid": 687056,
+            "start": 9490344
+          }
+        }
+      ],
+      "cleanup": true,
+      "stage": "complete",
+      "checks": [
+        "home",
+        "selected_root",
+        "terminal_event",
+        "typed_envelope",
+        "terminal_metadata",
+        "exit_cleanup"
+      ],
+      "provider_requests": {
+        "success": 0,
+        "failure": 0,
+        "blocked": 2
+      },
+      "case": "user_abort"
+    }
+  ]
+}

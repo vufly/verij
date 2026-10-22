@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "target": {
+    "version": "2.0.32",
+    "upstream_commit": "843a6c514e606b436a7fe713422ace0a93ad3d61",
+    "executable_sha256": "489b51816a77809e841310e80c88e834c28c19ad1639e12ba8a19f08b47ab607",
+    "launcher_sha256": "cdf4729f26f340ce84eb0e1b3b96912e584eb1f53141d7da9ffe590280549ac5"
+  },
+  "evidence_kind": "pinned-source-boundary-audit",
+  "status": "SOURCE_AUDIT_PASS",
+  "p0_status": "BLOCKED",
+  "production_admission": false,
+  "connected_transport_qualified": false,
+  "sources": {
+    "packages/plugin/src/tui/context.ts": "db984caa696e830185dfd99493e94acbda3aa4ced50b19c3aafdaeeb4db442fa",
+    "packages/tui/src/plugin/api.tsx": "8e836be5f9178a6759dd36d9c68475a02e844ea039e6d1595d73f622bd63dbe5",
+    "packages/tui/src/context/client.tsx": "714c7f71f6073d27a1cfd52a421f3940a476eb4749e343925507ab5d8c4a4ea6",
+    "packages/tui/src/context/data.tsx": "e1722ee1982cbd85623756778a424ccd323852f29cc4667d63cf7aa00e47a6ad",
+    "packages/client/src/promise/generated/client.ts": "9e4da23f8bcd598b45c6fe589ecaf434e3a8561bca9913cf1e4ec332d80aff36",
+    "packages/cli/src/services/server-connection.ts": "9ab1863048e60f427d5e27daff8536fb888b8c261d2e89d9bfb937f60b785dd7",
+    "packages/cli/src/services/standalone.ts": "dc8197da471d3d213acf51ef809bb1c05a7cf697bce1f0795e49fdd4c0165cf9"
+  },
+  "artifact_hashes": {
+    "transport_source_audit.py": "b85c01c8ab5125d91e5e567620ba8be69b1eec72691a6684f55e93e5fcd039b5",
+    "smoke.py": "9cd4706337ad17ee67cf1fdb714ed471812090bd8c045e695596eb66af73dd65",
+    "verify_evidence.py": "02220671af192e8a7f1c5eb8b5c53cfcf1bd444f465b2a6a070d5f594b57cf82",
+    "pin.json": "619a4de45978261b396c78013272c5cea5025f7cc22902b3d5392923923ce759"
+  },
+  "context_fields": [
+    "options",
+    "location",
+    "app",
+    "renderer",
+    "client",
+    "data",
+    "attention",
+    "theme",
+    "themeMode",
+    "markdown",
+    "keymap",
+    "storage",
+    "ui"
+  ],
+  "request_fields": [
+    "signal",
+    "headers",
+    "onActivity"
+  ],
+  "facts": [
+    {
+      "name": "context_has_no_observation_factory",
+      "observed": true
+    },
+    {
+      "name": "plugin_receives_constructed_api",
+      "observed": true
+    },
+    {
+      "name": "sdk_transport_is_constructor_owned",
+      "observed": true
+    },
+    {
+      "name": "success_and_declared_error_parse_full_json",
+      "observed": true
+    },
+    {
+      "name": "standalone_uses_private_random_credential",
+      "observed": true
+    },
+    {
+      "name": "explicit_server_auth_resolves_outside_plugin",
+      "observed": true
+    },
+    {
+      "name": "host_can_replace_api_on_reconnect",
+      "observed": true
+    },
+    {
+      "name": "data_cache_uses_host_connection_not_plugin_fetch",
+      "observed": true
+    }
+  ],
+  "remaining_blockers": [
+    "bounded_transport",
+    "terminal_identity",
+    "fresh_complete_family"
+  ]
+}

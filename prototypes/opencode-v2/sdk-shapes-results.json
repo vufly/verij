@@ -1,0 +1,149 @@
+{
+  "schema": 1,
+  "target": {
+    "version": "2.0.32",
+    "upstream_commit": "843a6c514e606b436a7fe713422ace0a93ad3d61",
+    "executable_sha256": "489b51816a77809e841310e80c88e834c28c19ad1639e12ba8a19f08b47ab607",
+    "launcher_sha256": "cdf4729f26f340ce84eb0e1b3b96912e584eb1f53141d7da9ffe590280549ac5"
+  },
+  "artifact_hashes": {
+    "sdk_shapes.py": "2c4aa73c00d3ec6bede281aa51e5ecf13b1a5e56b7e93517340f30fcec57d2ac",
+    "sdk_shapes_evidence.py": "da5b76fc241c3dcb913dbc2f774ea0003b0ac463ec147bd8407813a71603bff3",
+    "sdk-runtime.mjs": "be01a435ea34c9d117fb0c5479c34faa7f39727be09daf69d2ea215c39f47153",
+    "sdk-observation.mjs": "8e15b650c20c962e658cf901fbb22db2307c29732916137ecea621c0ed21cba8",
+    "sdk-probe.mjs": "6d1cfb53fbde2cd0b44fd2d1ad039f05c6f0158439bec7326f2b2ae583d5f00a",
+    "bounded-transport.mjs": "a6fc6d915f1abd39e7596f6ed52d22c34c93690d11f73dedae367a87226ac6d7",
+    "../../integrations/opencode/core.mjs": "da2898c87c4216b4d95d31649c998601d8bcde4e351d7ca6ca7c4d933f54b536",
+    "marker_probe.py": "dcae4de9f414358811a52a961771775dc7833a420bbd306f1ef2b6547d6d3cdc",
+    "marker_evidence.py": "6f66cc7a75643143964208d9ccd899c02b3e744137a867925afcb9ae25f0fcf5",
+    "provider.py": "9746958ea5e5ed4464aa74df7ece41b8685d760f5e65819b6d7f71a672fc4044",
+    "smoke.py": "9cd4706337ad17ee67cf1fdb714ed471812090bd8c045e695596eb66af73dd65",
+    "verify_evidence.py": "02220671af192e8a7f1c5eb8b5c53cfcf1bd444f465b2a6a070d5f594b57cf82",
+    "pin.json": "619a4de45978261b396c78013272c5cea5025f7cc22902b3d5392923923ce759"
+  },
+  "sdk_sources": {
+    "client.ts": "9e4da23f8bcd598b45c6fe589ecaf434e3a8561bca9913cf1e4ec332d80aff36",
+    "client-error.ts": "1c02bcfc01072693c43e71cc53c8dcca5d8d75327e09099cac9b37a0317ace2d"
+  },
+  "bun_sha256": "7ce7d6b654eddeec20afddf2396317fba6dc19ab52788a27e894e1806bf8f24b",
+  "evidence_kind": "private-tagged-sdk-runtime",
+  "production_admission": false,
+  "connected_transport_qualified": false,
+  "run": {
+    "status": "SHAPES_PASS",
+    "stage": "complete",
+    "failure": null,
+    "fixture": {
+      "root": "f22b5096fe2fc1ac74af",
+      "active": "c4fdea223ea744bde101",
+      "children": [
+        "c0dbc23a26c607195f5a",
+        "954d231a0323219c5b11",
+        "37ee03bdeb5665a42fca"
+      ],
+      "permission_a": "b9c7cb23131f5258d5f6",
+      "permission_b": "e5515fe077b3d4ec0a68",
+      "form_a": "af916100b295cf821a73",
+      "form_b": "660b1e122129f0cc5826",
+      "pending": "b2fa3d8caa19506ee4ac",
+      "location_a": "92514b854f88600a4328",
+      "location_b": "39b322b5bf611fe4b499"
+    },
+    "observation": {
+      "checks": [
+        "session_get_unwrapped",
+        "active_unwrapped",
+        "parent_pagination",
+        "message_cursor_order",
+        "permission_location_scoping",
+        "permission_session_pending",
+        "form_location_scoping",
+        "form_session_unwrapped",
+        "pending_inbox_unwrapped",
+        "preaborted_cancellation",
+        "physical_request_accounting",
+        "global_fetch_unchanged"
+      ],
+      "root": "f22b5096fe2fc1ac74af",
+      "root_outcome": "succeeded",
+      "marker_outcome": "succeeded",
+      "active": [
+        "c4fdea223ea744bde101"
+      ],
+      "children": {
+        "ids": [
+          "37ee03bdeb5665a42fca",
+          "954d231a0323219c5b11",
+          "c0dbc23a26c607195f5a"
+        ],
+        "pages": 4
+      },
+      "messages": {
+        "ids": [
+          "f46d402f39c2915a63a6",
+          "f55b8bc9ba754d3264b5",
+          "9b98cdf0189e561305fb"
+        ],
+        "types": [
+          "idle",
+          "assistant",
+          "user"
+        ],
+        "ascending_ids": [
+          "9b98cdf0189e561305fb",
+          "f55b8bc9ba754d3264b5",
+          "f46d402f39c2915a63a6"
+        ],
+        "descending_pages": 4,
+        "ascending_pages": 4
+      },
+      "permissions": {
+        "location_a": "92514b854f88600a4328",
+        "location_b": "39b322b5bf611fe4b499",
+        "a": [
+          "b9c7cb23131f5258d5f6"
+        ],
+        "b": [
+          "e5515fe077b3d4ec0a68"
+        ],
+        "session": [
+          "b9c7cb23131f5258d5f6"
+        ]
+      },
+      "forms": {
+        "location_a": "92514b854f88600a4328",
+        "location_b": "39b322b5bf611fe4b499",
+        "a": [
+          "af916100b295cf821a73"
+        ],
+        "b": [
+          "660b1e122129f0cc5826"
+        ],
+        "session": [
+          "af916100b295cf821a73"
+        ]
+      },
+      "inbox": [
+        "b2fa3d8caa19506ee4ac"
+      ],
+      "metrics": {
+        "invocations": 22,
+        "calls": 21,
+        "errors": 0,
+        "active": 0,
+        "pending": 0
+      },
+      "preaborted_rejected": true,
+      "global_fetch_unchanged": true,
+      "production_admission": false,
+      "connected_transport_qualified": false
+    },
+    "inputs_unchanged": true,
+    "provider_requests": {
+      "success": 1,
+      "failure": 0,
+      "blocked": 1
+    },
+    "cleanup": true
+  }
+}

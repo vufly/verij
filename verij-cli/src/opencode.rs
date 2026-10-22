@@ -1,4 +1,4 @@
-//! OpenCode 1.x TUI-local, metadata-only snapshot contract.
+//! Pane-local OpenCode snapshots: V1 recovery and experimental V2 live hints.
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,14 @@ use verij_types::agent::{
 
 pub const BRIDGE_VERSION: u32 = 1;
 pub const SUPPORTED_VERSIONS: &str = "1.x.x";
+pub const LIVE_BRIDGE_VERSION: u32 = 2;
+pub const LIVE_SUPPORTED_VERSIONS: &str = "experimental 2.x >= 2.0.32 (live status only)";
+
+pub fn supports_live_version(version: &str) -> bool {
+    version.len() <= 128
+        && version.starts_with("2.")
+        && crate::agent_version::supports_series(version, (2, 0, 32))
+}
 pub const LEASE_MS: u64 = 15_000;
 
 pub fn supports_version(version: &str) -> bool {
@@ -62,14 +70,65 @@ pub struct Snapshot {
 
 impl Snapshot {
     fn validate(&self) -> Result<()> {
-        if self.schema_version != BRIDGE_VERSION {
+        let live = self.schema_version == LIVE_BRIDGE_VERSION;
+        if self.schema_version != BRIDGE_VERSION && !live {
             bail!("unsupported OpenCode snapshot schema");
         }
-        if !supports_version(&self.version) {
+        if !(if live {
+            supports_live_version(&self.version)
+        } else {
+            supports_version(&self.version)
+        }) {
+            let supported = if live {
+                LIVE_SUPPORTED_VERSIONS
+            } else {
+                SUPPORTED_VERSIONS
+            };
             bail!(
-                "unsupported OpenCode {}; supported: {SUPPORTED_VERSIONS}",
+                "unsupported OpenCode {}; supported: {supported}",
                 self.version
             );
+        }
+        if live {
+            if self.turn_id.is_some() || self.completed_at_ms.is_some() || self.error_name.is_some()
+            {
+                bail!("experimental OpenCode live status cannot report outcomes");
+            }
+            if !matches!(
+                self.activity,
+                None | Some(ActivityKind::Unknown | ActivityKind::Working)
+            ) && !(self.activity == Some(ActivityKind::Idle) && self.conversation_id.is_none())
+            {
+                bail!("experimental OpenCode live status cannot infer quiescence");
+            }
+            if self.conversation_id.is_none()
+                && (!self.pending_requests.is_empty()
+                    || self.background_task_count != 0
+                    || self.activity == Some(ActivityKind::Working))
+            {
+                bail!("live hints require a selected conversation");
+            }
+            for request in &self.pending_requests {
+                if request.id.is_empty()
+                    || request.id.len() > 256
+                    || request.id.chars().any(char::is_control)
+                    || request.detail.is_some()
+                    || !matches!(
+                        request.kind,
+                        verij_types::agent::RequestKind::Permission
+                            | verij_types::agent::RequestKind::Question
+                    )
+                {
+                    bail!("invalid live input identity");
+                }
+            }
+            if self
+                .conversation_title
+                .as_ref()
+                .is_some_and(|title| title.len() > 256 || title.chars().any(char::is_control))
+            {
+                bail!("invalid live conversation title");
+            }
         }
         for id in [&self.conversation_id, &self.turn_id, &self.error_name]
             .into_iter()
@@ -137,15 +196,25 @@ impl Snapshot {
                     is_terminal: true,
                 }),
             capabilities: Some(
-                vec![
-                    "activity",
-                    "permissions",
-                    "questions",
-                    "conversation_title",
-                    "aggregate_completion",
-                    "terminal_failure",
-                    "lease",
-                ]
+                (if self.schema_version == LIVE_BRIDGE_VERSION {
+                    vec![
+                        "activity",
+                        "permissions",
+                        "forms",
+                        "experimental_live_status",
+                        "lease",
+                    ]
+                } else {
+                    vec![
+                        "activity",
+                        "permissions",
+                        "questions",
+                        "conversation_title",
+                        "aggregate_completion",
+                        "terminal_failure",
+                        "lease",
+                    ]
+                })
                 .into_iter()
                 .map(str::to_string)
                 .collect(),
@@ -239,6 +308,7 @@ pub fn run(_session: String, pane: u32, pid: u32) -> Result<()> {
         .map_or(1, |s| s.source_epoch + 1);
     let mut revision = 0;
     let mut last_version = "1.0.0".to_string();
+    let mut last_schema = BRIDGE_VERSION;
     let mut stdout = std::io::stdout().lock();
     writeln!(
         stdout,
@@ -278,6 +348,7 @@ pub fn run(_session: String, pane: u32, pid: u32) -> Result<()> {
                 finish,
             )?;
             last_version.clone_from(&snapshot.version);
+            last_schema = snapshot.schema_version;
             writeln!(
                 stdout,
                 "{}",
@@ -290,7 +361,7 @@ pub fn run(_session: String, pane: u32, pid: u32) -> Result<()> {
     })();
     // Disabling/reloading the observer does not imply agent exit or success.
     let unknown = Snapshot {
-        schema_version: BRIDGE_VERSION,
+        schema_version: last_schema,
         version: last_version,
         ..Default::default()
     };
@@ -372,6 +443,178 @@ mod tests {
         assert!(snapshot.project(1, 4).unwrap().execution_error.is_some());
         snapshot.version = "2.0.0".into();
         assert!(snapshot.project(1, 5).is_err());
+    }
+
+    #[test]
+    fn experimental_live_snapshots_cannot_authorize_outcomes_or_selected_idle() {
+        let base = Snapshot {
+            schema_version: LIVE_BRIDGE_VERSION,
+            version: "2.1.2".into(),
+            conversation_id: Some("root".into()),
+            activity: Some(ActivityKind::Working),
+            ..Default::default()
+        };
+        let projected = base.project(1, 1).unwrap();
+        assert!(projected.successful_completion.is_none());
+        assert!(projected.execution_error.is_none());
+        assert!(projected.turn_id.is_none());
+        let caps = projected.capabilities.unwrap();
+        assert!(caps.iter().any(|s| s == "experimental_live_status"));
+        assert!(!caps
+            .iter()
+            .any(|s| s == "aggregate_completion" || s == "terminal_failure"));
+        for snapshot in [
+            Snapshot {
+                completed_at_ms: Some(42),
+                ..base.clone()
+            },
+            Snapshot {
+                turn_id: Some("root/marker".into()),
+                ..base.clone()
+            },
+            Snapshot {
+                error_name: Some("provider.auth".into()),
+                ..base.clone()
+            },
+            Snapshot {
+                activity: Some(ActivityKind::Idle),
+                ..base.clone()
+            },
+            Snapshot {
+                schema_version: BRIDGE_VERSION,
+                ..base.clone()
+            },
+            Snapshot {
+                version: "1.19.0".into(),
+                ..base.clone()
+            },
+            Snapshot {
+                version: "2.0.31".into(),
+                ..base.clone()
+            },
+            Snapshot {
+                version: "opencode v2.1.2".into(),
+                ..base.clone()
+            },
+            Snapshot {
+                version: "3.0.0".into(),
+                ..base.clone()
+            },
+            Snapshot {
+                conversation_id: None,
+                ..base.clone()
+            },
+        ] {
+            assert!(snapshot.project(1, 2).is_err(), "{snapshot:?}");
+        }
+        for version in ["2.0.32", "2.1.2", "2.99.42+build.7"] {
+            assert!(Snapshot {
+                version: version.into(),
+                ..base.clone()
+            }
+            .project(1, 2)
+            .is_ok());
+        }
+        assert!(Snapshot {
+            conversation_id: None,
+            activity: Some(ActivityKind::Idle),
+            ..base
+        }
+        .project(1, 2)
+        .is_ok());
+    }
+
+    #[test]
+    fn live_projection_cannot_replay_an_existing_done_revision() {
+        use verij_types::agent::{AgentInstanceId, AgentKind, RequestKind};
+        let base = Snapshot {
+            schema_version: LIVE_BRIDGE_VERSION,
+            version: "2.1.2".into(),
+            conversation_id: Some("root".into()),
+            activity: Some(ActivityKind::Unknown),
+            ..Default::default()
+        };
+        for (snapshot, expected) in [
+            (base.clone(), AgentStatus::Unknown),
+            (
+                Snapshot {
+                    activity: Some(ActivityKind::Working),
+                    ..base.clone()
+                },
+                AgentStatus::Working,
+            ),
+            (
+                Snapshot {
+                    pending_requests: vec![PendingRequest {
+                        id: "p".into(),
+                        kind: RequestKind::Permission,
+                        detail: None,
+                    }],
+                    ..base.clone()
+                },
+                AgentStatus::NeedsInput,
+            ),
+            (
+                Snapshot {
+                    conversation_id: None,
+                    activity: Some(ActivityKind::Idle),
+                    ..base
+                },
+                AgentStatus::Idle,
+            ),
+        ] {
+            let source = snapshot
+                .project(2, 1)
+                .unwrap()
+                .merge_into(&AgentInstanceId("test".into()), None, 1)
+                .unwrap();
+            let sources = std::collections::BTreeMap::from([("opencode".into(), source)]);
+            let old = TurnId("root/old-success".into());
+            let (reduced, revision, _, _, _) = verij_types::agent::reduce_sources(
+                &sources,
+                AgentKind::Opencode,
+                false,
+                7,
+                Some(&old),
+                1,
+                1,
+            );
+            assert_eq!(reduced.status, expected);
+            assert_eq!(revision, 7);
+            assert!(reduced.latest_completion.is_none());
+            assert!(reduced.latest_error.is_none());
+        }
+    }
+
+    #[test]
+    fn experimental_inputs_are_bounded_identity_only() {
+        use verij_types::agent::RequestKind;
+        let mut snapshot = Snapshot {
+            schema_version: LIVE_BRIDGE_VERSION,
+            version: "2.1.2".into(),
+            conversation_id: Some("root".into()),
+            activity: Some(ActivityKind::Unknown),
+            pending_requests: vec![PendingRequest {
+                id: "permission-id".into(),
+                kind: RequestKind::Permission,
+                detail: None,
+            }],
+            ..Default::default()
+        };
+        assert!(snapshot.project(1, 1).is_ok());
+        snapshot.pending_requests[0].detail = Some("private prompt".into());
+        assert!(snapshot.project(1, 1).is_err());
+        snapshot.pending_requests[0].detail = None;
+        snapshot.pending_requests[0].id = "x".repeat(257);
+        assert!(snapshot.project(1, 1).is_err());
+        snapshot.pending_requests[0].id = "p".into();
+        snapshot.pending_requests[0].kind = RequestKind::Other("secret".into());
+        assert!(snapshot.project(1, 1).is_err());
+        snapshot.pending_requests[0].kind = RequestKind::Question;
+        snapshot
+            .pending_requests
+            .resize(101, snapshot.pending_requests[0].clone());
+        assert!(snapshot.project(1, 1).is_err());
     }
 
     #[test]

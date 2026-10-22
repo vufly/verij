@@ -1,0 +1,282 @@
+{
+  "version": "2.1.2",
+  "binary_sha256": "cf5841e6666aeb469abec8b39ca494cef07a637756454a34a742b2f4996e1675",
+  "production_admission": false,
+  "scope": "real CLI loading with fixture protocol sink; no native ownership/provider/resource qualification",
+  "artifacts": {
+    "tui.js": "e176751354682c8382989df08dc844b9b9e3134ba1b1aecfaef8755dbdab5a13",
+    "core.mjs": "7598feb9aec33b2630d5562339e286d9e37ba4e3c8c559e8bd8ea5f92ca29cec",
+    "reporter.mjs": "afabbad4243a1de2f9b6ad8b689a906ce42c11e58254a483524e36ed31a8546c"
+  },
+  "harness_sha256": "495a702590d07b0725657b770e929db9072e816f4013bceb55f83241ccc3f6d5",
+  "runs": [
+    {
+      "mode": "standalone",
+      "status": "LIVE_LOADING_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "ready"
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "unknown",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "idle",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "idle",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "eof"
+        },
+        {
+          "kind": "ready"
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "unknown",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "idle",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "eof"
+        }
+      ],
+      "client": {
+        "pid": 943014,
+        "ppid": 943000,
+        "pgrp": 943014,
+        "session": 943014,
+        "tty": 34851,
+        "tpgid": 943014,
+        "start": 14344345
+      },
+      "listener_owned": null,
+      "layout": [],
+      "cleanup": true,
+      "checks": [
+        "production_assets_load",
+        "real_foreground_cli",
+        "unknown_first",
+        "home_idle_without_authority",
+        "five_second_lease_renewal",
+        "ordered_disable_cleanup",
+        "reenable_unknown_fence"
+      ],
+      "native_ownership_verified": false,
+      "selected_status_qualified": false,
+      "selected_cache_hints_observed": false
+    },
+    {
+      "mode": "server",
+      "status": "LIVE_LOADING_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "ready"
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "unknown",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "idle",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "idle",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "eof"
+        },
+        {
+          "kind": "ready"
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "unknown",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "idle",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "eof"
+        }
+      ],
+      "client": {
+        "pid": 943096,
+        "ppid": 943000,
+        "pgrp": 943096,
+        "session": 943096,
+        "tty": 34851,
+        "tpgid": 943096,
+        "start": 14345337
+      },
+      "listener_owned": true,
+      "layout": [],
+      "cleanup": true,
+      "checks": [
+        "production_assets_load",
+        "real_foreground_cli",
+        "unknown_first",
+        "home_idle_without_authority",
+        "five_second_lease_renewal",
+        "ordered_disable_cleanup",
+        "reenable_unknown_fence"
+      ],
+      "native_ownership_verified": false,
+      "selected_status_qualified": false,
+      "selected_cache_hints_observed": false
+    },
+    {
+      "mode": "server-selected",
+      "status": "LIVE_LOADING_PASS",
+      "failure": null,
+      "frames": [
+        {
+          "kind": "ready"
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "unknown",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "unknown",
+          "has_conversation": true,
+          "has_outcome": false,
+          "pending_count": 1,
+          "question_count": 1
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "unknown",
+          "has_conversation": true,
+          "has_outcome": false,
+          "pending_count": 1,
+          "question_count": 1
+        },
+        {
+          "kind": "eof"
+        },
+        {
+          "kind": "ready"
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "unknown",
+          "has_conversation": false,
+          "has_outcome": false,
+          "pending_count": 0,
+          "question_count": 0
+        },
+        {
+          "kind": "snapshot",
+          "schema": 2,
+          "activity": "unknown",
+          "has_conversation": true,
+          "has_outcome": false,
+          "pending_count": 1,
+          "question_count": 1
+        },
+        {
+          "kind": "eof"
+        }
+      ],
+      "client": {
+        "pid": 943175,
+        "ppid": 943000,
+        "pgrp": 943175,
+        "session": 943175,
+        "tty": 34851,
+        "tpgid": 943175,
+        "start": 14346404
+      },
+      "listener_owned": true,
+      "layout": [],
+      "cleanup": true,
+      "checks": [
+        "production_assets_load",
+        "real_foreground_cli",
+        "unknown_first",
+        "selected_quiescent_unknown",
+        "selected_form_hint_only",
+        "foreign_form_isolation",
+        "forms_left_pending",
+        "lease_renewal",
+        "ordered_disable_cleanup",
+        "reenable_unknown_fence"
+      ],
+      "native_ownership_verified": false,
+      "selected_status_qualified": false,
+      "selected_cache_hints_observed": true
+    }
+  ],
+  "status": "LIVE_LOADING_PASS"
+}
